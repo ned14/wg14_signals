@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+  schedule:
+  - cron: '0 0 1 * *'
+
+jobs:
+  Linux:
+    name: Ubuntu 24.04
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        compiler: [clang++, g++]
+        debug: [Debug, Release]
+    env:
+      NAME: Linux-${{ matrix.compiler }}-${{ matrix.debug }}
+      CXX: ${{ matrix.compiler }}
+          
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Configure Linux
+      shell: bash
+      run: |
+        mkdir build && cd build
+        cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.debug }}
+
+    - name: Build Linux
+      shell: bash
+      run: cd build && cmake --build . --parallel
+
+    - name: CMake tests Linux
+      shell: bash
+      run: cd build && ctest --output-on-failure --timeout 300
+      
+  MacOS:
+    name: Mac OS
+    runs-on: macos-15
+    env:
+      NAME: MacOS
+          
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Configure Mac OS
+      shell: bash
+      run: |
+        mkdir build && cd build
+        cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.debug }}
+
+    - name: Build Mac OS
+      shell: bash
+      run: cd build && cmake --build . --parallel
+
+    - name: CMake tests Mac OS
+      shell: bash
+      run: cd build && ctest --output-on-failure --timeout 300
+      
+#  WinVS2019:
+#    name: Windows VS2022
+#    runs-on: windows-latest
+#    env:
+#      NAME: WinVS2022
+#          
+#    steps:
+#    - uses: actions/checkout@v4
+#
+#    - name: CMake tests Windows
+#      shell: bash
+#      run: ctest --output-on-failure --timeout 300
+      
