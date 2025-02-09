@@ -28,24 +28,23 @@ extern "C"
 #endif
 
   //! \brief The type of an async signal safe thread local
-  typedef struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) *
-  WG14_SIGNALS_PREFIX(thread_local_async_signal_safe);
+  typedef struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) * WG14_SIGNALS_PREFIX(tss_async_signal_safe);
 
   //! \brief The attributes for creating an async signal safe thread local
-  struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_attr)
+  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)
   {
     int (*const create)(void **dest);
     int (*const destroy)(void *v);
   };
 
   //! \brief Create an async signal safe thread local instance
-  WG14_SIGNALS_EXTERN int WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_create)(
-  WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) * val,
-  const struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_attr) * attr);
+  WG14_SIGNALS_EXTERN int WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(
+  WG14_SIGNALS_PREFIX(tss_async_signal_safe) * val,
+  const struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr) * attr);
 
   //! \brief Destroy an async signal safe thread local instance
-  WG14_SIGNALS_EXTERN int
-  WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_destroy)(WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) val);
+  WG14_SIGNALS_EXTERN int WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(WG14_SIGNALS_PREFIX(tss_async_signal_safe)
+                                                                             val);
 
   /*! \brief THREADSAFE Initialise an async signal safe thread local instance for a specific thread
 
@@ -54,13 +53,12 @@ extern "C"
   somewhere near the beginning of your thread instance.
   */
   WG14_SIGNALS_EXTERN int
-  WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_thread_init)(WG14_SIGNALS_PREFIX(thread_local_async_signal_safe)
-                                                                  val);
+  WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(WG14_SIGNALS_PREFIX(tss_async_signal_safe) val);
 
   /*! \brief THREADSAFE ASYNC-SIGNAL-SAFE Get the thread local value for the current thread.
    */
-  WG14_SIGNALS_EXTERN void *
-  WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_get)(WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) val);
+  WG14_SIGNALS_EXTERN void *WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(WG14_SIGNALS_PREFIX(tss_async_signal_safe)
+                                                                           val);
 
 #ifdef __cplusplus
 }

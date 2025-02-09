@@ -17,7 +17,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#include "wg14_signals/async_signal_safe_tls.h"
+#include "wg14_signals/tss_async_signal_safe.h"
 
 #include "wg14_signals/current_thread_id.h"
 
@@ -37,23 +37,23 @@ limitations under the License.
 struct deinit_state
 {
   atomic_uint count;
-  WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) val;
+  WG14_SIGNALS_PREFIX(tss_async_signal_safe) val;
 };
-struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe)
+struct WG14_SIGNALS_PREFIX(tss_async_signal_safe)
 {
-  struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_attr) attr;
+  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr) attr;
 
   atomic_uint lock;
   struct deinit_state *state;
   thread_id_to_tls_map_t thread_id_to_tls_map;
 };
 
-int WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_create)(
-WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) * val,
-const struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_attr) * attr)
+int WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(WG14_SIGNALS_PREFIX(tss_async_signal_safe) * val,
+                                                      const struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr) *
+                                                      attr)
 {
-  struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) *mem = (struct WG14_SIGNALS_PREFIX(
-  thread_local_async_signal_safe) *) calloc(1, sizeof(struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe)));
+  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem = (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) calloc(
+  1, sizeof(struct WG14_SIGNALS_PREFIX(tss_async_signal_safe)));
   if(mem == WG14_SIGNALS_NULLPTR)
   {
     return -1;
@@ -64,10 +64,9 @@ const struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_attr) * attr)
   return 0;
 }
 
-int WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_destroy)(WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) val)
+int WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(WG14_SIGNALS_PREFIX(tss_async_signal_safe) val)
 {
-  struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) *mem =
-  (struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) *) val;
+  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem = (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) val;
   LOCK(mem->lock);
   if(mem->state)
   {
@@ -84,10 +83,10 @@ int WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_destroy)(WG14_SIGNALS_PRE
   return 0;
 }
 
-static int WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_thread_deinit)(struct deinit_state *state)
+static int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_deinit)(struct deinit_state *state)
 {
-  struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) *mem =
-  (struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) *) state->val;
+  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem =
+  (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) state->val;
   if(mem != WG14_SIGNALS_NULLPTR)
   {
     const uint64_t mytid = WG14_SIGNALS_PREFIX(current_thread_id)();
@@ -113,11 +112,9 @@ static int WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_thread_deinit)(str
   return 0;
 }
 
-int WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_thread_init)(WG14_SIGNALS_PREFIX(thread_local_async_signal_safe)
-                                                                    val)
+int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(WG14_SIGNALS_PREFIX(tss_async_signal_safe) val)
 {
-  struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) *mem =
-  (struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) *) val;
+  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem = (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) val;
   const uint64_t mytid = WG14_SIGNALS_PREFIX(current_thread_id)();
   LOCK(mem->lock);
   thread_id_to_tls_map_t_itr it = thread_id_to_tls_map_t_get(&mem->thread_id_to_tls_map, mytid);
@@ -154,8 +151,7 @@ int WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_thread_init)(WG14_SIGNALS
     }
     atomic_fetch_add_explicit(&mem->state->count, 1, memory_order_relaxed);
     UNLOCK(mem->lock);
-    void (*func)(void *) =
-    (void (*)(void *))(uintptr_t) WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_thread_deinit);
+    void (*func)(void *) = (void (*)(void *))(uintptr_t) WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_deinit);
     res = WG14_SIGNALS_PREFIX(thread_atexit)(func, mem->state);
     return res;
   }
@@ -163,10 +159,9 @@ int WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_thread_init)(WG14_SIGNALS
   return res;
 }
 
-void *WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_get)(WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) val)
+void *WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(WG14_SIGNALS_PREFIX(tss_async_signal_safe) val)
 {
-  struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) *mem =
-  (struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) *) val;
+  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem = (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) val;
   const uint64_t mytid = WG14_SIGNALS_PREFIX(current_thread_id)();
   void *ret = WG14_SIGNALS_NULLPTR;
   LOCK(mem->lock);

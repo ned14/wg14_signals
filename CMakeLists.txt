@@ -10,8 +10,8 @@ include(GNUInstallDirs)
 enable_testing()
 
 set(LIBRARY_SOURCES
-  "src/wg14_signals/async_signal_safe_tls.c"
   "src/wg14_signals/current_thread_id.c"
+  "src/wg14_signals/tss_async_signal_safe.c"
 
   # Not mandatory and can be substituted
   "src/wg14_signals/thread_atexit.cpp"

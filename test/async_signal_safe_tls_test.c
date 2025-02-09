@@ -1,7 +1,7 @@
 #include "test_common.h"
 
-#include "wg14_signals/async_signal_safe_tls.h"
 #include "wg14_signals/current_thread_id.h"
+#include "wg14_signals/tss_async_signal_safe.h"
 
 static unsigned storage[2] = {5, 6};
 static unsigned *storage_ptr = storage;
@@ -21,7 +21,7 @@ static int destroy(void *dest)
 
 struct shared_t
 {
-  WG14_SIGNALS_PREFIX(thread_local_async_signal_safe) tls;
+  WG14_SIGNALS_PREFIX(tss_async_signal_safe) tls;
 } shared;
 
 static int thrfunc(void *x)
@@ -29,8 +29,8 @@ static int thrfunc(void *x)
   (void) x;
   int ret = 0;
   printf("Initing TLS for worker thread ...\n");
-  CHECK(-1 != WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_thread_init)(shared.tls));
-  unsigned *val = (unsigned *) WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_get)(shared.tls);
+  CHECK(-1 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(shared.tls));
+  unsigned *val = (unsigned *) WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(shared.tls);
   if(val == WG14_SIGNALS_NULLPTR)
   {
     abort();
@@ -45,14 +45,14 @@ int main()
   WG14_SIGNALS_PREFIX(thread_id_t) mytid = WG14_SIGNALS_PREFIX(current_thread_id)();
   printf("Main thread tid = %lu\n", (unsigned long) mytid);
   CHECK(0 != mytid);
-  struct WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_attr) attr = {.create = create, .destroy = destroy};
+  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr) attr = {.create = create, .destroy = destroy};
   printf("Creating TLS ...\n");
-  CHECK(-1 != WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_create)(&shared.tls, &attr));
+  CHECK(-1 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(&shared.tls, &attr));
   printf("Initing TLS for main thread ...\n");
-  CHECK(-1 != WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_thread_init)(shared.tls));
+  CHECK(-1 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(shared.tls));
   thrd_t thread;
   thrd_create(&thread, thrfunc, &shared);
-  unsigned *val = (unsigned *) WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_get)(shared.tls);
+  unsigned *val = (unsigned *) WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(shared.tls);
   if(val == WG14_SIGNALS_NULLPTR)
   {
     abort();
@@ -64,7 +64,7 @@ int main()
   CHECK(res == 0);
 
   printf("Destroying TLS ...\n");
-  CHECK(-1 != WG14_SIGNALS_PREFIX(thread_local_async_signal_safe_destroy)(shared.tls));
+  CHECK(-1 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(shared.tls));
   printf("Exiting main with result %d ...\n", ret);
   return ret;
 }
