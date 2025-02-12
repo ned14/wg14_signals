@@ -22,14 +22,19 @@ limitations under the License.
 
 #include "wg14_signals/config.h"
 
-#define LOCK(x)                                                                                                        \
-  for(;;)                                                                                                              \
-  {                                                                                                                    \
-    unsigned expected = 0;                                                                                             \
-    if(atomic_compare_exchange_weak_explicit(&(x), &expected, 1, memory_order_acq_rel, memory_order_relaxed))          \
-    {                                                                                                                  \
-      break;                                                                                                           \
-    }                                                                                                                  \
+#define LOCK(x)                                                                \
+  for(;;)                                                                      \
+  {                                                                            \
+    if(atomic_load_explicit(&(x), memory_order_relaxed))                       \
+    {                                                                          \
+      continue;                                                                \
+    }                                                                          \
+    unsigned expected = 0;                                                     \
+    if(atomic_compare_exchange_weak_explicit(                                  \
+       &(x), &expected, 1, memory_order_acq_rel, memory_order_relaxed))        \
+    {                                                                          \
+      break;                                                                   \
+    }                                                                          \
   }
 
 #define UNLOCK(x) atomic_store_explicit(&(x), 0, memory_order_release)

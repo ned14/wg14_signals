@@ -23,6 +23,8 @@ limitations under the License.
 #include "config.h"
 
 #include <setjmp.h>
+#include <signal.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -64,13 +66,16 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
   */
   struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info)
   {
-    jmp_buf buf;  //!< setjmp() buffer written on entry to guarded section
-    int signo;    //!< The signal raised
+    const jmp_buf
+    *buf;       //!< setjmp() buffer written on entry to guarded section
+    int signo;  //!< The signal raised
 
-    //! The system specific error code for this signal, the `si_errno` code (POSIX) or `NTSTATUS` code (Windows)
+    //! The system specific error code for this signal, the `si_errno` code
+    //! (POSIX) or `NTSTATUS` code (Windows)
     WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t) error_code;
     void *addr;  //!< Memory location which caused fault, if appropriate
-    union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value;  //!< A user-defined value
+    union WG14_SIGNALS_PREFIX(
+    thrd_raised_signal_info_value) value;  //!< A user-defined value
 
     //! The OS specific `siginfo_t *` (POSIX) or `PEXCEPTION_RECORD` (Windows)
     void *raw_info;
@@ -79,113 +84,142 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
   };
 
   //! \brief The type of the guarded function.
-  typedef union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) (*WG14_SIGNALS_PREFIX(thrd_signal_func_t))(
+  typedef union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) (
+  *WG14_SIGNALS_PREFIX(thrd_signal_func_t))(
   union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value));
 
-  //! \brief The type of the function called to recover from a signal being raised in a guarded section.
-  typedef union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) (*WG14_SIGNALS_PREFIX(thrd_signal_recover_t))(
+  //! \brief The type of the function called to recover from a signal being
+  //! raised in a guarded section.
+  typedef union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) (
+  *WG14_SIGNALS_PREFIX(thrd_signal_recover_t))(
   const struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *);
 
-  //! \brief The type of the function called when a signal is raised. Returns true to continue guarded code, false to
-  //! recover.
-  typedef bool (*WG14_SIGNALS_PREFIX(thrd_signal_decide_t))(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *);
+  //! \brief The type of the function called when a signal is raised. Returns
+  //! true to continue guarded code, false to recover.
+  typedef bool (*WG14_SIGNALS_PREFIX(thrd_signal_decide_t))(
+  struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *);
 
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable : 4190)  // C-linkage with UDTs
 #endif
-  /*! \brief Installs a thread-local signal guard for the calling thread, and calls the guarded function `guarded`.
+  /*! \brief Installs a thread-local signal guard for the calling thread, and
+  calls the guarded function `guarded`.
   \return The value returned by `guarded`, or `recovery`.
   \param signals The set of signals to guard against.
-  \param guarded A function whose execution is to be guarded against signal raises.
+  \param guarded A function whose execution is to be guarded against signal
+  raises.
   \param recovery A function to be called if a signal is raised.
-  \param decider A function to be called to decide whether to recover from the signal and continue
-  the execution of the guarded routine, or to abort and call the recovery routine.
+  \param decider A function to be called to decide whether to recover from the
+  signal and continue the execution of the guarded routine, or to abort and call
+  the recovery routine.
   \param value A value to supply to the guarded routine.
    */
   WG14_SIGNALS_EXTERN union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
-  WG14_SIGNALS_PREFIX(thrd_signal_call)(const sigset_t *signals, WG14_SIGNALS_PREFIX(thrd_signal_func_t) guarded,
-                                        WG14_SIGNALS_PREFIX(thrd_signal_recover_t) recovery,
-                                        WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
-                                        union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value);
+  WG14_SIGNALS_PREFIX(thrd_signal_invoke)(
+  const sigset_t *signals, WG14_SIGNALS_PREFIX(thrd_signal_func_t) guarded,
+  WG14_SIGNALS_PREFIX(thrd_signal_recover_t) recovery,
+  WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
+  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value);
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
 
-  /*! \brief Call the currently installed signal handler for a signal (POSIX), or raise a Win32 structured
-  exception (Windows), returning false if no handler was called due to the currently
-  installed handler being `SIG_IGN` (POSIX).
+  /*! \brief Call OUR currently installed signal decider for a signal (POSIX),
+  or raise a Win32 structured exception (Windows), returning false if we have no
+  decider installed for that signal.
 
-  Note that on POSIX, we fetch the currently installed signal handler and try to call it directly.
-  This allows us to supply custom `raw_info` and `raw_context`, and we do all the things which the signal
-  handler flags tell us to do beforehand [1]. If the current handler has been defaulted, we
-  enable the signal and execute `pthread_kill(pthread_self(), signo)` in order to invoke the
-  default handling.
+  Note that on POSIX, we fetch OUR currently installed signal decider and call
+  it directly. This allows us to supply custom `raw_info` and `raw_context`.
+  Each decider in our chain will be invoked in turn until we reach whatever the
+  signal handler was when this library was first initialised, and we hand off
+  to that handler. If that handler was defaulted and the default handling is not
+  to ignore, we reset the handler installation and execute
+  `pthread_kill(pthread_self(), signo)` in order to invoke the default handling.
 
-  Note that on Windows, `raw_context` is ignored as there is no way to override the context thrown
-  with a Win32 structured exception.
+  It is important to note that this call does not raise signals itself except in
+  that final handling step as just described. Therefore, if your code overwrites
+  the signal handlers installed by this library with a custom handler, and you
+  wish to pass on signal handling to this library, this is the right API to call
+  to do that.
 
-  [1]: We currently do not implement alternative stack switching. If a handler requests that, we
-  simply abort the process. Code donations implementing support are welcome.
-   */
-  WG14_SIGNALS_EXTERN bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info, void *raw_context);
+  Note that on Windows, `raw_context` is ignored as there is no way to override
+  the context thrown with a Win32 structured exception.
+  */
+  WG14_SIGNALS_EXTERN bool
+  WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info,
+                                         void *raw_context);
 
-  /*! \brief THREADSAFE On platforms where it is necessary (POSIX), installs, and potentially enables,
-  the global signal handlers for the signals specified by `guarded`. Each signal installed
-  is threadsafe reference counted, so this is safe to call from multiple threads or instantiate
-  multiple times.
+  /*! \brief THREADSAFE On platforms where it is necessary (POSIX), installs,
+  and potentially enables, the global signal handlers for the signals specified
+  by `guarded`. Each signal installed is threadsafe reference counted, so this
+  is safe to call from multiple threads or instantiate multiple times.
 
-  On platforms with better than POSIX global signal support, this function does nothing.
+  On platforms with better than POSIX global signal support, this function does
+  nothing.
+
+  If `guarded` is null, all the standard POSIX signals are used. `version` is
+  reserved for future use, and should be zero.
 
   ## POSIX only
 
-  Any existing global signal handlers are replaced with a filtering signal handler, which
-  checks if the current kernel thread has installed a signal guard, and if so executes the
-  guard. If no signal guard has been installed for the current kernel thread, global signal
-  continuation handlers are executed. If none claims the signal, the previously
-  installed signal handler is called.
+  Any existing global signal handlers are replaced with a filtering signal
+  handler, which checks if the current kernel thread has installed a signal
+  guard, and if so executes the guard. If no signal guard has been installed for
+  the current kernel thread, global signal continuation handlers are executed.
+  If none claims the signal, the previously installed signal handler is called.
 
-  After the new signal handlers have been installed, the guarded signals are globally enabled
-  for all threads of execution. Be aware that the handlers are installed with `SA_NODEFER`
-  to avoid the need to perform an expensive syscall when a signal is handled.
-  However this may also produce surprise e.g. infinite loops.
+  After the new signal handlers have been installed, the guarded signals are
+  globally enabled for all threads of execution. Be aware that the handlers are
+  installed with `SA_NODEFER` to avoid the need to perform an expensive syscall
+  when a signal is handled. However this may also produce surprise e.g. infinite
+  loops.
 
-  \warning This class is threadsafe with respect to other concurrent executions of itself,
-  but is NOT threadsafe with respect to other code modifying the global signal handlers.
-  */
-  WG14_SIGNALS_EXTERN void *WG14_SIGNALS_PREFIX(modern_signals_install)(const sigset_t *guarded, int version);
-  /*! \brief THREADSAFE Uninstall a previously installed signal guard.
-   */
-  WG14_SIGNALS_EXTERN bool WG14_SIGNALS_PREFIX(modern_signals_uninstall)(void *i);
-  /*! \brief THREADSAFE Uninstall a previously system installed signal guard.
-   */
-  WG14_SIGNALS_EXTERN bool WG14_SIGNALS_PREFIX(modern_signals_uninstall_system)(int version);
-
-  /*! \brief THREADSAFE NOT REENTRANT Create a global signal continuation decider. Threadsafe with respect to
-  other calls of this function, but not reentrant i.e. modifying the global signal continuation
-  decider registry whilst inside a global signal continuation decider is racy. Called after
-  all thread local handling is exhausted. Note that what you can safely do in the decider
-  function is extremely limited, only async signal safe functions may be called.
-
-  \return An opaque pointer to the registered decider. `NULL` if `malloc` failed.
-  \param guarded The set of signals to be guarded against.
-  \param callfirst True if this decider should be called before any other. Otherwise
-  call order is in the order of addition.
-  \param decider A decider function, which must return `true` if execution is to resume,
-  `false` if the next decider function should be called.
-  \param value A user supplied value to set in the `raised_signal_info` passed to the
-  decider callback.
+  \warning This class is threadsafe with respect to other concurrent executions
+  of itself, but is NOT threadsafe with respect to other code modifying the
+  global signal handlers.
   */
   WG14_SIGNALS_EXTERN void *
-  WG14_SIGNALS_PREFIX(signal_decider_create)(const sigset_t *guarded, bool callfirst,
-                                             WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
-                                             union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value);
-  /*! \brief THREADSAFE NOT REENTRANT Destroy a global signal continuation decider. Threadsafe with
-  respect to other calls of this function, but not reentrant i.e. do not call
-  whilst inside a global signal continuation decider.
+  WG14_SIGNALS_PREFIX(modern_signals_install)(const sigset_t *guarded,
+                                              int version);
+  /*! \brief THREADSAFE Uninstall a previously installed signal guard.
+   */
+  WG14_SIGNALS_EXTERN bool
+  WG14_SIGNALS_PREFIX(modern_signals_uninstall)(void *i);
+  /*! \brief THREADSAFE Uninstall a previously system installed signal guard.
+   */
+  WG14_SIGNALS_EXTERN bool
+  WG14_SIGNALS_PREFIX(modern_signals_uninstall_system)(int version);
+
+  /*! \brief THREADSAFE NOT REENTRANT Create a global signal continuation
+  decider. Threadsafe with respect to other calls of this function, but not
+  reentrant i.e. modifying the global signal continuation decider registry
+  whilst inside a global signal continuation decider is racy. Called after all
+  thread local handling is exhausted. Note that what you can safely do in the
+  decider function is extremely limited, only async signal safe functions may be
+  called.
+
+  \return An opaque pointer to the registered decider. `NULL` if `malloc`
+  failed.
+  \param guarded The set of signals to be guarded against.
+  \param callfirst True if this decider should be called before any other.
+  Otherwise call order is in the order of addition.
+  \param decider A decider function, which must return `true` if execution is to
+  resume, `false` if the next decider function should be called.
+  \param value A user supplied value to set in the `raised_signal_info` passed
+  to the decider callback.
+  */
+  WG14_SIGNALS_EXTERN void *WG14_SIGNALS_PREFIX(signal_decider_create)(
+  const sigset_t *guarded, bool callfirst,
+  WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
+  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value);
+  /*! \brief THREADSAFE NOT REENTRANT Destroy a global signal continuation
+  decider. Threadsafe with respect to other calls of this function, but not
+  reentrant i.e. do not call whilst inside a global signal continuation decider.
   \return True if recognised and thus removed.
   */
-  WG14_SIGNALS_EXTERN bool WG14_SIGNALS_PREFIX(signal_decider_destroy)(void *decider);
+  WG14_SIGNALS_EXTERN bool
+  WG14_SIGNALS_PREFIX(signal_decider_destroy)(void *decider);
 
 
 #ifdef __cplusplus

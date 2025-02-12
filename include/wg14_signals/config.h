@@ -40,6 +40,14 @@ limitations under the License.
 #endif
 #endif
 
+#ifndef WG14_SIGNALS_DEFAULT_VISIBILITY
+#ifdef _WIN32
+#define WG14_SIGNALS_DEFAULT_VISIBILITY
+#else
+#define WG14_SIGNALS_DEFAULT_VISIBILITY __attribute__((visibility("default")))
+#endif
+#endif
+
 #ifndef WG14_SIGNALS_EXTERN
 #if WG14_SIGNALS_SOURCE
 #ifdef _WIN32
@@ -50,6 +58,11 @@ limitations under the License.
 #else
 #define WG14_SIGNALS_EXTERN extern
 #endif
+#endif
+
+#ifndef WG14_SIGNALS_STDERR_PRINTF
+#include <stdio.h>
+#define WG14_SIGNALS_STDERR_PRINTF(...) fprintf(stderr, __VA_ARGS__)
 #endif
 
 #ifdef __cplusplus

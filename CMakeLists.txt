@@ -12,6 +12,8 @@ enable_testing()
 set(LIBRARY_SOURCES
   "src/wg14_signals/current_thread_id.c"
   "src/wg14_signals/tss_async_signal_safe.c"
+  $<$<NOT:$<PLATFORM_ID:Windows>>:src/wg14_signals/thrd_signal_handle_posix.c>
+  $<$<PLATFORM_ID:Windows>:src/wg14_signals/thrd_signal_handle_windows.c>
 
   # Not mandatory and can be substituted
   "src/wg14_signals/thread_atexit.cpp"
