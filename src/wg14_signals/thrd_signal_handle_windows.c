@@ -75,6 +75,49 @@ static int signal_from_win32_exception_code(DWORD c)
   }
 }
 
+void prepare_rsi(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi,
+                 const int signo, EXCEPTION_POINTERS *ptrs)
+{
+  memset(rsi, 0, sizeof(*rsi));
+  rsi->signo = signo;
+  if(ptrs->ExceptionRecord->NumberParameters >= 2 &&
+     ptrs->ExceptionRecord
+     ->ExceptionInformation[ptrs->ExceptionRecord->NumberParameters - 2] ==
+     (ULONG_PTR) 0xdeadbeefdeadbeef)
+  {
+    rsi->raw_context =
+    (void *) ptrs->ExceptionRecord
+    ->ExceptionInformation[ptrs->ExceptionRecord->NumberParameters - 1];
+  }
+  else
+  {
+    rsi->raw_context = (void *) ptrs->ContextRecord;
+  }
+  rsi->raw_info = (void *) ptrs->ExceptionRecord;
+  rsi->error_code = (WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t))
+                    ptrs->ExceptionRecord->ExceptionInformation[2];  // NTSTATUS
+  rsi->addr = (void *) ptrs->ExceptionRecord->ExceptionInformation[1];
+}
+
+static long win32_exception_filter(
+struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi,
+const sigset_t *guarded, const int signo,
+WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
+union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value,
+EXCEPTION_POINTERS *ptrs)
+{
+  if(sigismember(guarded, signo))
+  {
+    prepare_rsi(rsi, signo, ptrs);
+    rsi->value = value;
+    if(decider(rsi))
+    {
+      return EXCEPTION_EXECUTE_HANDLER;
+    }
+  }
+  return EXCEPTION_CONTINUE_SEARCH;
+}
+
 union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
 WG14_SIGNALS_PREFIX(thrd_signal_invoke)(
 const sigset_t *signals, WG14_SIGNALS_PREFIX(thrd_signal_func_t) guarded,
@@ -82,12 +125,17 @@ WG14_SIGNALS_PREFIX(thrd_signal_recover_t) recovery,
 WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
 union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
 {
-  (void) guarded;
-  (void) signals;
-  (void) recovery;
-  (void) decider;
-  (void) value;
-  abort();
+  struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
+  __try
+  {
+    return guarded(value);
+  }
+  __except(win32_exception_filter(
+  &rsi, signals, signal_from_win32_exception_code(GetExceptionCode()), decider,
+  value, GetExceptionInformation()))
+  {
+    return recovery(&rsi);
+  }
 }
 
 // You must NOT do anything async signal unsafe in here!
@@ -143,7 +191,7 @@ EXCEPTION_POINTERS *ptrs)
   if(signo == 0)
   {
     // Not a supported exception code
-    return 0;  // EXCEPTION_CONTINUE_SEARCH
+    return EXCEPTION_CONTINUE_SEARCH;
   }
   struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
   WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
@@ -154,28 +202,10 @@ EXCEPTION_POINTERS *ptrs)
   {
     // We don't have a handler installed for that signal
     UNLOCK(state->lock);
-    return 0;  // EXCEPTION_CONTINUE_SEARCH
+    return EXCEPTION_CONTINUE_SEARCH;
   }
   struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
-  memset(&rsi, 0, sizeof(rsi));
-  rsi.signo = signo;
-  if(ptrs->ExceptionRecord->NumberParameters >= 2 &&
-     ptrs->ExceptionRecord
-     ->ExceptionInformation[ptrs->ExceptionRecord->NumberParameters - 2] ==
-     (ULONG_PTR) 0xdeadbeefdeadbeef)
-  {
-    rsi.raw_context =
-    (void *) ptrs->ExceptionRecord
-    ->ExceptionInformation[ptrs->ExceptionRecord->NumberParameters - 1];
-  }
-  else
-  {
-    rsi.raw_context = (void *) ptrs->ContextRecord;
-  }
-  rsi.raw_info = (void *) ptrs->ExceptionRecord;
-  rsi.error_code = (WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t))
-                   ptrs->ExceptionRecord->ExceptionInformation[2];  // NTSTATUS
-  rsi.addr = (void *) ptrs->ExceptionRecord->ExceptionInformation[1];
+  prepare_rsi(&rsi, signo, ptrs);
   if(it.data->val->global_handler.front != WG14_SIGNALS_NULLPTR)
   {
     struct global_signal_decider_t *current =
@@ -194,7 +224,7 @@ EXCEPTION_POINTERS *ptrs)
           longjmp(tss->buf, 1);
         }
         // This will generally end the process
-        return -1;  // EXCEPTION_CONTINUE_EXECUTION
+        return EXCEPTION_CONTINUE_EXECUTION;
       }
       LOCK(state->lock);
       current = current->next;
@@ -202,7 +232,7 @@ EXCEPTION_POINTERS *ptrs)
   }
   // None of our deciders want this, so call previously installed signal handler
   UNLOCK(state->lock);
-  return 0;  // EXCEPTION_CONTINUE_SEARCH
+  return EXCEPTION_CONTINUE_SEARCH;
 }
 
 /* The interaction between AddVectoredContinueHandler,

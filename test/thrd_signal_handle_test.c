@@ -4,15 +4,30 @@
 
 struct shared_t
 {
-  int count;
+  int count_decider, count_recovery;
 };
 
+static union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
+sigill_recovery_func(const struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *
+                     rsi)
+{
+  struct shared_t *shared = (struct shared_t *) rsi->value.ptr_value;
+  shared->count_recovery++;
+  return rsi->value;
+}
 static bool
 sigill_decider_func(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi)
 {
   struct shared_t *shared = (struct shared_t *) rsi->value.ptr_value;
-  shared->count++;
+  shared->count_decider++;
   return true;  // handled
+}
+static union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
+sigill_func(union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
+{
+  WG14_SIGNALS_PREFIX(thrd_signal_raise)(SIGILL, WG14_SIGNALS_NULLPTR,
+                                         WG14_SIGNALS_NULLPTR);
+  return value;
 }
 
 int main()
@@ -21,8 +36,23 @@ int main()
   void *handlers =
   WG14_SIGNALS_PREFIX(modern_signals_install)(WG14_SIGNALS_NULLPTR, 0);
 
+  // Test thread local handling
   {
-    struct shared_t shared = {.count = 0};
+    struct shared_t shared = {.count_decider = 0, .count_recovery = 0};
+    union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
+    value = {.ptr_value = &shared};
+    sigset_t guarded;
+    sigemptyset(&guarded);
+    sigaddset(&guarded, SIGILL);
+    WG14_SIGNALS_PREFIX(thrd_signal_invoke)(
+    &guarded, sigill_func, sigill_recovery_func, sigill_decider_func, value);
+    CHECK(shared.count_decider == 1);
+    CHECK(shared.count_recovery == 1);
+  }
+
+  // Test global handling
+  {
+    struct shared_t shared = {.count_decider = 0, .count_recovery = 0};
     union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
     value = {.ptr_value = &shared};
     sigset_t guarded;
@@ -32,7 +62,8 @@ int main()
     &guarded, false, sigill_decider_func, value);
     CHECK(WG14_SIGNALS_PREFIX(thrd_signal_raise)(SIGILL, WG14_SIGNALS_NULLPTR,
                                                  WG14_SIGNALS_NULLPTR));
-    CHECK(shared.count == 1);
+    CHECK(shared.count_decider == 1);
+    CHECK(shared.count_recovery == 0);
     WG14_SIGNALS_PREFIX(signal_decider_destroy(sigill_decider));
   }
 
