@@ -38,6 +38,9 @@ extern __declspec(dllimport) unsigned long __stdcall GetCurrentThreadId(void);
 #include <pthread_np.h>  // for pthread_getthreadid_np
 #endif
 
+#ifdef _WIN32
+static
+#endif
 WG14_SIGNALS_THREAD_LOCAL WG14_SIGNALS_PREFIX(thread_id_t) WG14_SIGNALS_PREFIX(current_thread_id_cached) =
 #ifdef _WIN32
 0;

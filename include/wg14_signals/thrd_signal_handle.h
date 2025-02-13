@@ -32,6 +32,42 @@ extern "C"
 {
 #endif
 
+#ifdef _WIN32
+  // MSVC may be missing necessary signal support
+  typedef uint32_t sigset_t;
+  static inline void sigemptyset(sigset_t *ss)
+  {
+    *ss = 0;
+  }
+  static inline void sigfillset(sigset_t *ss)
+  {
+    *ss = UINT32_MAX;
+  }
+  static inline void sigaddset(sigset_t *ss, const int signo)
+  {
+    *ss |= (1u << (signo - 1));
+  }
+  static inline void sigdelset(sigset_t *ss, const int signo)
+  {
+    *ss &= ~(1u << (signo - 1));
+  }
+  static inline bool sigismember(const sigset_t *ss, const int signo)
+  {
+    return (*ss & (1u << (signo - 1))) != 0;
+  }
+
+// MSVC appears to follow the Linux signal numbering
+#ifndef SIGBUS
+#define SIGBUS (7)
+#endif
+#ifndef SIGKILL
+#define SIGKILL (9)
+#endif
+#ifndef SIGSTOP
+#define SIGSTOP (19)
+#endif
+#endif
+
   /*! \union thrd_raised_signal_info_value
   \brief User defined value.
   */
@@ -143,20 +179,17 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
   wish to pass on signal handling to this library, this is the right API to call
   to do that.
 
-  Note that on Windows, `raw_context` is ignored as there is no way to override
-  the context thrown with a Win32 structured exception.
+  On Windows, Win32 structured exceptions are capable of being used directly and
+  so we do on that platform always call `RaiseException()`.
   */
   WG14_SIGNALS_EXTERN bool
   WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info,
                                          void *raw_context);
 
-  /*! \brief THREADSAFE On platforms where it is necessary (POSIX), installs,
-  and potentially enables, the global signal handlers for the signals specified
-  by `guarded`. Each signal installed is threadsafe reference counted, so this
-  is safe to call from multiple threads or instantiate multiple times.
-
-  On platforms with better than POSIX global signal support, this function does
-  nothing.
+  /*! \brief THREADSAFE Installs, and potentially enables, the global signal
+  handlers for the signals specified by `guarded`. Each signal installed is
+  threadsafe reference counted, so this is safe to call from multiple threads or
+  instantiate multiple times.
 
   If `guarded` is null, all the standard POSIX signals are used. `version` is
   reserved for future use, and should be zero.
