@@ -13,6 +13,7 @@ jobs:
     name: Linux
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         compiler: [clang++, g++]
         debug: [Debug, Release]
@@ -43,6 +44,7 @@ jobs:
     name: Mac OS
     runs-on: macos-latest
     strategy:
+      fail-fast: false
       matrix:
         debug: [Debug, Release]
         standard: [11, 23]
@@ -71,6 +73,7 @@ jobs:
     name: Windows VS2022
     runs-on: windows-latest
     strategy:
+      fail-fast: false
       matrix:
         debug: [Debug, Release]
         standard: [11, 17]
