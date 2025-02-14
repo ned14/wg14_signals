@@ -45,8 +45,10 @@ struct signo_to_sighandler_map_t_itr_data
 };
 typedef struct signo_to_sighandler_map_t_itr
 {
-  struct signo_to_sighandler_map_t_itr_data data_, *data;
+  struct signo_to_sighandler_map_t_itr_data data_;
 } signo_to_sighandler_map_t_itr;
+
+#define signo_to_sighandler_map_t_value(x) (x).data_.val
 
 static inline signo_to_sighandler_map_t_itr
 signo_to_sighandler_map_t_get(signo_to_sighandler_map_t *map, int idx)
@@ -56,18 +58,16 @@ signo_to_sighandler_map_t_get(signo_to_sighandler_map_t *map, int idx)
   {
     ret.data_.val = WG14_SIGNALS_NULLPTR;
     ret.data_.idx = (size_t) -1;
-    ret.data = WG14_SIGNALS_NULLPTR;
     return ret;
   }
   ret.data_.val = map->arr[idx];
   ret.data_.idx = idx;
-  ret.data = &ret.data_;
   return ret;
 }
 static inline bool
 signo_to_sighandler_map_t_is_end(signo_to_sighandler_map_t_itr it)
 {
-  return it.data == WG14_SIGNALS_NULLPTR;
+  return it.data_.val == WG14_SIGNALS_NULLPTR;
 }
 static inline signo_to_sighandler_map_t_itr
 signo_to_sighandler_map_t_insert(signo_to_sighandler_map_t *map, int idx,
@@ -78,28 +78,28 @@ signo_to_sighandler_map_t_insert(signo_to_sighandler_map_t *map, int idx,
   {
     ret.data_.val = WG14_SIGNALS_NULLPTR;
     ret.data_.idx = (size_t) -1;
-    ret.data = WG14_SIGNALS_NULLPTR;
     return ret;
   }
   assert(map->arr[idx] == WG14_SIGNALS_NULLPTR);
   map->arr[idx] = val;
   ret.data_.val = map->arr[idx];
   ret.data_.idx = idx;
-  ret.data = &ret.data_;
   return ret;
 }
 static inline void
 signo_to_sighandler_map_t_erase_itr(signo_to_sighandler_map_t *map,
                                     signo_to_sighandler_map_t_itr it)
 {
-  assert(it.data->idx < NSIG);
-  map->arr[it.data->idx] = WG14_SIGNALS_NULLPTR;
+  assert(it.data_.idx < NSIG);
+  map->arr[it.data_.idx] = WG14_SIGNALS_NULLPTR;
 }
 #else
 #define NAME signo_to_sighandler_map_t
 #define KEY_TY int
 #define VAL_TY struct sighandler_t *
 #include "verstable.h"
+
+#define signo_to_sighandler_map_t_value(x) (x).data->val
 #endif
 
 /**********************************************************************************/
@@ -210,7 +210,7 @@ static bool install_sighandler(const int signo)
     it = signo_to_sighandler_map_t_insert(&state->signo_to_sighandler_map,
                                           signo, newitem);
   }
-  it.data->val->count++;
+  signo_to_sighandler_map_t_value(it)->count++;
   if(0 == state->sighandlers_count++)
   {
     const struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)
@@ -239,10 +239,11 @@ static bool uninstall_sighandler(const int signo)
   if(!signo_to_sighandler_map_t_is_end(it))
   {
     const bool need_to_destroy_tss = (0 == --state->sighandlers_count);
-    if(0 == --it.data->val->count)
+    if(0 == --signo_to_sighandler_map_t_value(it)->count)
     {
-      (void) uninstall_sighandler_impl(it.data->val, signo);
-      free(it.data->val);
+      (void) uninstall_sighandler_impl(signo_to_sighandler_map_t_value(it),
+                                       signo);
+      free(signo_to_sighandler_map_t_value(it));
       signo_to_sighandler_map_t_erase_itr(&state->signo_to_sighandler_map, it);
     }
     if(need_to_destroy_tss)
@@ -399,11 +400,13 @@ union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
       i->value = value;
       if(callfirst)
       {
-        LIST_INSERT_FRONT(it.data->val->global_handler, i);
+        LIST_INSERT_FRONT(signo_to_sighandler_map_t_value(it)->global_handler,
+                          i);
       }
       else
       {
-        LIST_INSERT_BACK(it.data->val->global_handler, i);
+        LIST_INSERT_BACK(signo_to_sighandler_map_t_value(it)->global_handler,
+                         i);
       }
       *retp++ = i;
     }
@@ -435,7 +438,8 @@ bool WG14_SIGNALS_PREFIX(signal_decider_destroy)(void *p)
       {
         if(*retp != WG14_SIGNALS_NULLPTR)
         {
-          LIST_REMOVE(it.data->val->global_handler, *retp);
+          LIST_REMOVE(signo_to_sighandler_map_t_value(it)->global_handler,
+                      *retp);
           ret = true;
         }
       }

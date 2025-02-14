@@ -208,10 +208,11 @@ EXCEPTION_POINTERS *ptrs)
   }
   struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
   prepare_rsi(&rsi, signo, ptrs);
-  if(it.data->val->global_handler.front != WG14_SIGNALS_NULLPTR)
+  if(signo_to_sighandler_map_t_value(it)->global_handler.front !=
+     WG14_SIGNALS_NULLPTR)
   {
     struct global_signal_decider_t *current =
-    it.data->val->global_handler.front;
+    signo_to_sighandler_map_t_value(it)->global_handler.front;
     do
     {
       rsi.value = current->value;

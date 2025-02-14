@@ -184,13 +184,14 @@ bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info,
     UNLOCK(state->lock);
     return false;
   }
-  struct sigaction sa = it.data->val->old_handler;
+  struct sigaction sa = signo_to_sighandler_map_t_value(it)->old_handler;
   struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
   prepare_rsi(&rsi, signo, (siginfo_t *) raw_info, raw_context);
-  if(it.data->val->global_handler.front != WG14_SIGNALS_NULLPTR)
+  if(signo_to_sighandler_map_t_value(it)->global_handler.front !=
+     WG14_SIGNALS_NULLPTR)
   {
     struct global_signal_decider_t *current =
-    it.data->val->global_handler.front;
+    signo_to_sighandler_map_t_value(it)->global_handler.front;
     do
     {
       rsi.value = current->value;
