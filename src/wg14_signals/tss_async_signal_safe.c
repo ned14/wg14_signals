@@ -48,11 +48,12 @@ struct WG14_SIGNALS_PREFIX(tss_async_signal_safe)
   thread_id_to_tls_map_t thread_id_to_tls_map;
 };
 
-int WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(WG14_SIGNALS_PREFIX(tss_async_signal_safe) * val,
-                                                      const struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr) *
-                                                      attr)
+int WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(
+WG14_SIGNALS_PREFIX(tss_async_signal_safe) * val,
+const struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr) * attr)
 {
-  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem = (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) calloc(
+  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem =
+  (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) calloc(
   1, sizeof(struct WG14_SIGNALS_PREFIX(tss_async_signal_safe)));
   if(mem == WG14_SIGNALS_NULLPTR)
   {
@@ -64,16 +65,19 @@ int WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(WG14_SIGNALS_PREFIX(tss_as
   return 0;
 }
 
-int WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(WG14_SIGNALS_PREFIX(tss_async_signal_safe) val)
+int WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(
+WG14_SIGNALS_PREFIX(tss_async_signal_safe) val)
 {
-  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem = (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) val;
+  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem =
+  (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) val;
   LOCK(mem->lock);
   if(mem->state)
   {
     mem->state->val = WG14_SIGNALS_NULLPTR;
     mem->state = WG14_SIGNALS_NULLPTR;
   }
-  for(thread_id_to_tls_map_t_itr it = thread_id_to_tls_map_t_first(&mem->thread_id_to_tls_map);
+  for(thread_id_to_tls_map_t_itr it =
+      thread_id_to_tls_map_t_first(&mem->thread_id_to_tls_map);
       !thread_id_to_tls_map_t_is_end(it); it = thread_id_to_tls_map_t_next(it))
   {
     mem->attr.destroy(it.data->val);
@@ -83,7 +87,8 @@ int WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(WG14_SIGNALS_PREFIX(tss_a
   return 0;
 }
 
-static int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_deinit)(struct deinit_state *state)
+static int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_deinit)(
+struct deinit_state *state)
 {
   struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem =
   (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) state->val;
@@ -91,7 +96,8 @@ static int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_deinit)(struct deini
   {
     const uint64_t mytid = WG14_SIGNALS_PREFIX(current_thread_id)();
     LOCK(mem->lock);
-    thread_id_to_tls_map_t_itr it = thread_id_to_tls_map_t_get(&mem->thread_id_to_tls_map, mytid);
+    thread_id_to_tls_map_t_itr it =
+    thread_id_to_tls_map_t_get(&mem->thread_id_to_tls_map, mytid);
     if(!thread_id_to_tls_map_t_is_end(it))
     {
       UNLOCK(mem->lock);
@@ -105,19 +111,22 @@ static int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_deinit)(struct deini
     }
     UNLOCK(mem->lock);
   }
-  if(0 == atomic_fetch_sub_explicit(&state->count, 1, memory_order_relaxed))
+  if(1 == atomic_fetch_sub_explicit(&state->count, 1, memory_order_relaxed))
   {
     free(state);
   }
   return 0;
 }
 
-int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(WG14_SIGNALS_PREFIX(tss_async_signal_safe) val)
+int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(
+WG14_SIGNALS_PREFIX(tss_async_signal_safe) val)
 {
-  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem = (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) val;
+  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem =
+  (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) val;
   const uint64_t mytid = WG14_SIGNALS_PREFIX(current_thread_id)();
   LOCK(mem->lock);
-  thread_id_to_tls_map_t_itr it = thread_id_to_tls_map_t_get(&mem->thread_id_to_tls_map, mytid);
+  thread_id_to_tls_map_t_itr it =
+  thread_id_to_tls_map_t_get(&mem->thread_id_to_tls_map, mytid);
   int res = 0;
   if(thread_id_to_tls_map_t_is_end(it))
   {
@@ -129,7 +138,8 @@ int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(WG14_SIGNALS_PREFIX(t
       return ret;
     }
     LOCK(mem->lock);
-    it = thread_id_to_tls_map_t_insert(&mem->thread_id_to_tls_map, mytid, newitem);
+    it =
+    thread_id_to_tls_map_t_insert(&mem->thread_id_to_tls_map, mytid, newitem);
     if(thread_id_to_tls_map_t_is_end(it))
     {
       UNLOCK(mem->lock);
@@ -151,7 +161,8 @@ int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(WG14_SIGNALS_PREFIX(t
     }
     atomic_fetch_add_explicit(&mem->state->count, 1, memory_order_relaxed);
     UNLOCK(mem->lock);
-    void (*func)(void *) = (void (*)(void *))(uintptr_t) WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_deinit);
+    void (*func)(void *) = (void (*)(void *))(uintptr_t) WG14_SIGNALS_PREFIX(
+    tss_async_signal_safe_thread_deinit);
     res = WG14_SIGNALS_PREFIX(thread_atexit)(func, mem->state);
     return res;
   }
@@ -159,13 +170,16 @@ int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(WG14_SIGNALS_PREFIX(t
   return res;
 }
 
-void *WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(WG14_SIGNALS_PREFIX(tss_async_signal_safe) val)
+void *WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(
+WG14_SIGNALS_PREFIX(tss_async_signal_safe) val)
 {
-  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem = (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) val;
+  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem =
+  (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) val;
   const uint64_t mytid = WG14_SIGNALS_PREFIX(current_thread_id)();
   void *ret = WG14_SIGNALS_NULLPTR;
   LOCK(mem->lock);
-  thread_id_to_tls_map_t_itr it = thread_id_to_tls_map_t_get(&mem->thread_id_to_tls_map, mytid);
+  thread_id_to_tls_map_t_itr it =
+  thread_id_to_tls_map_t_get(&mem->thread_id_to_tls_map, mytid);
   if(!thread_id_to_tls_map_t_is_end(it))
   {
     ret = it.data->val;

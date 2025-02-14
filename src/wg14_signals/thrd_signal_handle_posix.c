@@ -144,9 +144,9 @@ union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
     tss->front = old;
     return recovery(&current.rsi);
   }
-  value = guarded(value);
+  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) ret = guarded(value);
   tss->front = old;
-  return value;
+  return ret;
 }
 
 // You must NOT do anything async signal unsafe in here!
