@@ -90,7 +90,7 @@ static inline void
 signo_to_sighandler_map_t_erase_itr(signo_to_sighandler_map_t *map,
                                     signo_to_sighandler_map_t_itr it)
 {
-  assert(it.data->idx >= 0 && it.data->idx < NSIG);
+  assert(it.data->idx < NSIG);
   map->arr[it.data->idx] = WG14_SIGNALS_NULLPTR;
 }
 #else

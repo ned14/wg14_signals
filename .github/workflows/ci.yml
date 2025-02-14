@@ -15,13 +15,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compiler: [clang++, g++]
+        compiler: [clang, gcc]
         debug: [Debug, Release]
         standard: [11, 23]
         shared: [OFF, ON]
     env:
       NAME: Linux-${{ matrix.compiler }}-${{ matrix.debug }}-${{ matrix.standard }}-${{ matrix.shared }}
-      CXX: ${{ matrix.compiler }}
+      CC: ${{ matrix.compiler }}
+      CXX: ${{ matrix.compiler }}++
           
     steps:
     - uses: actions/checkout@v4
