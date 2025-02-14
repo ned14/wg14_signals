@@ -52,6 +52,7 @@ static inline signo_to_sighandler_map_t_itr
 signo_to_sighandler_map_t_get(signo_to_sighandler_map_t *map, int idx)
 {
   signo_to_sighandler_map_t_itr ret;
+  memset(&ret, 0, sizeof(ret));
   if(idx < 0 || idx >= NSIG || map->arr[idx] == WG14_SIGNALS_NULLPTR)
   {
     ret.data = WG14_SIGNALS_NULLPTR;
@@ -72,6 +73,7 @@ signo_to_sighandler_map_t_insert(signo_to_sighandler_map_t *map, int idx,
                                  struct sighandler_t *val)
 {
   signo_to_sighandler_map_t_itr ret;
+  memset(&ret, 0, sizeof(ret));
   if(idx < 0 || idx >= NSIG)
   {
     ret.data = WG14_SIGNALS_NULLPTR;

@@ -149,13 +149,14 @@ bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info,
   }
   struct thrd_signal_global_state_tss_state_t *tss =
   thrd_signal_global_tss_state();
-  jmp_buf old_buf;
-  memcpy(old_buf, tss->buf, sizeof(old_buf));
-  tss->buf_count++;
-  if(setjmp(tss->buf) != 0)
+  struct thrd_signal_global_state_tss_state_per_frame_t *old = tss->front,
+                                                        current;
+  memset(&current, 0, sizeof(current));
+  current.prev = old;
+  tss->front = &current;
+  if(setjmp(current.buf) != 0)
   {
-    memcpy(tss->buf, old_buf, sizeof(old_buf));
-    tss->buf_count--;
+    tss->front = old;
     return true;
   }
 
@@ -220,9 +221,9 @@ EXCEPTION_POINTERS *ptrs)
         struct thrd_signal_global_state_tss_state_t *tss =
         thrd_signal_global_tss_state();
         // If there is a most recent thread local handler, resume there instead
-        if(tss->buf_count > 0)
+        if(tss->front != WG14_SIGNALS_NULLPTR)
         {
-          longjmp(tss->buf, 1);
+          longjmp(tss->front.buf, 1);
         }
         // This will generally end the process
         return EXCEPTION_CONTINUE_EXECUTION;
