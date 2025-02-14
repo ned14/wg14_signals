@@ -8,6 +8,8 @@ set(CMAKE_C_STANDARD "11" CACHE STRING "C standard to use")
 project(wg14_signals LANGUAGES C CXX)
 include(GNUInstallDirs)
 enable_testing()
+include(CheckCSourceCompiles)
+check_c_source_compiles("#include <setjmp.h>\nint main(void) { jmp_buf buf; return _setjmp(buf); }" LIBC_HAS__SETJMP)
 
 set(LIBRARY_SOURCES
   "src/wg14_signals/current_thread_id.c"
@@ -22,6 +24,9 @@ set(LIBRARY_SOURCES
 add_library(${PROJECT_NAME} ${LIBRARY_SOURCES})
 target_compile_features(${PROJECT_NAME} PRIVATE c_std_11 cxx_std_11)
 target_compile_definitions(${PROJECT_NAME} PRIVATE WG14_SIGNALS_SOURCE)
+if(LIBC_HAS__SETJMP)
+  target_compile_definitions(${PROJECT_NAME} PRIVATE WG14_SIGNALS_HAVE__SETJMP)
+endif()
 target_include_directories(${PROJECT_NAME} PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include>"

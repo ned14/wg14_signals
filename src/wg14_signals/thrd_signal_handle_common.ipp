@@ -138,10 +138,19 @@ WG14_SIGNALS_PREFIX(thrd_signal_global_state)(void)
   return &v;
 }
 
+struct thrd_signal_global_state_tss_state_per_frame_t
+{
+  struct thrd_signal_global_state_tss_state_per_frame_t *prev;
+#ifndef _WIN32
+  const sigset_t *guarded;
+  WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider;
+  struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
+#endif
+  jmp_buf buf;
+};
 struct thrd_signal_global_state_tss_state_t
 {
-  int buf_count;
-  jmp_buf buf;
+  struct thrd_signal_global_state_tss_state_per_frame_t *front;
 };
 static int thrd_signal_global_state_tss_state_create(void **dest)
 {
@@ -335,8 +344,9 @@ union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
     errno = EINVAL;
     return WG14_SIGNALS_NULLPTR;
   }
-  void *ret = malloc(sizeof(sigset_t) +
-                     (signo_count+1) * sizeof(struct global_signal_decider_t *));
+  void *ret =
+  malloc(sizeof(sigset_t) +
+         (signo_count + 1) * sizeof(struct global_signal_decider_t *));
   if(ret == WG14_SIGNALS_NULLPTR)
   {
     return WG14_SIGNALS_NULLPTR;

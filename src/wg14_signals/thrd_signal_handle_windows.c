@@ -75,8 +75,9 @@ static int signal_from_win32_exception_code(DWORD c)
   }
 }
 
-void prepare_rsi(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi,
-                 const int signo, EXCEPTION_POINTERS *ptrs)
+static void prepare_rsi(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *
+                        rsi,
+                        const int signo, EXCEPTION_POINTERS *ptrs)
 {
   memset(rsi, 0, sizeof(*rsi));
   rsi->signo = signo;
