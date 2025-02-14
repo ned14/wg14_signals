@@ -223,7 +223,7 @@ EXCEPTION_POINTERS *ptrs)
         // If there is a most recent thread local handler, resume there instead
         if(tss->front != WG14_SIGNALS_NULLPTR)
         {
-          longjmp(tss->front.buf, 1);
+          longjmp(tss->front->buf, 1);
         }
         // This will generally end the process
         return EXCEPTION_CONTINUE_EXECUTION;

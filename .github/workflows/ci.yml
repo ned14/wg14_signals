@@ -22,7 +22,6 @@ jobs:
     env:
       NAME: Linux-${{ matrix.compiler }}-${{ matrix.debug }}-${{ matrix.standard }}-${{ matrix.shared }}
       CC: ${{ matrix.compiler }}
-      CXX: ${{ matrix.compiler }}++
           
     steps:
     - uses: actions/checkout@v4
