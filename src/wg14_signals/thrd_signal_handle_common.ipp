@@ -314,6 +314,7 @@ bool WG14_SIGNALS_PREFIX(modern_signals_uninstall)(void *ss)
       }
     }
   }
+  free(ss);
   return true;
 }
 
