@@ -25,3 +25,14 @@ Current CI test targets:
 - Mac OS, AArch64.
 - Microsoft Windows, x64.
 
+## Todo
+
+https://maskray.me/blog/2021-02-14-all-about-thread-local-storage#initial-exec-tls-model-executable-preemptible
+will tell you everything there is to know about how TLS is implemented
+
+- Add option to have the signal handling TLS marked `__attribute((tls_model("initial-exec")))`.
+This makes codegen async signal safe e.g. https://godbolt.org/z/a78sr4Mrc.
+NOTE that this would break use of this library from within a runtime
+loaded shared object! So document this loudly!
+
+- Benchmark everything so can quote perf in WG14 paper.
