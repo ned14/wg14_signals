@@ -25,8 +25,8 @@ sigill_decider_func(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi)
 static union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
 sigill_func(union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
 {
-  WG14_SIGNALS_PREFIX(thrd_signal_raise)(SIGILL, WG14_SIGNALS_NULLPTR,
-                                         WG14_SIGNALS_NULLPTR);
+  WG14_SIGNALS_PREFIX(thrd_signal_raise)
+  (SIGILL, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
   return value;
 }
 
@@ -36,7 +36,7 @@ int main()
   void *handlers =
   WG14_SIGNALS_PREFIX(modern_signals_install)(WG14_SIGNALS_NULLPTR, 0);
 
-  // Test thread local handling
+  puts("Test thread local handling ...");
   {
     struct shared_t shared = {.count_decider = 0, .count_recovery = 0};
     union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
@@ -44,13 +44,13 @@ int main()
     sigset_t guarded;
     sigemptyset(&guarded);
     sigaddset(&guarded, SIGILL);
-    WG14_SIGNALS_PREFIX(thrd_signal_invoke)(
-    &guarded, sigill_func, sigill_recovery_func, sigill_decider_func, value);
+    WG14_SIGNALS_PREFIX(thrd_signal_invoke)
+    (&guarded, sigill_func, sigill_recovery_func, sigill_decider_func, value);
     CHECK(shared.count_decider == 1);
     CHECK(shared.count_recovery == 1);
   }
 
-  // Test global handling
+  puts("Test global handling ...");
   {
     struct shared_t shared = {.count_decider = 0, .count_recovery = 0};
     union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)

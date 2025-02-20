@@ -38,29 +38,41 @@ extern __declspec(dllimport) unsigned long __stdcall GetCurrentThreadId(void);
 #include <pthread_np.h>  // for pthread_getthreadid_np
 #endif
 
+#if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
 #ifdef _WIN32
 static
 #endif
-WG14_SIGNALS_THREAD_LOCAL WG14_SIGNALS_PREFIX(thread_id_t) WG14_SIGNALS_PREFIX(current_thread_id_cached) =
+WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL WG14_SIGNALS_PREFIX(thread_id_t)
+WG14_SIGNALS_PREFIX(current_thread_id_cached) =
 #ifdef _WIN32
 0;
 #else
 WG14_SIGNALS_PREFIX(thread_id_t_tombstone);
 #endif
+#endif
 
-
-WG14_SIGNALS_PREFIX(thread_id_t) WG14_SIGNALS_PREFIX(current_thread_id_cached_set)(void)
+static inline WG14_SIGNALS_PREFIX(thread_id_t) get_current_thread_id(void)
 {
 #ifdef _WIN32
-  WG14_SIGNALS_PREFIX(current_thread_id_cached) = (WG14_SIGNALS_PREFIX(thread_id_t)) GetCurrentThreadId();
+  return (WG14_SIGNALS_PREFIX(thread_id_t)) GetCurrentThreadId();
 #elif defined(__linux__)
-  WG14_SIGNALS_PREFIX(current_thread_id_cached) = (WG14_SIGNALS_PREFIX(thread_id_t)) gettid();
+  return (WG14_SIGNALS_PREFIX(thread_id_t)) gettid();
 #elif defined(__APPLE__)
   thread_port_t tid = mach_thread_self();
   mach_port_deallocate(mach_task_self(), tid);
-  WG14_SIGNALS_PREFIX(current_thread_id_cached) = (WG14_SIGNALS_PREFIX(thread_id_t)) tid;
+  return (WG14_SIGNALS_PREFIX(thread_id_t)) tid;
 #else
-  WG14_SIGNALS_PREFIX(current_thread_id_cached) = (WG14_SIGNALS_PREFIX(thread_id_t)) pthread_getthreadid_np();
+  return (WG14_SIGNALS_PREFIX(thread_id_t)) pthread_getthreadid_np();
 #endif
+}
+
+WG14_SIGNALS_PREFIX(thread_id_t)
+WG14_SIGNALS_PREFIX(current_thread_id_cached_set)(void)
+{
+#if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
+  WG14_SIGNALS_PREFIX(current_thread_id_cached) = get_current_thread_id();
   return WG14_SIGNALS_PREFIX(current_thread_id_cached);
+#else
+  return get_current_thread_id();
+#endif
 }

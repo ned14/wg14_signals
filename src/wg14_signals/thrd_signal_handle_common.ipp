@@ -17,11 +17,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+#include "wg14_signals/config.h"
 #include "wg14_signals/thrd_signal_handle.h"
 
 #include "linked_list.h"
 #include "lock_unlock.h"
+
+#if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
+#include "thread_atexit.h"
+#else
 #include "wg14_signals/tss_async_signal_safe.h"
+#endif
 
 #include <assert.h>
 #include <errno.h>
@@ -133,7 +139,6 @@ struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t)
   LPTOP_LEVEL_EXCEPTION_FILTER old_unhandled_exception_filter;
 #endif
   signo_to_sighandler_map_t signo_to_sighandler_map;
-  WG14_SIGNALS_PREFIX(tss_async_signal_safe) tss_state;
 };
 WG14_SIGNALS_EXTERN struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *
 WG14_SIGNALS_PREFIX(thrd_signal_global_state)(void)
@@ -141,6 +146,7 @@ WG14_SIGNALS_PREFIX(thrd_signal_global_state)(void)
   static struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) v;
   return &v;
 }
+
 
 struct thrd_signal_global_state_tss_state_per_frame_t
 {
@@ -156,6 +162,52 @@ struct thrd_signal_global_state_tss_state_t
 {
   struct thrd_signal_global_state_tss_state_per_frame_t *front;
 };
+#if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
+WG14_SIGNALS_EXTERN struct thrd_signal_global_state_tss_state_t **
+WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)(void)
+{
+  static WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL struct
+  thrd_signal_global_state_tss_state_t *v;
+  return &v;
+}
+static int thrd_signal_global_tss_state_create(void)
+{
+  return 0;
+}
+static int thrd_signal_global_tss_state_init(void)
+{
+  struct thrd_signal_global_state_tss_state_t **state =
+  WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)();
+  if(*state != WG14_SIGNALS_NULLPTR)
+  {
+    return 0;
+  }
+  struct thrd_signal_global_state_tss_state_t *mem =
+  (struct thrd_signal_global_state_tss_state_t *) calloc(
+  1, sizeof(struct thrd_signal_global_state_tss_state_t));
+  if(mem == WG14_SIGNALS_NULLPTR)
+  {
+    return -1;
+  }
+  *state = mem;
+  return WG14_SIGNALS_PREFIX(thread_atexit)(free, mem);
+}
+static struct thrd_signal_global_state_tss_state_t *
+thrd_signal_global_tss_state(void)
+{
+  return *WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)();
+}
+static int thrd_signal_global_tss_state_destroy(void)
+{
+  return 0;
+}
+#else
+WG14_SIGNALS_EXTERN WG14_SIGNALS_PREFIX(tss_async_signal_safe) *
+WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)(void)
+{
+  static WG14_SIGNALS_PREFIX(tss_async_signal_safe) v;
+  return &v;
+}
 static int thrd_signal_global_state_tss_state_create(void **dest)
 {
   assert(*dest == WG14_SIGNALS_NULLPTR);
@@ -167,21 +219,33 @@ static int thrd_signal_global_state_tss_state_destroy(void *p)
   free(p);
   return 0;
 }
+static int thrd_signal_global_tss_state_create(void)
+{
+  const struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)
+  tss_attr = {.create = thrd_signal_global_state_tss_state_create,
+              .destroy = thrd_signal_global_state_tss_state_destroy};
+  return WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(
+  WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)(), &tss_attr);
+}
 static int thrd_signal_global_tss_state_init(void)
 {
-  struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
-  WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
   return WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(
-  state->tss_state);
+  *WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)());
 }
 static struct thrd_signal_global_state_tss_state_t *
 thrd_signal_global_tss_state(void)
 {
-  struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
-  WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
   return (struct thrd_signal_global_state_tss_state_t *) WG14_SIGNALS_PREFIX(
-  tss_async_signal_safe_get)(state->tss_state);
+  tss_async_signal_safe_get)(*WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)());
 }
+static int thrd_signal_global_tss_state_destroy(void)
+{
+  return WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(
+  *WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)());
+  *WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)() = WG14_SIGNALS_NULLPTR;
+}
+#endif
+
 
 static bool install_sighandler_impl(struct sighandler_t *item, const int signo);
 static bool install_sighandler(const int signo)
@@ -213,11 +277,7 @@ static bool install_sighandler(const int signo)
   signo_to_sighandler_map_t_value(it)->count++;
   if(0 == state->sighandlers_count++)
   {
-    const struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)
-    tss_attr = {.create = thrd_signal_global_state_tss_state_create,
-                .destroy = thrd_signal_global_state_tss_state_destroy};
-    if(-1 == WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(
-             &state->tss_state, &tss_attr))
+    if(-1 == thrd_signal_global_tss_state_create())
     {
       UNLOCK(state->lock);
       return false;
@@ -248,8 +308,7 @@ static bool uninstall_sighandler(const int signo)
     }
     if(need_to_destroy_tss)
     {
-      (void) WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(
-      state->tss_state);
+      (void) thrd_signal_global_tss_state_destroy();
     }
   }
   UNLOCK(state->lock);

@@ -28,8 +28,32 @@ limitations under the License.
 #define WG14_SIGNALS_INLINE inline
 #endif
 
-#ifndef WG14_SIGNALS_THREAD_LOCAL
-#define WG14_SIGNALS_THREAD_LOCAL _Thread_local
+#ifndef WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
+/* https://maskray.me/blog/2021-02-14-all-about-thread-local-storage
+will tell you all you need to know about TLS implementations and
+which are async signal safe, and which are not.
+*/
+#if(defined(__GNUC__) || defined(_MSC_VER)) && !defined(__APPLE__)
+#define WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL 1
+#else
+#define WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL 0
+#endif
+#endif
+
+#ifndef WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL
+#if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
+#ifdef __GNUC__
+// ELF needs to use the initial or local exec TLS model to be async signal safe
+//
+// WARNING: This can cause issues with this library being loaded dynamically as
+// part of a runtime loaded shared library!
+#define WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL                                   \
+  _Thread_local __attribute__((tls_model("initial-exec")))
+#elif defined(_MSC_VER)
+// MSVC's thread locals are always async signal safe
+#define WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL _Thread_local
+#endif
+#endif
 #endif
 
 #ifndef WG14_SIGNALS_NULLPTR

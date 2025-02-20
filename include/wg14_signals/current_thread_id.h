@@ -32,16 +32,18 @@ extern "C"
   //! \brief The type of a thread id
   typedef uintptr_t WG14_SIGNALS_PREFIX(thread_id_t);
 
+#if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
   static const WG14_SIGNALS_PREFIX(thread_id_t)
   WG14_SIGNALS_PREFIX(thread_id_t_tombstone) = 0;
 
 #ifdef _WIN32
   static
 #else
-WG14_SIGNALS_EXTERN
+  WG14_SIGNALS_EXTERN
 #endif
-  WG14_SIGNALS_THREAD_LOCAL WG14_SIGNALS_PREFIX(thread_id_t)
+  WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL WG14_SIGNALS_PREFIX(thread_id_t)
   WG14_SIGNALS_PREFIX(current_thread_id_cached);
+#endif
 
   WG14_SIGNALS_EXTERN WG14_SIGNALS_PREFIX(thread_id_t)
   WG14_SIGNALS_PREFIX(current_thread_id_cached_set)(void);
@@ -50,6 +52,7 @@ WG14_SIGNALS_EXTERN
   static WG14_SIGNALS_INLINE WG14_SIGNALS_PREFIX(thread_id_t)
   WG14_SIGNALS_PREFIX(current_thread_id)(void)
   {
+#if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
     if(WG14_SIGNALS_PREFIX(current_thread_id_cached) ==
        WG14_SIGNALS_PREFIX(thread_id_t_tombstone))
     {
@@ -57,6 +60,9 @@ WG14_SIGNALS_EXTERN
       WG14_SIGNALS_PREFIX(current_thread_id_cached_set)();
     }
     return WG14_SIGNALS_PREFIX(current_thread_id_cached);
+#else
+  return WG14_SIGNALS_PREFIX(current_thread_id_cached_set)();
+#endif
   }
 
 #ifdef __cplusplus
