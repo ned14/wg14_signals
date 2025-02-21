@@ -39,7 +39,7 @@ jobs:
 
     - name: CMake tests Linux
       shell: bash
-      run: cd build && ctest --output-on-failure --timeout 300
+      run: cd build && ctest --output-on-failure --timeout 300 -E benchmark
       
   MacOS:
     name: Mac OS
@@ -68,7 +68,7 @@ jobs:
 
     - name: CMake tests Mac OS
       shell: bash
-      run: cd build && ctest --output-on-failure --timeout 300
+      run: cd build && ctest --output-on-failure --timeout 300 -E benchmark
       
   Windows:
     name: Windows VS2022
@@ -97,4 +97,4 @@ jobs:
 
     - name: CMake tests WinVS2022
       shell: bash
-      run: cd build && ctest -C ${{ matrix.debug }} --output-on-failure --timeout 300
+      run: cd build && ctest -C ${{ matrix.debug }} --output-on-failure --timeout 300 -E benchmark

@@ -17,6 +17,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// #define WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL 0
+
 #ifndef WG14_SIGNALS_CONFIG_H
 #define WG14_SIGNALS_CONFIG_H
 

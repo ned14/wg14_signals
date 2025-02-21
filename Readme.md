@@ -71,6 +71,38 @@ loaded.
 and so the fallback hash table is always used on those platforms, which
 is unfortunate.
 
-## Todo
+## Performance
 
-- Benchmark everything so can quote perf in WG14 paper.
+On my Threadripper 5975WX which is a 3.6Ghz processor bursting to 4.5Ghz
+on Linux:
+
+- `tss_async_signal_safe_get()` which implements an async signal safe
+thread local storage using a hash table costs about 29 nanoseconds, so
+maybe 130 clock cycles.
+
+
+With `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=1` (the default on Linux,
+Windows, and other ELF based platforms):
+
+    - `thrd_signal_invoke()` which invokes a function which thread locally
+handles any signals raised costs about 31 nanoseconds (140 clock cycles)
+for the happy case (most of this is the cost of `_setjmp()` on this platform
+and glibc).
+
+    - A globally installed signal decider takes about 29 nanoseconds (130
+clock cycles) to reach (there is a CAS lock-unlock sequence needed).
+
+
+With `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0` (the default on Mac OS):
+
+    - `thrd_signal_invoke()` which invokes a function which thread locally
+handles any signals raised costs about 45 nanoseconds for the happy case.
+
+    - A globally installed signal decider takes about 55 nanoseconds to reach.
+
+
+# Todo
+
+- Global signal deciders are still racy with respect to modification during
+invocation. Given that they execute in an async signal unsafe situation,
+not sure how much I care.

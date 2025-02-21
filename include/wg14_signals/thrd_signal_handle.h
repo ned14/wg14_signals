@@ -102,8 +102,6 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
   */
   struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info)
   {
-    const jmp_buf
-    *buf;       //!< setjmp() buffer written on entry to guarded section
     int signo;  //!< The signal raised
 
     //! The system specific error code for this signal, the `si_errno` code
@@ -139,17 +137,25 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
 #pragma warning(push)
 #pragma warning(disable : 4190)  // C-linkage with UDTs
 #endif
-  /*! \brief Installs a thread-local signal guard for the calling thread, and
-  calls the guarded function `guarded`.
+  /*! \brief THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal
+  guard for the calling thread, and calls the guarded function `guarded`.
+
   \return The value returned by `guarded`, or `recovery`.
   \param signals The set of signals to guard against.
   \param guarded A function whose execution is to be guarded against signal
   raises.
   \param recovery A function to be called if a signal is raised.
-  \param decider A function to be called to decide whether to recover from the
-  signal and continue the execution of the guarded routine, or to abort and call
-  the recovery routine.
+  \param decider A function to be called to decide whether to
+  recover from the signal and continue the execution of the guarded routine, or
+  to abort and call the recovery routine.
   \param value A value to supply to the guarded routine.
+
+  By "usually async signal safe" we mean that if any function from this library
+  has been called from the called from the calling thread, this is async signal
+  safe. If you need to set up this library for a calling thread without doing
+  anything else, calling `thrd_signal_raise(0, nullptr, nullptr)`, this will
+  ensure the calling thread's thread local state is set up and return
+  immediately doing nothing else.
    */
   WG14_SIGNALS_EXTERN union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
   WG14_SIGNALS_PREFIX(thrd_signal_invoke)(
@@ -161,9 +167,9 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
 #pragma warning(pop)
 #endif
 
-  /*! \brief Call OUR currently installed signal decider for a signal (POSIX),
-  or raise a Win32 structured exception (Windows), returning false if we have no
-  decider installed for that signal.
+  /*! \brief THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Call OUR currently installed
+  signal decider for a signal (POSIX), or raise a Win32 structured exception
+  (Windows), returning false if we have no decider installed for that signal.
 
   Note that on POSIX, we fetch OUR currently installed signal decider and call
   it directly. This allows us to supply custom `raw_info` and `raw_context`.
@@ -181,6 +187,12 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
 
   On Windows, Win32 structured exceptions are capable of being used directly and
   so we do on that platform always call `RaiseException()`.
+
+  By "usually async signal safe" we mean that if any function from this library
+  has been called from the called from the calling thread, this is async signal
+  safe. If you need to set up this library for a calling thread without doing
+  anything else, specify zero for `signo`, this will ensure the calling thread's
+  thread local state is set up and return immediately doing nothing else.
   */
   WG14_SIGNALS_EXTERN bool
   WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info,
@@ -227,7 +239,8 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
   /*! \brief THREADSAFE NOT REENTRANT Create a global signal continuation
   decider. Threadsafe with respect to other calls of this function, but not
   reentrant i.e. modifying the global signal continuation decider registry
-  whilst inside a global signal continuation decider is racy. Called after all
+  whilst inside a global signal continuation decider is racy, and in any case
+  definitely not async signal handler safe. Called after all
   thread local handling is exhausted. Note that what you can safely do in the
   decider function is extremely limited, only async signal safe functions may be
   called.

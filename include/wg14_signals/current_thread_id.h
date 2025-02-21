@@ -32,10 +32,10 @@ extern "C"
   //! \brief The type of a thread id
   typedef uintptr_t WG14_SIGNALS_PREFIX(thread_id_t);
 
-#if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
   static const WG14_SIGNALS_PREFIX(thread_id_t)
   WG14_SIGNALS_PREFIX(thread_id_t_tombstone) = 0;
 
+#if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
 #ifdef _WIN32
   static
 #else

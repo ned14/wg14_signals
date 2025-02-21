@@ -157,6 +157,11 @@ bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info,
   {
     return false;
   }
+  if(signo == 0)
+  {
+    // Caller is doing the non-async safe setup
+    return false;
+  }
   struct thrd_signal_global_state_tss_state_t *tss =
   thrd_signal_global_tss_state();
   struct thrd_signal_global_state_tss_state_per_frame_t *frame = tss->front;

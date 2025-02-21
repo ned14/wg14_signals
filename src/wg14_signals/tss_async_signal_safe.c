@@ -48,6 +48,20 @@ struct WG14_SIGNALS_PREFIX(tss_async_signal_safe)
   thread_id_to_tls_map_t thread_id_to_tls_map;
 };
 
+// Keep a local cache of the current thread id, if thread locals aren't async
+// signal safe on this platform it doesn't matter as we'll ensure it is
+// initialised from outside the signal handler
+static WG14_SIGNALS_PREFIX(thread_id_t) my_current_thread_id(void)
+{
+  static _Thread_local WG14_SIGNALS_PREFIX(thread_id_t)
+  current_thread_id_mycache;
+  if(current_thread_id_mycache == WG14_SIGNALS_PREFIX(thread_id_t_tombstone))
+  {
+    current_thread_id_mycache = WG14_SIGNALS_PREFIX(current_thread_id)();
+  }
+  return current_thread_id_mycache;
+}
+
 int WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(
 WG14_SIGNALS_PREFIX(tss_async_signal_safe) * val,
 const struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr) * attr)
@@ -94,7 +108,7 @@ struct deinit_state *state)
   (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) state->val;
   if(mem != WG14_SIGNALS_NULLPTR)
   {
-    const uint64_t mytid = WG14_SIGNALS_PREFIX(current_thread_id)();
+    const uint64_t mytid = my_current_thread_id();
     LOCK(mem->lock);
     thread_id_to_tls_map_t_itr it =
     thread_id_to_tls_map_t_get(&mem->thread_id_to_tls_map, mytid);
@@ -123,7 +137,8 @@ WG14_SIGNALS_PREFIX(tss_async_signal_safe) val)
 {
   struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem =
   (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) val;
-  const uint64_t mytid = WG14_SIGNALS_PREFIX(current_thread_id)();
+  // This will force init the TLS from outside a signal handle
+  const uint64_t mytid = my_current_thread_id();
   LOCK(mem->lock);
   thread_id_to_tls_map_t_itr it =
   thread_id_to_tls_map_t_get(&mem->thread_id_to_tls_map, mytid);
@@ -175,7 +190,7 @@ WG14_SIGNALS_PREFIX(tss_async_signal_safe) val)
 {
   struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *mem =
   (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *) val;
-  const uint64_t mytid = WG14_SIGNALS_PREFIX(current_thread_id)();
+  const uint64_t mytid = my_current_thread_id();
   void *ret = WG14_SIGNALS_NULLPTR;
   LOCK(mem->lock);
   thread_id_to_tls_map_t_itr it =
