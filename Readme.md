@@ -73,8 +73,7 @@ is unfortunate.
 
 ## Performance
 
-On my Threadripper 5975WX which is a 3.6Ghz processor bursting to 4.5Ghz
-on Linux:
+### On my Threadripper 5975WX which is a 3.6Ghz processor bursting to 4.5Ghz on Linux:
 
 - `tss_async_signal_safe_get()` which implements an async signal safe
 thread local storage using a hash table costs about 29 nanoseconds, so
@@ -100,6 +99,18 @@ handles any signals raised costs about 45 nanoseconds for the happy case.
 
     - A globally installed signal decider takes about 55 nanoseconds to reach.
 
+### On a MacBook Pro M3 running ARM64 Windows within a VM
+
+- `tss_async_signal_safe_get()` which implements an async signal safe
+thread local storage using a hash table costs about 22 nanoseconds, so
+maybe 130 clock cycles.
+
+- `thrd_signal_invoke()` which invokes a function which thread locally
+handles any signals raised costs about 17 nanoseconds (this is Windows
+Structured Exception Handling, not our library code).
+
+- A globally installed signal decider takes about 7,372 nanoseconds to reach
+(this is also Windows code, not our library code, shame it is so slow).
 
 # Todo
 

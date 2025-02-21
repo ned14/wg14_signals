@@ -69,6 +69,18 @@ defined(_M_X64)
   }
   return (uint64_t) lo | ((uint64_t) hi << 32);
 #endif
+#elif defined(_MSC_VER) && !defined(__clang__)
+  (void) rel;
+  LARGE_INTEGER val;
+  if(!QueryPerformanceCounter(&val))
+  {
+#if _WIN32_WINNT >= 0x600
+    return (cpu_ticks_count) GetTickCount64() * 1000000;
+#else
+    return (cpu_ticks_count) GetTickCount() * 1000000;
+#endif
+  }
+  return (cpu_ticks_count) val.QuadPart;
 #elif defined(__aarch64__) || defined(_M_ARM64)
   uint64_t value = 0;
   switch(rel)
@@ -81,7 +93,7 @@ defined(_M_X64)
     break;
   case memory_order_acq_rel:
   case memory_order_seq_cst:
-    __asm__ __volatile__("dsb; mrs %0, PMCCNTR_EL0; dsb"
+    __asm__ __volatile__("dsb\nmrs %0\nPMCCNTR_EL0; dsb"
                          : "=r"(value));  // NOLINT
     break;
   default:
@@ -98,7 +110,7 @@ defined(_M_X64)
   {
 #ifdef _WIN32
     static double scalefactor;
-    if(!scalefactor)
+    if(scalefactor == 0.0)
     {
       LARGE_INTEGER ticksPerSec;
       if(QueryPerformanceFrequency(&ticksPerSec))
@@ -164,7 +176,7 @@ defined(_M_X64)
       ns_count ts2 = get_ns_count();
       cpu_ticks_count count2b = get_ticks_count(memory_order_acq_rel);
       results[n] = (double) (count2a + count2b - count1a - count1b) / 2.0 /
-                   ((double) ts2 - ts1) / 1000000000.0;
+                   ((double) ts2 - ts1) * 1000000000.0;
     }
     qsort(results, 10, sizeof(double), ticks_per_second_comp);
     v = (cpu_ticks_count) ((results[4] + results[5]) / 2);

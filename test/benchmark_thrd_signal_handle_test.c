@@ -17,6 +17,7 @@ sigill_recovery_func(const struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *
 static bool
 sigill_decider_func(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi)
 {
+  (void) rsi;
   return true;  // handled
 }
 static union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
@@ -44,6 +45,8 @@ int main()
   sigaddset(&guarded, SIGILL);
   union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
   value = {.int_value = 0};
+  const cpu_ticks_count ticks_per_sec = ticks_per_second();
+  printf("There are %llu ticks per second.\n", ticks_per_sec);
 
   puts("Benchmarking thread local handling ...");
   {
@@ -67,7 +70,7 @@ int main()
     "\nOn this platform (WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL "
     "= " STRINGIZE(WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL) "), thrd_signal_invoke() "
                                                "takes %f nanoseconds.\n\n",
-    (double) ticks / (double) ops);
+    (double) ticks / ((double) ticks_per_sec / 1000000000.0) / (double) ops);
   }
 
   puts("Benchmarking global handling ...");
@@ -94,7 +97,7 @@ int main()
     "= " STRINGIZE(WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL) "), invoking a globally "
                                                "installed decider "
                                                "takes %f nanoseconds.\n\n",
-    (double) ticks / (double) ops);
+    (double) ticks / ((double) ticks_per_sec / 1000000000.0) / (double) ops);
     WG14_SIGNALS_PREFIX(signal_decider_destroy(sigill_decider));
   }
 

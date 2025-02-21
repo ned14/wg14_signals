@@ -18,6 +18,7 @@ static int create(void **dest)
 }
 static int destroy(void *dest)
 {
+  (void) dest;
   return 0;
 }
 
@@ -51,6 +52,8 @@ int main()
     {
     } while(end = get_ns_count(), end - begin < 1000000000);
   }
+  const cpu_ticks_count ticks_per_sec = ticks_per_second();
+  printf("There are %llu ticks per second.\n", ticks_per_sec);
   puts("Running benchmark ...");
   const ns_count begin = get_ns_count();
   ns_count end = begin;
@@ -62,6 +65,7 @@ int main()
       cpu_ticks_count s = get_ticks_count(memory_order_relaxed);
       volatile unsigned *val =
       (unsigned *) WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(shared.tls);
+      (void) val;
       cpu_ticks_count e = get_ticks_count(memory_order_relaxed);
       ticks += e - s;
       ops++;
@@ -71,7 +75,7 @@ int main()
   "\nOn this platform (WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL "
   "= " STRINGIZE(WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL) "), tss_async_signal_safe_get() "
                                              "takes %f nanoseconds.\n\n",
-  (double) ticks / (double) ops);
+  (double) ticks / ((double) ticks_per_sec / 1000000000.0) / (double) ops);
 
   CHECK(-1 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(shared.tls));
   printf("Exiting main with result %d ...\n", ret);
