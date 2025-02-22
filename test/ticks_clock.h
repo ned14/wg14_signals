@@ -41,6 +41,7 @@ extern "C"
   static inline cpu_ticks_count get_ticks_count(memory_order rel)
   {
 #ifdef __APPLE__
+    (void) rel;
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
     return ts.tv_sec * 1000000000ULL + ts.tv_nsec;
@@ -86,14 +87,16 @@ defined(_M_X64)
   switch(rel)
   {
   case memory_order_acquire:
-    __asm__ __volatile__("mrs %0, PMCCNTR_EL0; dsb" : "=r"(value));  // NOLINT
+    __asm__ __volatile__("mrs %0, PMCCNTR_EL0; dsb sy"
+                         : "=r"(value));  // NOLINT
     break;
   case memory_order_release:
-    __asm__ __volatile__("dsb; mrs %0, PMCCNTR_EL0" : "=r"(value));  // NOLINT
+    __asm__ __volatile__("dsb sy; mrs %0, PMCCNTR_EL0"
+                         : "=r"(value));  // NOLINT
     break;
   case memory_order_acq_rel:
   case memory_order_seq_cst:
-    __asm__ __volatile__("dsb\nmrs %0\nPMCCNTR_EL0; dsb"
+    __asm__ __volatile__("dsb sy; mrs %0 PMCCNTR_EL0; dsb sy"
                          : "=r"(value));  // NOLINT
     break;
   default:

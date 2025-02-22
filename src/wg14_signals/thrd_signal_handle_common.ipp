@@ -409,19 +409,21 @@ union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
     errno = EINVAL;
     return WG14_SIGNALS_NULLPTR;
   }
-  void *ret =
-  malloc(sizeof(sigset_t) +
-         (signo_count + 1) * sizeof(struct global_signal_decider_t *));
+  const size_t sigset_t_size =
+  (sizeof(sigset_t) + sizeof(struct global_signal_decider_t *) - 1) &
+  ~(sizeof(struct global_signal_decider_t *) - 1);
+  void *ret = malloc(sigset_t_size + (signo_count + 1) *
+                                     sizeof(struct global_signal_decider_t *));
   if(ret == WG14_SIGNALS_NULLPTR)
   {
     return WG14_SIGNALS_NULLPTR;
   }
   memset(ret, 0,
-         sizeof(sigset_t) +
+         sigset_t_size +
          (signo_count + 1) * sizeof(struct global_signal_decider_t *));
   *(sigset_t *) ret = *guarded;
   struct global_signal_decider_t **retp =
-  (struct global_signal_decider_t **) ((char *) ret + sizeof(sigset_t));
+  (struct global_signal_decider_t **) ((char *) ret + sigset_t_size);
 
   struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
   WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
@@ -481,8 +483,11 @@ bool WG14_SIGNALS_PREFIX(signal_decider_destroy)(void *p)
   struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
   WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
   const sigset_t *guarded = (const sigset_t *) p;
+  const size_t sigset_t_size =
+  (sizeof(sigset_t) + sizeof(struct global_signal_decider_t *) - 1) &
+  ~(sizeof(struct global_signal_decider_t *) - 1);
   struct global_signal_decider_t **retp =
-  (struct global_signal_decider_t **) ((char *) p + sizeof(sigset_t));
+  (struct global_signal_decider_t **) ((char *) p + sigset_t_size);
   for(int signo = 1; signo < NSIG; signo++)
   {
     if(signo == SIGKILL || signo == SIGSTOP)

@@ -27,7 +27,7 @@ struct shared_t
   WG14_SIGNALS_PREFIX(tss_async_signal_safe) tls;
 } shared;
 
-int main()
+int main(void)
 {
   int ret = 0;
   struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)

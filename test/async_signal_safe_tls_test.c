@@ -29,8 +29,10 @@ static int thrfunc(void *x)
   (void) x;
   int ret = 0;
   printf("Initing TLS for worker thread ...\n");
-  CHECK(-1 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(shared.tls));
-  unsigned *val = (unsigned *) WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(shared.tls);
+  CHECK(-1 !=
+        WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(shared.tls));
+  unsigned *val =
+  (unsigned *) WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(shared.tls);
   if(val == WG14_SIGNALS_NULLPTR)
   {
     abort();
@@ -39,20 +41,25 @@ static int thrfunc(void *x)
   return ret;
 }
 
-int main()
+int main(void)
 {
   int ret = 0;
-  WG14_SIGNALS_PREFIX(thread_id_t) mytid = WG14_SIGNALS_PREFIX(current_thread_id)();
+  WG14_SIGNALS_PREFIX(thread_id_t)
+  mytid = WG14_SIGNALS_PREFIX(current_thread_id)();
   printf("Main thread tid = %lu\n", (unsigned long) mytid);
   CHECK(0 != mytid);
-  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr) attr = {.create = create, .destroy = destroy};
+  struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)
+  attr = {.create = create, .destroy = destroy};
   printf("Creating TLS ...\n");
-  CHECK(-1 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(&shared.tls, &attr));
+  CHECK(-1 !=
+        WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(&shared.tls, &attr));
   printf("Initing TLS for main thread ...\n");
-  CHECK(-1 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(shared.tls));
+  CHECK(-1 !=
+        WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(shared.tls));
   thrd_t thread;
   thrd_create(&thread, thrfunc, &shared);
-  unsigned *val = (unsigned *) WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(shared.tls);
+  unsigned *val =
+  (unsigned *) WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(shared.tls);
   if(val == WG14_SIGNALS_NULLPTR)
   {
     abort();

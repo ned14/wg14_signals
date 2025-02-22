@@ -26,7 +26,7 @@ sigill_func(union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
   return value;
 }
 
-int main()
+int main(void)
 {
   int ret = 0;
   void *handlers =

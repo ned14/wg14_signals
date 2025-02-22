@@ -6,11 +6,12 @@
 #include <stdlib.h>
 
 #define STRINGISE(x) #x
-#define CHECK(x)                                                                                                       \
-  if(!(x))                                                                                                             \
-  {                                                                                                                    \
-    fprintf(stderr, "CHECK(" STRINGISE(x) ") failed at " __FILE__ ":" STRINGISE(__LINE__) "\n");                       \
-    ret++;                                                                                                             \
+#define CHECK(x)                                                               \
+  if(!(x))                                                                     \
+  {                                                                            \
+    fprintf(stderr, "CHECK(" STRINGISE(x) ") failed at " __FILE__              \
+                                          ":" STRINGISE(__LINE__) "\n");       \
+    ret++;                                                                     \
   }
 
 #if __has_include(<threads.h>)
@@ -29,14 +30,14 @@ typedef struct thrd_t
   pthread_t thread;
 } *thrd_t;
 
-static void *thrd_runner(void *arg)
+static inline void *thrd_runner(void *arg)
 {
   thrd_t thr = (thrd_t) arg;
   thr->res = thr->func(thr->arg);
   return WG14_SIGNALS_NULLPTR;
 }
 
-static int thrd_create(thrd_t *thr, thrd_start_t func, void *arg)
+static inline int thrd_create(thrd_t *thr, thrd_start_t func, void *arg)
 {
   thrd_t ret = (thrd_t) calloc(1, sizeof(struct thrd_t));
   ret->arg = arg;
@@ -46,7 +47,7 @@ static int thrd_create(thrd_t *thr, thrd_start_t func, void *arg)
   return pthread_create(&ret->thread, WG14_SIGNALS_NULLPTR, thrd_runner, ret);
 }
 
-static int thrd_join(thrd_t thr, int *res)
+static inline int thrd_join(thrd_t thr, int *res)
 {
   int ret = pthread_join(thr->thread, WG14_SIGNALS_NULLPTR);
   if(ret != -1)
