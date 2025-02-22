@@ -48,6 +48,7 @@ extern "C"
 #elif defined(__i386__) || defined(_M_IX86) || defined(__x86_64__) ||          \
 defined(_M_X64)
 #ifdef _MSC_VER
+  unsigned int x = 0;
   return (uint64_t) __rdtscp(&x);
 #else
   unsigned lo, hi, aux;
