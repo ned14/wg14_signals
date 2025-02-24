@@ -46,7 +46,8 @@ int main(void)
   union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
   value = {.int_value = 0};
   const cpu_ticks_count ticks_per_sec = ticks_per_second();
-  printf("There are %llu ticks per second.\n", ticks_per_sec);
+  printf("There are %llu ticks per second.\n",
+         (unsigned long long) ticks_per_sec);
 
   puts("Benchmarking thread local handling ...");
   {

@@ -31,6 +31,7 @@ limitations under the License.
 
 #include <assert.h>
 #include <errno.h>
+#include <setjmp.h>
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>

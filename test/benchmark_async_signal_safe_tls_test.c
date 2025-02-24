@@ -53,7 +53,8 @@ int main(void)
     } while(end = get_ns_count(), end - begin < 1000000000);
   }
   const cpu_ticks_count ticks_per_sec = ticks_per_second();
-  printf("There are %llu ticks per second.\n", ticks_per_sec);
+  printf("There are %llu ticks per second.\n",
+         (unsigned long long) ticks_per_sec);
   puts("Running benchmark ...");
   const ns_count begin = get_ns_count();
   ns_count end = begin;

@@ -76,28 +76,28 @@ is unfortunate.
 ### On my Threadripper 5975WX which is a 3.6Ghz processor bursting to 4.5Ghz on Linux:
 
 - `tss_async_signal_safe_get()` which implements an async signal safe
-thread local storage using a hash table costs about 29 nanoseconds, so
-maybe 130 clock cycles.
+thread local storage using a hash table costs about 8 nanoseconds, so
+maybe 29 clock cycles.
 
 
 With `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=1` (the default on Linux,
 Windows, and other ELF based platforms):
 
     - `thrd_signal_invoke()` which invokes a function which thread locally
-handles any signals raised costs about 31 nanoseconds (140 clock cycles)
+handles any signals raised costs about 16 nanoseconds (31 clock cycles)
 for the happy case (most of this is the cost of `_setjmp()` on this platform
 and glibc).
 
-    - A globally installed signal decider takes about 29 nanoseconds (130
+    - A globally installed signal decider takes about 8 nanoseconds (29
 clock cycles) to reach (there is a CAS lock-unlock sequence needed).
 
 
-With `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0` (the default on Mac OS):
+With `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0`:
 
     - `thrd_signal_invoke()` which invokes a function which thread locally
-handles any signals raised costs about 45 nanoseconds for the happy case.
+handles any signals raised costs about 25 nanoseconds for the happy case.
 
-    - A globally installed signal decider takes about 55 nanoseconds to reach.
+    - A globally installed signal decider takes about 10 nanoseconds to reach.
 
 ### On a MacBook Pro M3 running ARM64
 

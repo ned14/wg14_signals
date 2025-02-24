@@ -22,7 +22,6 @@ limitations under the License.
 
 #include "config.h"
 
-#include <setjmp.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -90,7 +89,7 @@ extern "C"
     }
 #endif
   };
-  //! Typedef to a system specific error code type
+  //! \brief Typedef to a system specific error code type
 #ifdef _WIN32
   typedef long WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
 #else
@@ -104,16 +103,17 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
   {
     int signo;  //!< The signal raised
 
-    //! The system specific error code for this signal, the `si_errno` code
-    //! (POSIX) or `NTSTATUS` code (Windows)
+    //! \brief The system specific error code for this signal, the `si_errno`
+    //! code (POSIX) or `NTSTATUS` code (Windows)
     WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t) error_code;
     void *addr;  //!< Memory location which caused fault, if appropriate
     union WG14_SIGNALS_PREFIX(
     thrd_raised_signal_info_value) value;  //!< A user-defined value
 
-    //! The OS specific `siginfo_t *` (POSIX) or `PEXCEPTION_RECORD` (Windows)
+    //! \brief The OS specific `siginfo_t *` (POSIX) or `PEXCEPTION_RECORD`
+    //! (Windows)
     void *raw_info;
-    //! The OS specific `ucontext_t` (POSIX) or `PCONTEXT` (Windows)
+    //! \brief The OS specific `ucontext_t` (POSIX) or `PCONTEXT` (Windows)
     void *raw_context;
   };
 

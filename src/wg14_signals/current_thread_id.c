@@ -67,7 +67,7 @@ static inline WG14_SIGNALS_PREFIX(thread_id_t) get_current_thread_id(void)
 }
 
 WG14_SIGNALS_PREFIX(thread_id_t)
-WG14_SIGNALS_PREFIX(current_thread_id_cached_set)(void)
+WG14_SIGNALS_PREFIX(internal_current_thread_id_cached_set)(void)
 {
 #if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
   WG14_SIGNALS_PREFIX(current_thread_id_cached) = get_current_thread_id();

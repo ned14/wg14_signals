@@ -46,7 +46,7 @@ extern "C"
 #endif
 
   WG14_SIGNALS_EXTERN WG14_SIGNALS_PREFIX(thread_id_t)
-  WG14_SIGNALS_PREFIX(current_thread_id_cached_set)(void);
+  WG14_SIGNALS_PREFIX(internal_current_thread_id_cached_set)(void);
 
   //! \brief THREADSAFE; ASYNC SIGNAL SAFE; Retrieve the current thread id
   static WG14_SIGNALS_INLINE WG14_SIGNALS_PREFIX(thread_id_t)
@@ -57,7 +57,7 @@ extern "C"
        WG14_SIGNALS_PREFIX(thread_id_t_tombstone))
     {
       WG14_SIGNALS_PREFIX(current_thread_id_cached) =
-      WG14_SIGNALS_PREFIX(current_thread_id_cached_set)();
+      WG14_SIGNALS_PREFIX(internal_current_thread_id_cached_set)();
     }
     return WG14_SIGNALS_PREFIX(current_thread_id_cached);
 #else

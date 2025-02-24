@@ -34,8 +34,8 @@ extern "C"
   //! \brief The attributes for creating an async signal safe thread local
   struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)
   {
-    int (*const create)(void **dest);
-    int (*const destroy)(void *v);
+    int (*const create)(void **dest);  //!< Create an instance
+    int (*const destroy)(void *v);     //!< Destroy an instance
   };
 
   //! \brief Create an async signal safe thread local instance
