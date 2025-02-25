@@ -137,6 +137,69 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
 #pragma warning(push)
 #pragma warning(disable : 4190)  // C-linkage with UDTs
 #endif
+  /*! \brief THREADSAFE ASYNC-SIGNAL-SAFE The set of synchronous signals for
+  this platform.
+
+  Synchronous signals are those which can be raised by a thread in the course
+  of its execution. This set can include platform-specific additions, however
+  at least these POSIX signals are within this set:
+
+  * `SIGABRT`
+  * `SIGBUS`
+  * `SIGFPE`
+  * `SIGILL`
+  * `SIGPIPE`
+  * `SIGSEGV`
+  * `SIGSYS`
+  */
+  WG14_SIGNALS_EXTERN const sigset_t *
+  WG14_SIGNALS_PREFIX(synchronous_sigset)(void);
+
+  /*! \brief THREADSAFE ASYNC-SIGNAL-SAFE The set of non-debug asynchronous
+  signals for this platform.
+
+  Non-debug asynchronous signals are those which are delivered by the system to
+  notify the process about some event which does not default to resulting in a
+  core dump. This set can include platform-specific additions, however at least
+  these POSIX signals are within this set:
+
+  * `SIGALRM`
+  * `SIGCHLD`
+  * `SIGCONT`
+  * `SIGHUP`
+  * `SIGINT`
+  * `SIGKILL`
+  * `SIGSTOP`
+  * `SIGTERM`
+  * `SIGTSTP`
+  * `SIGTTIN`
+  * `SIGTTOU`
+  * `SIGUSR1`
+  * `SIGUSR2`
+  * `SIGPOLL`
+  * `SIGPROF`
+  * `SIGURG`
+  * `SIGVTALRM`
+  */
+  WG14_SIGNALS_EXTERN const sigset_t *
+  WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(void);
+
+  /*! \brief THREADSAFE ASYNC-SIGNAL-SAFE The set of debug asynchronous signals
+  for this platform.
+
+  Debug asynchronous signals are those which are delivered by the system to
+  notify the process about some event which defaults to resulting in a core
+  dump. This set can include platform-specific additions, however at least these
+  POSIX signals are within this set:
+
+  * `SIGQUIT`
+  * `SIGTRAP`
+  * `SIGXCPU`
+  * `SIGXFSZ`
+  */
+  WG14_SIGNALS_EXTERN const sigset_t *
+  WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(void);
+
   /*! \brief THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal
   guard for the calling thread, and calls the guarded function `guarded`.
 

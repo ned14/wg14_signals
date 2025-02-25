@@ -22,6 +22,7 @@ limitations under the License.
 #include "thrd_signal_handle_common.ipp"
 
 #include <pthread.h>
+#include <signal.h>
 
 #if WG14_SIGNALS_HAVE__SETJMP
 #define WG14_SIGNALS_SETJMP _setjmp
@@ -30,6 +31,70 @@ limitations under the License.
 #define WG14_SIGNALS_SETJMP setjmp
 #define WG14_SIGNALS_LONGJMP longjmp
 #endif
+
+__attribute__((constructor)) const sigset_t *
+WG14_SIGNALS_PREFIX(synchronous_sigset)(void)
+{
+  static sigset_t v;
+  static const int signos[] = {SIGABRT, SIGBUS,  SIGFPE, SIGILL,
+                               SIGPIPE, SIGSEGV, SIGSYS};
+  if(sigismember(&v, signos[0]))
+  {
+    return &v;
+  }
+  sigset_t x;
+  sigemptyset(&x);
+  for(size_t n = 0; n < sizeof(signos) / sizeof(signos[0]); n++)
+  {
+    sigaddset(&x, signos[n]);
+  }
+  v = x;
+  return &v;
+}
+
+__attribute__((constructor)) const sigset_t *
+WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(void)
+{
+  static sigset_t v;
+  static const int signos[] = {SIGALRM, SIGCHLD, SIGCONT,  SIGHUP,  SIGINT,
+                               SIGKILL, SIGSTOP, SIGTERM,  SIGTSTP, SIGTTIN,
+                               SIGTTOU, SIGUSR1, SIGUSR2,
+#ifdef SIGPOLL
+                               SIGPOLL,
+#endif
+                               SIGPROF, SIGURG,  SIGVTALRM};
+  if(sigismember(&v, signos[0]))
+  {
+    return &v;
+  }
+  sigset_t x;
+  sigemptyset(&x);
+  for(size_t n = 0; n < sizeof(signos) / sizeof(signos[0]); n++)
+  {
+    sigaddset(&x, signos[n]);
+  }
+  v = x;
+  return &v;
+}
+
+__attribute__((constructor)) const sigset_t *
+WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(void)
+{
+  static sigset_t v;
+  static const int signos[] = {SIGQUIT, SIGTRAP, SIGXCPU, SIGXFSZ};
+  if(sigismember(&v, signos[0]))
+  {
+    return &v;
+  }
+  sigset_t x;
+  sigemptyset(&x);
+  for(size_t n = 0; n < sizeof(signos) / sizeof(signos[0]); n++)
+  {
+    sigaddset(&x, signos[n]);
+  }
+  v = x;
+  return &v;
+}
 
 #if 0
 // Reset the SIGABRT handler, and call abort()
@@ -42,6 +107,7 @@ static void __attribute__((noreturn)) default_abort(void)
   abort();
 }
 #endif
+
 
 // Invoke a sigaction as if it were the first signal handler
 static bool invoke_sigaction(const struct sigaction *sa, const int signo,

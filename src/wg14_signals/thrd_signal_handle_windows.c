@@ -23,6 +23,48 @@ limitations under the License.
 
 #include "thrd_signal_handle_common.ipp"
 
+const sigset_t *WG14_SIGNALS_PREFIX(synchronous_sigset)(void)
+{
+  static sigset_t v;
+  static const int signos[] = {SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGSEGV};
+  if(sigismember(&v, signos[0]))
+  {
+    return &v;
+  }
+  sigset_t x;
+  sigemptyset(&x);
+  for(size_t n = 0; n < sizeof(signos) / sizeof(signos[0]); n++)
+  {
+    sigaddset(&x, signos[n]);
+  }
+  v = x;
+  return &v;
+}
+
+const sigset_t *WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(void)
+{
+  static sigset_t v;
+  static const int signos[] = {SIGINT, SIGKILL, SIGSTOP, SIGTERM};
+  if(sigismember(&v, signos[0]))
+  {
+    return &v;
+  }
+  sigset_t x;
+  sigemptyset(&x);
+  for(size_t n = 0; n < sizeof(signos) / sizeof(signos[0]); n++)
+  {
+    sigaddset(&x, signos[n]);
+  }
+  v = x;
+  return &v;
+}
+
+const sigset_t *WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(void)
+{
+  static sigset_t v;
+  return &v;
+}
+
 
 static DWORD win32_exception_code_from_signal(int c)
 {
