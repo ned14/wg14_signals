@@ -5,7 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define STRINGISE(x) #x
+#define STRINGISE2(x) #x
+#define STRINGISE(x) STRINGISE2(x)
 #define CHECK(x)                                                               \
   if(!(x))                                                                     \
   {                                                                            \

@@ -128,9 +128,23 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
   *WG14_SIGNALS_PREFIX(thrd_signal_recover_t))(
   const struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *);
 
+  //! \brief The decision taken by the decider function
+  enum WG14_SIGNALS_PREFIX(thrd_signal_decision_t)
+  {
+    //! \brief We have decided to do nothing
+    WG14_SIGNALS_PREFIX(thrd_signal_decision_next_decider),
+    //! \brief We have fixed the cause of the signal, please resume execution
+    WG14_SIGNALS_PREFIX(thrd_signal_decision_resume_execution),
+    //! \brief Thread local signal deciders only: reset the stack and local
+    //! state to entry to `thrd_signal_invoke()`, and call the recovery
+    //! function.
+    WG14_SIGNALS_PREFIX(thrd_signal_decision_invoke_recovery)
+  };
+
   //! \brief The type of the function called when a signal is raised. Returns
-  //! true to continue guarded code, false to recover.
-  typedef bool (*WG14_SIGNALS_PREFIX(thrd_signal_decide_t))(
+  //! a decision of how to handle the signal.
+  typedef enum WG14_SIGNALS_PREFIX(thrd_signal_decision_t) (
+  *WG14_SIGNALS_PREFIX(thrd_signal_decide_t))(
   struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *);
 
 #ifdef _MSC_VER
@@ -292,11 +306,11 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
                                               int version);
   /*! \brief THREADSAFE Uninstall a previously installed signal guard.
    */
-  WG14_SIGNALS_EXTERN bool
+  WG14_SIGNALS_EXTERN int
   WG14_SIGNALS_PREFIX(modern_signals_uninstall)(void *i);
   /*! \brief THREADSAFE Uninstall a previously system installed signal guard.
    */
-  WG14_SIGNALS_EXTERN bool
+  WG14_SIGNALS_EXTERN int
   WG14_SIGNALS_PREFIX(modern_signals_uninstall_system)(int version);
 
   /*! \brief THREADSAFE NOT REENTRANT Create a global signal continuation
@@ -327,7 +341,7 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
   reentrant i.e. do not call whilst inside a global signal continuation decider.
   \return True if recognised and thus removed.
   */
-  WG14_SIGNALS_EXTERN bool
+  WG14_SIGNALS_EXTERN int
   WG14_SIGNALS_PREFIX(signal_decider_destroy)(void *decider);
 
 

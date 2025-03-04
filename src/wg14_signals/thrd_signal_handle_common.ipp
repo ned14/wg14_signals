@@ -357,7 +357,7 @@ void *WG14_SIGNALS_PREFIX(modern_signals_install)(const sigset_t *guarded,
   return ret;
 }
 
-bool WG14_SIGNALS_PREFIX(modern_signals_uninstall)(void *ss)
+int WG14_SIGNALS_PREFIX(modern_signals_uninstall)(void *ss)
 {
   sigset_t *sigset = (sigset_t *) ss;
   for(int signo = 1; signo < NSIG; signo++)
@@ -370,22 +370,22 @@ bool WG14_SIGNALS_PREFIX(modern_signals_uninstall)(void *ss)
     {
       if(!uninstall_sighandler(signo))
       {
-        return false;
+        return -1;
       }
     }
   }
   free(ss);
-  return true;
+  return 0;
 }
 
-bool WG14_SIGNALS_PREFIX(modern_signals_uninstall_system)(int version)
+int WG14_SIGNALS_PREFIX(modern_signals_uninstall_system)(int version)
 {
   if(version != 0)
   {
     errno = EINVAL;
-    return false;
+    return -1;
   }
-  return true;
+  return 0;
 }
 
 void *WG14_SIGNALS_PREFIX(signal_decider_create)(
@@ -478,9 +478,9 @@ union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
   return ret;
 }
 
-bool WG14_SIGNALS_PREFIX(signal_decider_destroy)(void *p)
+int WG14_SIGNALS_PREFIX(signal_decider_destroy)(void *p)
 {
-  bool ret = false;
+  int ret = -1;
   struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
   WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
   const sigset_t *guarded = (const sigset_t *) p;
@@ -506,7 +506,7 @@ bool WG14_SIGNALS_PREFIX(signal_decider_destroy)(void *p)
         {
           LIST_REMOVE(signo_to_sighandler_map_t_value(it)->global_handler,
                       *retp);
-          ret = true;
+          ret = 0;
         }
       }
       if(*retp != WG14_SIGNALS_NULLPTR)

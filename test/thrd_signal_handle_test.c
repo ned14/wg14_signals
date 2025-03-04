@@ -15,12 +15,12 @@ sigill_recovery_func(const struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *
   shared->count_recovery++;
   return rsi->value;
 }
-static bool
+static enum WG14_SIGNALS_PREFIX(thrd_signal_decision_t)
 sigill_decider_func(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi)
 {
   struct shared_t *shared = (struct shared_t *) rsi->value.ptr_value;
   shared->count_decider++;
-  return true;  // handled
+  return WG14_SIGNALS_PREFIX(thrd_signal_decision_invoke_recovery);  // handled
 }
 static union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
 sigill_func(union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
@@ -67,7 +67,7 @@ int main(void)
     WG14_SIGNALS_PREFIX(signal_decider_destroy(sigill_decider));
   }
 
-  CHECK(WG14_SIGNALS_PREFIX(modern_signals_uninstall)(handlers));
+  CHECK(WG14_SIGNALS_PREFIX(modern_signals_uninstall)(handlers) == 0);
   printf("Exiting main with result %d ...\n", ret);
   return ret;
 }

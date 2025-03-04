@@ -153,8 +153,13 @@ EXCEPTION_POINTERS *ptrs)
   {
     prepare_rsi(rsi, signo, ptrs);
     rsi->value = value;
-    if(decider(rsi))
+    switch(decider(rsi))
     {
+    case WG14_SIGNALS_PREFIX(thrd_signal_decision_next_decider):
+      break;
+    case WG14_SIGNALS_PREFIX(thrd_signal_decision_resume_execution):
+      return EXCEPTION_CONTINUE_EXECUTION;
+    case WG14_SIGNALS_PREFIX(thrd_signal_decision_invoke_recovery):
       return EXCEPTION_EXECUTE_HANDLER;
     }
   }

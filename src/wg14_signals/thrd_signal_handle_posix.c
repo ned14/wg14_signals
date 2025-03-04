@@ -23,6 +23,7 @@ limitations under the License.
 
 #include <pthread.h>
 #include <signal.h>
+#include <stdatomic.h>
 
 #if WG14_SIGNALS_HAVE__SETJMP
 #define WG14_SIGNALS_SETJMP _setjmp
@@ -208,10 +209,17 @@ union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
   if(WG14_SIGNALS_SETJMP(current.buf) != 0)
   {
     tss->front = old;
+    // Technically needed to ensure previous handler is active before recovery
+    // function is called, as it may raise a signal
+    atomic_signal_fence(memory_order_acq_rel);
     return recovery(&current.rsi);
   }
+  // Technically needed to ensure setjmp buffer written out before guarded
+  // function is called
+  atomic_signal_fence(memory_order_acq_rel);
   union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) ret = guarded(value);
   tss->front = old;
+  atomic_signal_fence(memory_order_acq_rel);
   return ret;
 }
 
@@ -236,8 +244,14 @@ bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info,
     if(sigismember(frame->guarded, signo))
     {
       prepare_rsi(&frame->rsi, signo, (siginfo_t *) raw_info, raw_context);
-      if(frame->decider(&frame->rsi))
+      switch(frame->decider(&frame->rsi))
       {
+      case WG14_SIGNALS_PREFIX(thrd_signal_decision_next_decider):
+        break;
+      case WG14_SIGNALS_PREFIX(thrd_signal_decision_resume_execution):
+        frame = frame->prev;
+        return true;
+      case WG14_SIGNALS_PREFIX(thrd_signal_decision_invoke_recovery):
         WG14_SIGNALS_LONGJMP(frame->buf, 1);
       }
     }

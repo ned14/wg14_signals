@@ -14,11 +14,11 @@ sigill_recovery_func(const struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *
 {
   return rsi->value;
 }
-static bool
+static enum WG14_SIGNALS_PREFIX(thrd_signal_decision_t)
 sigill_decider_func(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi)
 {
   (void) rsi;
-  return true;  // handled
+  return WG14_SIGNALS_PREFIX(thrd_signal_decision_invoke_recovery);  // handled
 }
 static union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
 sigill_func(union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)

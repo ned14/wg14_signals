@@ -40,7 +40,7 @@ extern "C"
 
   static inline cpu_ticks_count get_ticks_count(memory_order rel)
   {
-#ifdef __APPLE__
+#if defined(__APPLE__) || DISABLE_INLINE_ASM
     (void) rel;
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
