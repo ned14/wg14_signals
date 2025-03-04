@@ -37,6 +37,10 @@ limitations under the License.
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef __FILC__
+#include <stdfil.h>
+#endif
+
 struct sighandler_t;
 
 #if NSIG < 1024
@@ -154,6 +158,7 @@ struct thrd_signal_global_state_tss_state_per_frame_t
   struct thrd_signal_global_state_tss_state_per_frame_t *prev;
 #ifndef _WIN32
   const sigset_t *guarded;
+  WG14_SIGNALS_PREFIX(thrd_signal_recover_t) recovery;
   WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider;
   struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
 #endif
@@ -343,6 +348,12 @@ void *WG14_SIGNALS_PREFIX(modern_signals_install)(const sigset_t *guarded,
     {
       continue;
     }
+#ifdef __FILC__
+    if(zis_unsafe_signal_for_handlers(signo))
+    {
+      continue;
+    }
+#endif
     if(sigismember(ret, signo))
     {
       if(!install_sighandler(signo))
@@ -359,6 +370,11 @@ void *WG14_SIGNALS_PREFIX(modern_signals_install)(const sigset_t *guarded,
 
 int WG14_SIGNALS_PREFIX(modern_signals_uninstall)(void *ss)
 {
+  if(ss == WG14_SIGNALS_NULLPTR)
+  {
+    errno = EINVAL;
+    return -1;
+  }
   sigset_t *sigset = (sigset_t *) ss;
   for(int signo = 1; signo < NSIG; signo++)
   {
@@ -393,6 +409,11 @@ const sigset_t *guarded, bool callfirst,
 WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
 union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
 {
+  if(guarded == WG14_SIGNALS_NULLPTR)
+  {
+    errno = EINVAL;
+    return WG14_SIGNALS_NULLPTR;
+  }
   size_t signo_count = 0;
   for(int signo = 1; signo < NSIG; signo++)
   {
@@ -480,6 +501,11 @@ union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
 
 int WG14_SIGNALS_PREFIX(signal_decider_destroy)(void *p)
 {
+  if(p == WG14_SIGNALS_NULLPTR)
+  {
+    errno = EINVAL;
+    return -1;
+  }
   int ret = -1;
   struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
   WG14_SIGNALS_PREFIX(thrd_signal_global_state)();

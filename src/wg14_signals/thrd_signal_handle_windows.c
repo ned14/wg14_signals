@@ -145,6 +145,7 @@ static void prepare_rsi(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *
 static long win32_exception_filter(
 struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi,
 const sigset_t *guarded, const int signo,
+WG14_SIGNALS_PREFIX(thrd_signal_recover_t) recovery,
 WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
 union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value,
 EXCEPTION_POINTERS *ptrs)
@@ -160,7 +161,8 @@ EXCEPTION_POINTERS *ptrs)
     case WG14_SIGNALS_PREFIX(thrd_signal_decision_resume_execution):
       return EXCEPTION_CONTINUE_EXECUTION;
     case WG14_SIGNALS_PREFIX(thrd_signal_decision_invoke_recovery):
-      return EXCEPTION_EXECUTE_HANDLER;
+      return (recovery != WG14_SIGNALS_NULLPTR) ? EXCEPTION_EXECUTE_HANDLER :
+                                                  EXCEPTION_CONTINUE_EXECUTION;
     }
   }
   return EXCEPTION_CONTINUE_SEARCH;
@@ -173,14 +175,19 @@ WG14_SIGNALS_PREFIX(thrd_signal_recover_t) recovery,
 WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
 union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
 {
+  if(signals == WG14_SIGNALS_NULLPTR || guarded == WG14_SIGNALS_NULLPTR ||
+     decider == WG14_SIGNALS_NULLPTR)
+  {
+    abort();
+  }
   struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
   __try
   {
     return guarded(value);
   }
   __except(win32_exception_filter(
-  &rsi, signals, signal_from_win32_exception_code(GetExceptionCode()), decider,
-  value, GetExceptionInformation()))
+  &rsi, signals, signal_from_win32_exception_code(GetExceptionCode()), recovery,
+  decider, value, GetExceptionInformation()))
   {
     return recovery(&rsi);
   }

@@ -190,6 +190,11 @@ WG14_SIGNALS_PREFIX(thrd_signal_recover_t) recovery,
 WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
 union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
 {
+  if(signals == WG14_SIGNALS_NULLPTR || guarded == WG14_SIGNALS_NULLPTR ||
+     decider == WG14_SIGNALS_NULLPTR)
+  {
+    abort();
+  }
   if(0 != thrd_signal_global_tss_state_init())
   {
     union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) ret;
@@ -203,6 +208,7 @@ union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
   memset(&current, 0, sizeof(current));
   current.prev = old;
   current.guarded = signals;
+  current.recovery = recovery;
   current.decider = decider;
   current.rsi.value = value;
   tss->front = &current;
@@ -252,6 +258,11 @@ bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info,
         frame = frame->prev;
         return true;
       case WG14_SIGNALS_PREFIX(thrd_signal_decision_invoke_recovery):
+        if(frame->recovery == WG14_SIGNALS_NULLPTR)
+        {
+          frame = frame->prev;
+          return true;
+        }
         WG14_SIGNALS_LONGJMP(frame->buf, 1);
       }
     }

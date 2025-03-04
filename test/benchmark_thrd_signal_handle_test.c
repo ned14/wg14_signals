@@ -4,8 +4,17 @@
 
 #include "wg14_signals/thrd_signal_handle.h"
 
+#include <errno.h>
+#include <string.h>
+
 #define STRINGIZE2(x) #x
 #define STRINGIZE(x) STRINGIZE2(x)
+
+#ifdef __FILC__
+#define SIGNAL_TO_USE SIGUSR1
+#else
+#define SIGNAL_TO_USE SIGILL
+#endif
 
 
 static union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
@@ -31,6 +40,12 @@ int main(void)
   int ret = 0;
   void *handlers =
   WG14_SIGNALS_PREFIX(modern_signals_install)(WG14_SIGNALS_NULLPTR, 0);
+  if(handlers == WG14_SIGNALS_NULLPTR)
+  {
+    fprintf(stderr, "FATAL: modern_signals_install() failed with %s\n",
+            strerror(errno));
+    return 1;
+  }
 
   puts("Preparing benchmark ...");
   {
@@ -42,7 +57,7 @@ int main(void)
   }
   sigset_t guarded;
   sigemptyset(&guarded);
-  sigaddset(&guarded, SIGILL);
+  sigaddset(&guarded, SIGNAL_TO_USE);
   union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
   value = {.int_value = 0};
   const cpu_ticks_count ticks_per_sec = ticks_per_second();
@@ -87,7 +102,7 @@ int main(void)
       {
         cpu_ticks_count s = get_ticks_count(memory_order_relaxed);
         CHECK(WG14_SIGNALS_PREFIX(thrd_signal_raise)(
-        SIGILL, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR));
+        SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR));
         cpu_ticks_count e = get_ticks_count(memory_order_relaxed);
         ticks += e - s;
         ops++;
