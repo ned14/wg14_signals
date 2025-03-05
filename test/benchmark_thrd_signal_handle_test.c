@@ -117,7 +117,7 @@ int main(void)
     WG14_SIGNALS_PREFIX(signal_decider_destroy(sigill_decider));
   }
 
-  CHECK(WG14_SIGNALS_PREFIX(modern_signals_uninstall)(handlers));
+  CHECK(WG14_SIGNALS_PREFIX(modern_signals_uninstall)(handlers) == 0);
   printf("Exiting main with result %d ...\n", ret);
   return ret;
 }
