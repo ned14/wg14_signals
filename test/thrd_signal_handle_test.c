@@ -43,10 +43,10 @@ int main(void)
 {
   int ret = 0;
   void *handlers =
-  WG14_SIGNALS_PREFIX(modern_signals_install)(WG14_SIGNALS_NULLPTR, 0);
+  WG14_SIGNALS_PREFIX(threadsafe_signals_install)(WG14_SIGNALS_NULLPTR, 0);
   if(handlers == WG14_SIGNALS_NULLPTR)
   {
-    fprintf(stderr, "FATAL: modern_signals_install() failed with %s\n",
+    fprintf(stderr, "FATAL: threadsafe_signals_install() failed with %s\n",
             strerror(errno));
     return 1;
   }
@@ -82,7 +82,7 @@ int main(void)
     WG14_SIGNALS_PREFIX(signal_decider_destroy(sigill_decider));
   }
 
-  CHECK(WG14_SIGNALS_PREFIX(modern_signals_uninstall)(handlers) == 0);
+  CHECK(WG14_SIGNALS_PREFIX(threadsafe_signals_uninstall)(handlers) == 0);
   printf("Exiting main with result %d ...\n", ret);
   return ret;
 }

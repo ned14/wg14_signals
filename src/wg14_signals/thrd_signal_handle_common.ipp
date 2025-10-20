@@ -119,7 +119,7 @@ struct global_signal_decider_t
 {
   struct global_signal_decider_t *prev, *next;
 
-  WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider;
+  WG14_SIGNALS_PREFIX(thrd_signal_decide_t) * decider;
   union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value;
 };
 
@@ -158,8 +158,8 @@ struct thrd_signal_global_state_tss_state_per_frame_t
   struct thrd_signal_global_state_tss_state_per_frame_t *prev;
 #ifndef _WIN32
   const sigset_t *guarded;
-  WG14_SIGNALS_PREFIX(thrd_signal_recover_t) recovery;
-  WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider;
+  WG14_SIGNALS_PREFIX(thrd_signal_recover_t) * recovery;
+  WG14_SIGNALS_PREFIX(thrd_signal_decide_t) * decider;
   struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
 #endif
   jmp_buf buf;
@@ -321,8 +321,8 @@ static bool uninstall_sighandler(const int signo)
   return true;
 }
 
-void *WG14_SIGNALS_PREFIX(modern_signals_install)(const sigset_t *guarded,
-                                                  int version)
+void *WG14_SIGNALS_PREFIX(threadsafe_signals_install)(const sigset_t *guarded,
+                                                      int version)
 {
   if(version != 0)
   {
@@ -368,7 +368,7 @@ void *WG14_SIGNALS_PREFIX(modern_signals_install)(const sigset_t *guarded,
   return ret;
 }
 
-int WG14_SIGNALS_PREFIX(modern_signals_uninstall)(void *ss)
+int WG14_SIGNALS_PREFIX(threadsafe_signals_uninstall)(void *ss)
 {
   if(ss == WG14_SIGNALS_NULLPTR)
   {
@@ -394,7 +394,7 @@ int WG14_SIGNALS_PREFIX(modern_signals_uninstall)(void *ss)
   return 0;
 }
 
-int WG14_SIGNALS_PREFIX(modern_signals_uninstall_system)(int version)
+int WG14_SIGNALS_PREFIX(threadsafe_signals_uninstall_system)(int version)
 {
   if(version != 0)
   {

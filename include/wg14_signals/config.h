@@ -1,5 +1,5 @@
 /* Proposed WG14 improved signals support
-(C) 2024 Niall Douglas <http://www.nedproductions.biz/>
+(C) 2024 - 2026 Niall Douglas <http://www.nedproductions.biz/>
 File Created: Nov 2024
 
 
@@ -35,7 +35,7 @@ limitations under the License.
 will tell you all you need to know about TLS implementations and
 which are async signal safe, and which are not.
 */
-#if(defined(__GNUC__) || defined(_MSC_VER)) && !defined(__APPLE__)
+#if (defined(__GNUC__) || defined(_MSC_VER)) && !defined(__APPLE__)
 #define WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL 1
 #else
 #define WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL 0

@@ -26,6 +26,13 @@ limitations under the License.
 #include <stdbool.h>
 #include <stdint.h>
 
+#if __GLIBC__
+// glibc defines a userspace siginfo_t as an unnamed struct. No
+// choice here but to drag in the relevant header.
+#include <bits/types/siginfo_t.h>
+#endif
+
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -96,6 +103,27 @@ extern "C"
 typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
 #endif
 
+//! \brief A placeholder type for an OS specific `siginfo_t *` (POSIX) or
+//! `PEXCEPTION_RECORD` (Windows)
+#ifdef _WIN32
+  typedef struct _EXCEPTION_RECORD
+  WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t);
+#elif __GLIBC__
+typedef siginfo_t WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t);
+#else
+typedef struct __siginfo WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t);
+#endif
+
+  //! \brief A placeholder type for an OS specific `ucontext_t` (POSIX) or
+  //! `PCONTEXT` (Windows)
+#ifdef _WIN32
+  typedef struct _CONTEXT
+  WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
+#else
+typedef struct ucontext_t
+WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
+#endif
+
   /*! \struct thrd_raised_signal_info
   \brief A platform independent subset of `siginfo_t`.
   */
@@ -110,22 +138,21 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
     union WG14_SIGNALS_PREFIX(
     thrd_raised_signal_info_value) value;  //!< A user-defined value
 
-    //! \brief The OS specific `siginfo_t *` (POSIX) or `PEXCEPTION_RECORD`
-    //! (Windows)
-    void *raw_info;
+    //! \brief The OS specific signal info
+    WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t) * raw_info;
     //! \brief The OS specific `ucontext_t` (POSIX) or `PCONTEXT` (Windows)
-    void *raw_context;
+    WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) * raw_context;
   };
 
   //! \brief The type of the guarded function.
-  typedef union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) (
-  *WG14_SIGNALS_PREFIX(thrd_signal_func_t))(
+  typedef union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)(
+  WG14_SIGNALS_PREFIX(thrd_signal_func_t))(
   union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value));
 
   //! \brief The type of the function called to recover from a signal being
   //! raised in a guarded section.
-  typedef union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) (
-  *WG14_SIGNALS_PREFIX(thrd_signal_recover_t))(
+  typedef union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)(
+  WG14_SIGNALS_PREFIX(thrd_signal_recover_t))(
   const struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *);
 
   //! \brief The decision taken by the decider function
@@ -143,9 +170,8 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
 
   //! \brief The type of the function called when a signal is raised. Returns
   //! a decision of how to handle the signal.
-  typedef enum WG14_SIGNALS_PREFIX(thrd_signal_decision_t) (
-  *WG14_SIGNALS_PREFIX(thrd_signal_decide_t))(
-  struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *);
+  typedef enum WG14_SIGNALS_PREFIX(thrd_signal_decision_t)(WG14_SIGNALS_PREFIX(
+  thrd_signal_decide_t))(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *);
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -302,16 +328,16 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
   global signal handlers.
   */
   WG14_SIGNALS_EXTERN void *
-  WG14_SIGNALS_PREFIX(modern_signals_install)(const sigset_t *guarded,
-                                              int version);
+  WG14_SIGNALS_PREFIX(threadsafe_signals_install)(const sigset_t *guarded,
+                                                  int version);
   /*! \brief THREADSAFE Uninstall a previously installed signal guard.
    */
   WG14_SIGNALS_EXTERN int
-  WG14_SIGNALS_PREFIX(modern_signals_uninstall)(void *i);
+  WG14_SIGNALS_PREFIX(threadsafe_signals_uninstall)(void *i);
   /*! \brief THREADSAFE Uninstall a previously system installed signal guard.
    */
   WG14_SIGNALS_EXTERN int
-  WG14_SIGNALS_PREFIX(modern_signals_uninstall_system)(int version);
+  WG14_SIGNALS_PREFIX(threadsafe_signals_uninstall_system)(int version);
 
   /*! \brief THREADSAFE NOT REENTRANT Create a global signal continuation
   decider. Threadsafe with respect to other calls of this function, but not
