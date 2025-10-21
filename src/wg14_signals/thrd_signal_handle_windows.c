@@ -194,8 +194,9 @@ union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
 }
 
 // You must NOT do anything async signal unsafe in here!
-bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info,
-                                            void *raw_context)
+bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(
+int signo, WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t) * info,
+WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) * raw_context)
 {
   if(0 != thrd_signal_global_tss_state_init())
   {
@@ -215,7 +216,6 @@ bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info,
   }
 
   const DWORD win32sehcode = win32_exception_code_from_signal(signo);
-  EXCEPTION_RECORD *info = (EXCEPTION_RECORD *) raw_info;
   // info->ExceptionInformation[0] = 0=read 1=write 8=DEP
   // info->ExceptionInformation[1] = causing address
   // info->ExceptionInformation[2] = NTSTATUS causing exception

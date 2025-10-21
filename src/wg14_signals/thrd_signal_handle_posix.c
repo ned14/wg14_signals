@@ -152,9 +152,11 @@ static bool invoke_sigaction(const struct sigaction *sa, const int signo,
   return true;
 }
 
-static void prepare_rsi(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *
-                        rsi,
-                        const int signo, siginfo_t *siginfo, void *context)
+static void
+prepare_rsi(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi,
+            const int signo,
+            WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t) * siginfo,
+            WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) * context)
 {
   rsi->signo = signo;
   rsi->raw_context = context;
@@ -230,8 +232,9 @@ union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
 }
 
 // You must NOT do anything async signal unsafe in here!
-bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info,
-                                            void *raw_context)
+bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(
+int signo, WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t) * info,
+WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) * raw_context)
 {
   if(0 != thrd_signal_global_tss_state_init())
   {
@@ -249,7 +252,7 @@ bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info,
   {
     if(sigismember(frame->guarded, signo))
     {
-      prepare_rsi(&frame->rsi, signo, (siginfo_t *) raw_info, raw_context);
+      prepare_rsi(&frame->rsi, signo, info, raw_context);
       switch(frame->decider(&frame->rsi))
       {
       case WG14_SIGNALS_PREFIX(thrd_signal_decision_next_decider):
@@ -282,7 +285,7 @@ bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info,
   }
   struct sigaction sa = signo_to_sighandler_map_t_value(it)->old_handler;
   struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
-  prepare_rsi(&rsi, signo, (siginfo_t *) raw_info, raw_context);
+  prepare_rsi(&rsi, signo, info, raw_context);
   if(signo_to_sighandler_map_t_value(it)->global_handler.front !=
      WG14_SIGNALS_NULLPTR)
   {
@@ -302,7 +305,7 @@ bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info,
   }
   // None of our deciders want this, so call previously installed signal handler
   UNLOCK(state->lock);
-  invoke_sigaction(&sa, signo, (siginfo_t *) raw_info, raw_context);
+  invoke_sigaction(&sa, signo, info, raw_context);
   return true;
 }
 

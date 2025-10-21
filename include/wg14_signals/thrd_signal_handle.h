@@ -297,9 +297,9 @@ WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
   anything else, specify zero for `signo`, this will ensure the calling thread's
   thread local state is set up and return immediately doing nothing else.
   */
-  WG14_SIGNALS_EXTERN bool
-  WG14_SIGNALS_PREFIX(thrd_signal_raise)(int signo, void *raw_info,
-                                         void *raw_context);
+  WG14_SIGNALS_EXTERN bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(
+  int signo, WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t) * raw_info,
+  WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) * raw_context);
 
   /*! \brief THREADSAFE Installs, and potentially enables, the global signal
   handlers for the signals specified by `guarded`. Each signal installed is
