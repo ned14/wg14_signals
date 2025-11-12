@@ -1,0 +1,4 @@
+[submodule "doc/html"]
+	path = doc/html
+	url = https://github.com/ned14/wg14_signals.git
+	branch = gh-pages

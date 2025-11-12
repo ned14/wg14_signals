@@ -4,6 +4,8 @@
 
 CI: [![CI](https://github.com/ned14/wg14_signals/actions/workflows/ci.yml/badge.svg)](https://github.com/ned14/wg14_signals/actions/workflows/ci.yml)
 
+Reference API docs: https://ned14.github.io/wg14_signals/
+
 Can be configured to be a standard library implementation for your
 standard C library runtime. Licensed permissively.
 
