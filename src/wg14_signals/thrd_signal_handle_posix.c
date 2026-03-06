@@ -33,8 +33,7 @@ limitations under the License.
 #define WG14_SIGNALS_LONGJMP longjmp
 #endif
 
-__attribute__((constructor)) const sigset_t *
-WG14_SIGNALS_PREFIX(synchronous_sigset)(void)
+static __attribute__((constructor)) const sigset_t *synchronous_sigset(void)
 {
   static sigset_t v;
   static const int signos[] = {SIGABRT, SIGBUS,  SIGFPE, SIGILL,
@@ -52,9 +51,14 @@ WG14_SIGNALS_PREFIX(synchronous_sigset)(void)
   v = x;
   return &v;
 }
+int WG14_SIGNALS_PREFIX(fill_synchronous_sigset)(sigset_t *set)
+{
+  memcpy(set, synchronous_sigset(), sizeof(*set));
+  return 0;
+}
 
-__attribute__((constructor)) const sigset_t *
-WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(void)
+static __attribute__((constructor)) const sigset_t *
+asynchronous_nondebug_sigset(void)
 {
   static sigset_t v;
   static const int signos[] = {SIGALRM, SIGCHLD, SIGCONT,  SIGHUP,  SIGINT,
@@ -77,9 +81,14 @@ WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(void)
   v = x;
   return &v;
 }
+int WG14_SIGNALS_PREFIX(fill_asynchronous_nondebug_sigset)(sigset_t *set)
+{
+  memcpy(set, asynchronous_nondebug_sigset(), sizeof(*set));
+  return 0;
+}
 
-__attribute__((constructor)) const sigset_t *
-WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(void)
+static __attribute__((constructor)) const sigset_t *
+asynchronous_debug_sigset(void)
 {
   static sigset_t v;
   static const int signos[] = {SIGQUIT, SIGTRAP, SIGXCPU, SIGXFSZ};
@@ -95,6 +104,11 @@ WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(void)
   }
   v = x;
   return &v;
+}
+int WG14_SIGNALS_PREFIX(fill_asynchronous_debug_sigset)(sigset_t *set)
+{
+  memcpy(set, asynchronous_debug_sigset(), sizeof(*set));
+  return 0;
 }
 
 #if 0

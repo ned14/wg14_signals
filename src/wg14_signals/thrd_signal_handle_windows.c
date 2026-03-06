@@ -23,7 +23,7 @@ limitations under the License.
 
 #include "thrd_signal_handle_common.ipp"
 
-const sigset_t *WG14_SIGNALS_PREFIX(synchronous_sigset)(void)
+static const sigset_t *synchronous_sigset(void)
 {
   static sigset_t v;
   static const int signos[] = {SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGSEGV};
@@ -40,8 +40,13 @@ const sigset_t *WG14_SIGNALS_PREFIX(synchronous_sigset)(void)
   v = x;
   return &v;
 }
+int WG14_SIGNALS_PREFIX(fill_synchronous_sigset)(sigset_t *set)
+{
+  memcpy(set, synchronous_sigset(), sizeof(*set));
+  return 0;
+}
 
-const sigset_t *WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(void)
+static const sigset_t *asynchronous_nondebug_sigset(void)
 {
   static sigset_t v;
   static const int signos[] = {SIGINT, SIGKILL, SIGSTOP, SIGTERM};
@@ -58,11 +63,24 @@ const sigset_t *WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(void)
   v = x;
   return &v;
 }
+int WG14_SIGNALS_PREFIX(fill_asynchronous_nondebug_sigset)(sigset_t *set)
+{
+  memcpy(set, asynchronous_nondebug_sigset(), sizeof(*set));
+  return 0;
+}
 
-const sigset_t *WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(void)
+static const sigset_t *asynchronous_debug_sigset(void)
 {
   static sigset_t v;
+  sigset_t x;
+  sigemptyset(&x);
+  v = x;
   return &v;
+}
+int WG14_SIGNALS_PREFIX(fill_asynchronous_debug_sigset)(sigset_t *set)
+{
+  memcpy(set, asynchronous_debug_sigset(), sizeof(*set));
+  return 0;
 }
 
 
