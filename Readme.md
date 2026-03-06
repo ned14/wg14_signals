@@ -1,6 +1,6 @@
 # Reference implementation for proposed extensions to standard C signals handling
 
-(C) 2024 - 2025 Niall Douglas [http://www.nedproductions.biz/](http://www.nedproductions.biz/)
+(C) 2024 - 2026 Niall Douglas [http://www.nedproductions.biz/](http://www.nedproductions.biz/)
 
 CI: [![CI](https://github.com/ned14/wg14_signals/actions/workflows/ci.yml/badge.svg)](https://github.com/ned14/wg14_signals/actions/workflows/ci.yml)
 
@@ -125,8 +125,11 @@ Structured Exception Handling, not our library code).
 - A globally installed signal decider takes about 7,372 nanoseconds to reach
 (this is also Windows code, not our library code, shame it is so slow).
 
-# Todo
+# Known bugs
 
 - Global signal deciders are still racy with respect to modification during
-invocation. Given that they execute in an async signal unsafe situation,
-not sure how much I care.
+invocation. We should use a similar technique to what Win32 does
+https://github.com/reactos/reactos/blob/893a3c9d030fd8b078cbd747eeefd3f6ce57e560/sdk/lib/rtl/vectoreh.c
+so that the reference implementation matches the standards proposal.
+- We should have `pcpp` generate an edition of this library suitable for
+direct drop into a C standard library.
