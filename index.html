@@ -92,8 +92,9 @@ $(document).ready(function(){initNavTree('index.html',''); initResizable(); });
   <div class="headertitle"><div class="title">Reference implementation for proposed extensions to standard C signals handling </div></div>
 </div><!--header-->
 <div class="contents">
-<div class="textblock"><p><a class="anchor" id="md_Readme"></a> (C) 2024 - 2025 Niall Douglas <a href="http://www.nedproductions.biz/">http://www.nedproductions.biz/</a></p>
+<div class="textblock"><p><a class="anchor" id="md_Readme"></a> (C) 2024 - 2026 Niall Douglas <a href="http://www.nedproductions.biz/">http://www.nedproductions.biz/</a></p>
 <p>CI: <a href="https://github.com/ned14/wg14_signals/actions/workflows/ci.yml"><img src="https://github.com/ned14/wg14_signals/actions/workflows/ci.yml/badge.svg" alt="CI" style="pointer-events: none;" class="inline"/></a></p>
+<p>Reference API docs: <a href="https://ned14.github.io/wg14_signals/">https://ned14.github.io/wg14_signals/</a></p>
 <p>Can be configured to be a standard library implementation for your standard C library runtime. Licensed permissively.</p>
 <h1><a class="anchor" id="autotoc_md2"></a>
 Example of use</h1>
@@ -163,9 +164,11 @@ On a MacBook Pro M3 running ARM64 Windows within a VM</h2>
 <li>A globally installed signal decider takes about 7,372 nanoseconds to reach (this is also Windows code, not our library code, shame it is so slow).</li>
 </ul>
 <h1><a class="anchor" id="autotoc_md9"></a>
-Todo</h1>
+Known bugs/issues</h1>
 <ul>
-<li>Global signal deciders are still racy with respect to modification during invocation. Given that they execute in an async signal unsafe situation, not sure how much I care. </li>
+<li>This needs to be made header only implementation capable before it can replace the C++ signal_guard.</li>
+<li>Global signal deciders are still racy with respect to modification during invocation. We should use a similar technique to what Win32 does <a href="https://github.com/reactos/reactos/blob/893a3c9d030fd8b078cbd747eeefd3f6ce57e560/sdk/lib/rtl/vectoreh.c">https://github.com/reactos/reactos/blob/893a3c9d030fd8b078cbd747eeefd3f6ce57e560/sdk/lib/rtl/vectoreh.c</a> so that the reference implementation matches the standards proposal.</li>
+<li>We should have <code>pcpp</code> generate an edition of this library suitable for direct drop into a C standard library. </li>
 </ul>
 </div></div><!-- PageDoc -->
 </div><!-- contents -->

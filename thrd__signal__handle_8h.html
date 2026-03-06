@@ -163,15 +163,15 @@ Functions</h2></td></tr>
 <tr class="memitem:a1788cf0bc63c5df4daa032d03916e6ca" id="r_a1788cf0bc63c5df4daa032d03916e6ca"><td class="memItemLeft" align="right" valign="top">enum <a class="el" href="thrd__signal__handle_8h.html#a3b244d5748901b23088e9c2565989aac">thrd_signal_decision_t</a>()&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="thrd__signal__handle_8h.html#a1788cf0bc63c5df4daa032d03916e6ca">thrd_signal_decide_t</a> (struct <a class="el" href="structthrd__raised__signal__info.html">thrd_raised_signal_info</a> *)</td></tr>
 <tr class="memdesc:a1788cf0bc63c5df4daa032d03916e6ca"><td class="mdescLeft">&#160;</td><td class="mdescRight">The type of the function called when a signal is raised. Returns a decision of how to handle the signal.  <br /></td></tr>
 <tr class="separator:a1788cf0bc63c5df4daa032d03916e6ca"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a680f2387ec39daf656e470872faabae0" id="r_a680f2387ec39daf656e470872faabae0"><td class="memItemLeft" align="right" valign="top">const sigset_t *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="thrd__signal__handle_8h.html#a680f2387ec39daf656e470872faabae0">synchronous_sigset</a> (void)</td></tr>
-<tr class="memdesc:a680f2387ec39daf656e470872faabae0"><td class="mdescLeft">&#160;</td><td class="mdescRight">THREADSAFE ASYNC-SIGNAL-SAFE The set of synchronous signals for this platform.  <br /></td></tr>
-<tr class="separator:a680f2387ec39daf656e470872faabae0"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:adc345db4a25f59500a88b5881df28bfb" id="r_adc345db4a25f59500a88b5881df28bfb"><td class="memItemLeft" align="right" valign="top">const sigset_t *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="thrd__signal__handle_8h.html#adc345db4a25f59500a88b5881df28bfb">asynchronous_nondebug_sigset</a> (void)</td></tr>
-<tr class="memdesc:adc345db4a25f59500a88b5881df28bfb"><td class="mdescLeft">&#160;</td><td class="mdescRight">THREADSAFE ASYNC-SIGNAL-SAFE The set of non-debug asynchronous signals for this platform.  <br /></td></tr>
-<tr class="separator:adc345db4a25f59500a88b5881df28bfb"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a149189ed235a229020fecc001c13dea2" id="r_a149189ed235a229020fecc001c13dea2"><td class="memItemLeft" align="right" valign="top">const sigset_t *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="thrd__signal__handle_8h.html#a149189ed235a229020fecc001c13dea2">asynchronous_debug_sigset</a> (void)</td></tr>
-<tr class="memdesc:a149189ed235a229020fecc001c13dea2"><td class="mdescLeft">&#160;</td><td class="mdescRight">THREADSAFE ASYNC-SIGNAL-SAFE The set of debug asynchronous signals for this platform.  <br /></td></tr>
-<tr class="separator:a149189ed235a229020fecc001c13dea2"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad9806c076d46700adf2844727c33820c" id="r_ad9806c076d46700adf2844727c33820c"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="thrd__signal__handle_8h.html#ad9806c076d46700adf2844727c33820c">fill_synchronous_sigset</a> (sigset_t *set)</td></tr>
+<tr class="memdesc:ad9806c076d46700adf2844727c33820c"><td class="mdescLeft">&#160;</td><td class="mdescRight">THREADSAFE ASYNC-SIGNAL-SAFE Fills the set of synchronous signals for this platform.  <br /></td></tr>
+<tr class="separator:ad9806c076d46700adf2844727c33820c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a29136051848105dcfb0637834a23a50e" id="r_a29136051848105dcfb0637834a23a50e"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="thrd__signal__handle_8h.html#a29136051848105dcfb0637834a23a50e">fill_asynchronous_nondebug_sigset</a> (sigset_t *set)</td></tr>
+<tr class="memdesc:a29136051848105dcfb0637834a23a50e"><td class="mdescLeft">&#160;</td><td class="mdescRight">THREADSAFE ASYNC-SIGNAL-SAFE Fills the set of non-debug asynchronous signals for this platform.  <br /></td></tr>
+<tr class="separator:a29136051848105dcfb0637834a23a50e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa1966310a6c0db5452030392128fa104" id="r_aa1966310a6c0db5452030392128fa104"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="thrd__signal__handle_8h.html#aa1966310a6c0db5452030392128fa104">fill_asynchronous_debug_sigset</a> (sigset_t *set)</td></tr>
+<tr class="memdesc:aa1966310a6c0db5452030392128fa104"><td class="mdescLeft">&#160;</td><td class="mdescRight">THREADSAFE ASYNC-SIGNAL-SAFE The set of debug asynchronous signals for this platform.  <br /></td></tr>
+<tr class="separator:aa1966310a6c0db5452030392128fa104"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a7383ad2fc75d4ecc2243447bc6cd9318" id="r_a7383ad2fc75d4ecc2243447bc6cd9318"><td class="memItemLeft" align="right" valign="top">union <a class="el" href="unionthrd__raised__signal__info__value.html">thrd_raised_signal_info_value</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="thrd__signal__handle_8h.html#a7383ad2fc75d4ecc2243447bc6cd9318">thrd_signal_invoke</a> (const sigset_t *signals, <a class="el" href="thrd__signal__handle_8h.html#a4e3c1a08c832396eb8933e501056f66f">thrd_signal_func_t</a> guarded, <a class="el" href="thrd__signal__handle_8h.html#ab3873d4a492811cb8b54eeea073d438f">thrd_signal_recover_t</a> recovery, <a class="el" href="thrd__signal__handle_8h.html#a1788cf0bc63c5df4daa032d03916e6ca">thrd_signal_decide_t</a> decider, union <a class="el" href="unionthrd__raised__signal__info__value.html">thrd_raised_signal_info_value</a> value)</td></tr>
 <tr class="memdesc:a7383ad2fc75d4ecc2243447bc6cd9318"><td class="mdescLeft">&#160;</td><td class="mdescRight">THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal guard for the calling thread, and calls the guarded function <code>guarded</code>.  <br /></td></tr>
 <tr class="separator:a7383ad2fc75d4ecc2243447bc6cd9318"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -277,8 +277,8 @@ Functions</h2></td></tr>
 </div>
 </div>
 <h2 class="groupheader">Function Documentation</h2>
-<a id="a149189ed235a229020fecc001c13dea2" name="a149189ed235a229020fecc001c13dea2"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a149189ed235a229020fecc001c13dea2">&#9670;&#160;</a></span>asynchronous_debug_sigset()</h2>
+<a id="aa1966310a6c0db5452030392128fa104" name="aa1966310a6c0db5452030392128fa104"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa1966310a6c0db5452030392128fa104">&#9670;&#160;</a></span>fill_asynchronous_debug_sigset()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -287,10 +287,10 @@ Functions</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">const sigset_t * asynchronous_debug_sigset </td>
+          <td class="memname">int fill_asynchronous_debug_sigset </td>
           <td>(</td>
-          <td class="paramtype">void&#160;</td>
-          <td class="paramname"></td><td>)</td>
+          <td class="paramtype">sigset_t *&#160;</td>
+          <td class="paramname"><em>set</em></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -307,8 +307,8 @@ Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="adc345db4a25f59500a88b5881df28bfb" name="adc345db4a25f59500a88b5881df28bfb"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#adc345db4a25f59500a88b5881df28bfb">&#9670;&#160;</a></span>asynchronous_nondebug_sigset()</h2>
+<a id="a29136051848105dcfb0637834a23a50e" name="a29136051848105dcfb0637834a23a50e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a29136051848105dcfb0637834a23a50e">&#9670;&#160;</a></span>fill_asynchronous_nondebug_sigset()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -317,10 +317,10 @@ Functions</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">const sigset_t * asynchronous_nondebug_sigset </td>
+          <td class="memname">int fill_asynchronous_nondebug_sigset </td>
           <td>(</td>
-          <td class="paramtype">void&#160;</td>
-          <td class="paramname"></td><td>)</td>
+          <td class="paramtype">sigset_t *&#160;</td>
+          <td class="paramname"><em>set</em></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -331,9 +331,39 @@ Functions</h2></td></tr>
 </table>
 </div><div class="memdoc">
 
-<p>THREADSAFE ASYNC-SIGNAL-SAFE The set of non-debug asynchronous signals for this platform. </p>
+<p>THREADSAFE ASYNC-SIGNAL-SAFE Fills the set of non-debug asynchronous signals for this platform. </p>
 <p>Non-debug asynchronous signals are those which are delivered by the system to notify the process about some event which does not default to resulting in a core dump. This set can include platform-specific additions, however at least these POSIX signals are within this set:</p>
 <p><code>SIGALRM</code> <code>SIGCHLD</code> <code>SIGCONT</code> <code>SIGHUP</code> <code>SIGINT</code> <code>SIGKILL</code> <code>SIGSTOP</code> <code>SIGTERM</code> <code>SIGTSTP</code> <code>SIGTTIN</code> <code>SIGTTOU</code> <code>SIGUSR1</code> <code>SIGUSR2</code> <code>SIGPOLL</code> <code>SIGPROF</code> <code>SIGURG</code> <code>SIGVTALRM</code> </p>
+
+</div>
+</div>
+<a id="ad9806c076d46700adf2844727c33820c" name="ad9806c076d46700adf2844727c33820c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad9806c076d46700adf2844727c33820c">&#9670;&#160;</a></span>fill_synchronous_sigset()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">int fill_synchronous_sigset </td>
+          <td>(</td>
+          <td class="paramtype">sigset_t *&#160;</td>
+          <td class="paramname"><em>set</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">extern</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>THREADSAFE ASYNC-SIGNAL-SAFE Fills the set of synchronous signals for this platform. </p>
+<p>Synchronous signals are those which can be raised by a thread in the course of its execution. This set can include platform-specific additions, however at least these POSIX signals are within this set:</p>
+<p><code>SIGABRT</code> <code>SIGBUS</code> <code>SIGFPE</code> <code>SIGILL</code> <code>SIGPIPE</code> <code>SIGSEGV</code> <code>SIGSYS</code> </p>
 
 </div>
 </div>
@@ -423,36 +453,6 @@ Functions</h2></td></tr>
 
 <p>THREADSAFE NOT REENTRANT Destroy a global signal continuation decider. Threadsafe with respect to other calls of this function, but not reentrant i.e. do not call whilst inside a global signal continuation decider. </p>
 <dl class="section return"><dt>Returns</dt><dd>True if recognised and thus removed. </dd></dl>
-
-</div>
-</div>
-<a id="a680f2387ec39daf656e470872faabae0" name="a680f2387ec39daf656e470872faabae0"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a680f2387ec39daf656e470872faabae0">&#9670;&#160;</a></span>synchronous_sigset()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">const sigset_t * synchronous_sigset </td>
-          <td>(</td>
-          <td class="paramtype">void&#160;</td>
-          <td class="paramname"></td><td>)</td>
-          <td></td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">extern</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-<p>THREADSAFE ASYNC-SIGNAL-SAFE The set of synchronous signals for this platform. </p>
-<p>Synchronous signals are those which can be raised by a thread in the course of its execution. This set can include platform-specific additions, however at least these POSIX signals are within this set:</p>
-<p><code>SIGABRT</code> <code>SIGBUS</code> <code>SIGFPE</code> <code>SIGILL</code> <code>SIGPIPE</code> <code>SIGSEGV</code> <code>SIGSYS</code> </p>
 
 </div>
 </div>

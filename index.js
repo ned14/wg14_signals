@@ -8,5 +8,5 @@ var index =
       [ "On a MacBook Pro M3 running ARM64", "index.html#autotoc_md7", null ],
       [ "On a MacBook Pro M3 running ARM64 Windows within a VM", "index.html#autotoc_md8", null ]
     ] ],
-    [ "Todo", "index.html#autotoc_md9", null ]
+    [ "Known bugs/issues", "index.html#autotoc_md9", null ]
 ];
