@@ -22,6 +22,8 @@ limitations under the License.
 
 #include "wg14_signals/config.h"
 
+#include <assert.h>
+
 #define LOCK(x)                                                                \
   for(;;)                                                                      \
   {                                                                            \
@@ -37,6 +39,14 @@ limitations under the License.
     }                                                                          \
   }
 
+#ifdef NDEBUG
 #define UNLOCK(x) atomic_store_explicit(&(x), 0, memory_order_release)
+#else
+#define UNLOCK(x)                                                              \
+  {                                                                            \
+    unsigned former = atomic_exchange_explicit(&(x), 0, memory_order_release); \
+    assert(former == 1);                                                       \
+  }
+#endif
 
 #endif

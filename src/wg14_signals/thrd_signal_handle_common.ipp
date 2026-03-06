@@ -118,6 +118,7 @@ signo_to_sighandler_map_t_erase_itr(signo_to_sighandler_map_t *map,
 struct global_signal_decider_t
 {
   struct global_signal_decider_t *prev, *next;
+  int refcount;
 
   WG14_SIGNALS_PREFIX(thrd_signal_decide_t) * decider;
   union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value;
@@ -133,6 +134,10 @@ struct sighandler_t
   {
     struct global_signal_decider_t *front, *back;
   } global_handler;
+  struct
+  {
+    struct global_signal_decider_t *front, *back;
+  } deferred_frees;
 };
 
 struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t)
@@ -304,6 +309,14 @@ static bool uninstall_sighandler(const int signo)
   signo_to_sighandler_map_t_get(&state->signo_to_sighandler_map, signo);
   if(!signo_to_sighandler_map_t_is_end(it))
   {
+    while(signo_to_sighandler_map_t_value(it)->deferred_frees.front !=
+          WG14_SIGNALS_NULLPTR)
+    {
+      struct global_signal_decider_t *i =
+      signo_to_sighandler_map_t_value(it)->deferred_frees.front;
+      LIST_REMOVE(signo_to_sighandler_map_t_value(it)->deferred_frees, i);
+      free(i);
+    }
     const bool need_to_destroy_tss = (0 == --state->sighandlers_count);
     if(0 == --signo_to_sighandler_map_t_value(it)->count)
     {
@@ -480,6 +493,7 @@ union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
         errno = errcode;
         return WG14_SIGNALS_NULLPTR;
       }
+      i->refcount = 1;
       i->decider = decider;
       i->value = value;
       if(callfirst)
@@ -493,8 +507,8 @@ union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
                          i);
       }
       *retp++ = i;
+      UNLOCK(state->lock);
     }
-    UNLOCK(state->lock);
   }
   return ret;
 }
@@ -521,26 +535,45 @@ int WG14_SIGNALS_PREFIX(signal_decider_destroy)(void *p)
     {
       continue;
     }
-    if(sigismember(guarded, signo))
+    LOCK(state->lock);
+    signo_to_sighandler_map_t_itr it =
+    signo_to_sighandler_map_t_get(&state->signo_to_sighandler_map, signo);
+    if(!signo_to_sighandler_map_t_is_end(it))
     {
-      LOCK(state->lock);
-      signo_to_sighandler_map_t_itr it =
-      signo_to_sighandler_map_t_get(&state->signo_to_sighandler_map, signo);
-      if(!signo_to_sighandler_map_t_is_end(it))
+      while(signo_to_sighandler_map_t_value(it)->deferred_frees.front !=
+            WG14_SIGNALS_NULLPTR)
+      {
+        struct global_signal_decider_t *i =
+        signo_to_sighandler_map_t_value(it)->deferred_frees.front;
+        LIST_REMOVE(signo_to_sighandler_map_t_value(it)->deferred_frees, i);
+        free(i);
+      }
+      if(sigismember(guarded, signo))
       {
         if(*retp != WG14_SIGNALS_NULLPTR)
         {
-          LIST_REMOVE(signo_to_sighandler_map_t_value(it)->global_handler,
-                      *retp);
+          if(0 == --(*retp)->refcount)
+          {
+            LIST_REMOVE(signo_to_sighandler_map_t_value(it)->global_handler,
+                        *retp);
+          }
+          else
+          {
+            // He will be freed when the handler exits
+            *retp = WG14_SIGNALS_NULLPTR;
+          }
           ret = 0;
         }
       }
+    }
+    UNLOCK(state->lock);
+    if(sigismember(guarded, signo))
+    {
       if(*retp != WG14_SIGNALS_NULLPTR)
       {
         free(*retp);
       }
       retp++;
-      UNLOCK(state->lock);
     }
   }
   free(p);

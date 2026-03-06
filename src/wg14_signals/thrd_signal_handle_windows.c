@@ -216,6 +216,8 @@ bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(
 int signo, WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t) * info,
 WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) * raw_context)
 {
+  // This isn't async signal safe, but caller may not have called
+  // threadsafe_signals_install() so we have no other choice within this library
   if(0 != thrd_signal_global_tss_state_init())
   {
     return false;
@@ -288,9 +290,28 @@ EXCEPTION_POINTERS *ptrs)
     do
     {
       rsi.value = current->value;
+      current->refcount++;
       UNLOCK(state->lock);
-      if(current->decider(&rsi))
+      const enum WG14_SIGNALS_PREFIX(thrd_signal_decision_t) res =
+      current->decider(&rsi);
+      LOCK(state->lock);
+      if(0 == --current->refcount)
       {
+        // Add to free later list
+        struct global_signal_decider_t *to_free_later = current;
+        current = current->next;
+        LIST_REMOVE(signo_to_sighandler_map_t_value(it)->global_handler,
+                    to_free_later);
+        LIST_INSERT_BACK(signo_to_sighandler_map_t_value(it)->deferred_frees,
+                         to_free_later);
+      }
+      else
+      {
+        current = current->next;
+      }
+      if(res)
+      {
+        UNLOCK(state->lock);
         struct thrd_signal_global_state_tss_state_t *tss =
         thrd_signal_global_tss_state();
         // If there is a most recent thread local handler, resume there instead
@@ -301,8 +322,6 @@ EXCEPTION_POINTERS *ptrs)
         // This will generally end the process
         return EXCEPTION_CONTINUE_EXECUTION;
       }
-      LOCK(state->lock);
-      current = current->next;
     } while(current != WG14_SIGNALS_NULLPTR);
   }
   // None of our deciders want this, so call previously installed signal handler

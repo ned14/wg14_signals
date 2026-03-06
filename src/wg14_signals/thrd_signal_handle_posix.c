@@ -17,6 +17,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+#include "linked_list.h"
 #include "wg14_signals/thrd_signal_handle.h"
 
 #include "thrd_signal_handle_common.ipp"
@@ -250,6 +251,8 @@ bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(
 int signo, WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t) * info,
 WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) * raw_context)
 {
+  // This isn't async signal safe, but caller may not have called
+  // threadsafe_signals_install() so we have no other choice within this library
   if(0 != thrd_signal_global_tss_state_init())
   {
     return false;
@@ -308,13 +311,30 @@ WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) * raw_context)
     do
     {
       rsi.value = current->value;
+      current->refcount++;
       UNLOCK(state->lock);
-      if(current->decider(&rsi))
+      const enum WG14_SIGNALS_PREFIX(thrd_signal_decision_t) res =
+      current->decider(&rsi);
+      LOCK(state->lock);
+      if(0 == --current->refcount)
       {
+        // Add to free later list
+        struct global_signal_decider_t *to_free_later = current;
+        current = current->next;
+        LIST_REMOVE(signo_to_sighandler_map_t_value(it)->global_handler,
+                    to_free_later);
+        LIST_INSERT_BACK(signo_to_sighandler_map_t_value(it)->deferred_frees,
+                         to_free_later);
+      }
+      else
+      {
+        current = current->next;
+      }
+      if(res)
+      {
+        UNLOCK(state->lock);
         return true;
       }
-      LOCK(state->lock);
-      current = current->next;
     } while(current != WG14_SIGNALS_NULLPTR);
   }
   // None of our deciders want this, so call previously installed signal handler

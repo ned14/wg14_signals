@@ -129,9 +129,5 @@ Structured Exception Handling, not our library code).
 
 - This needs to be made header only implementation capable before it can
 replace the C++ signal_guard.
-- Global signal deciders are still racy with respect to modification during
-invocation. We should use a similar technique to what Win32 does
-https://github.com/reactos/reactos/blob/893a3c9d030fd8b078cbd747eeefd3f6ce57e560/sdk/lib/rtl/vectoreh.c
-so that the reference implementation matches the standards proposal.
 - We should have `pcpp` generate an edition of this library suitable for
 direct drop into a C standard library.
