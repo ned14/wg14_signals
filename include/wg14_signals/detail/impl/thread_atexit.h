@@ -33,4 +33,12 @@ extern "C"
 }
 #endif
 
+#if WG14_SIGNALS_ENABLE_HEADER_ONLY
+#ifdef __cplusplus
+#include "thread_atexit.cpp.ipp"
+#else
+// On C, you'll need to link in some implementation of thread_atexit()
+#endif
+#endif
+
 #endif

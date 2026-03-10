@@ -7,7 +7,13 @@ CI: [![CI](https://github.com/ned14/wg14_signals/actions/workflows/ci.yml/badge.
 Reference API docs: https://ned14.github.io/wg14_signals/
 
 Can be configured to be a standard library implementation for your
-standard C library runtime. Licensed permissively.
+standard C library runtime. Licensed permissively. Features:
+
+- Standardises thread local signal handling across all platforms, being
+a thin wrapper of platform specific facilities on platforms with thread
+local signal handling (e.g. Structured Exception Handling on Win32)
+- Can be configured as a header-only library (unity build) which has headers
+also include their source files. This also works from C++, if desired.
 
 ## Example of use
 
@@ -37,6 +43,7 @@ Current CI test targets:
 - Ubuntu Linux, x64.
 - Mac OS, AArch64.
 - Microsoft Windows, x64.
+- Mingw, x64.
 
 Current compilers:
 
@@ -127,7 +134,5 @@ Structured Exception Handling, not our library code).
 
 # Known bugs/issues
 
-- This needs to be made header only implementation capable before it can
-replace the C++ signal_guard.
 - We should have `pcpp` generate an edition of this library suitable for
 direct drop into a C standard library.

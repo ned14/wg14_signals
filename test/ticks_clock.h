@@ -24,8 +24,8 @@ limitations under the License.
 #include <stdlib.h>
 
 #ifdef _WIN32
-#include <Windows.h>
 #include <intrin.h>
+#include <windows.h>
 #else
 #include <time.h>
 #endif

@@ -30,12 +30,20 @@ limitations under the License.
 #define WG14_SIGNALS_INLINE inline
 #endif
 
+#ifndef WG14_SIGNALS_THREAD_LOCAL
+#ifdef __cplusplus
+#define WG14_SIGNALS_THREAD_LOCAL thread_local
+#else
+#define WG14_SIGNALS_THREAD_LOCAL _Thread_local
+#endif
+#endif
+
 #ifndef WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
 /* https://maskray.me/blog/2021-02-14-all-about-thread-local-storage
 will tell you all you need to know about TLS implementations and
 which are async signal safe, and which are not.
 */
-#if (defined(__GNUC__) || defined(_MSC_VER)) && !defined(__APPLE__)
+#if(defined(__GNUC__) || defined(_MSC_VER)) && !defined(__APPLE__)
 #define WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL 1
 #else
 #define WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL 0
@@ -50,10 +58,10 @@ which are async signal safe, and which are not.
 // WARNING: This can cause issues with this library being loaded dynamically as
 // part of a runtime loaded shared library!
 #define WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL                                   \
-  _Thread_local __attribute__((tls_model("initial-exec")))
+  WG14_SIGNALS_THREAD_LOCAL __attribute__((tls_model("initial-exec")))
 #elif defined(_MSC_VER)
 // MSVC's thread locals are always async signal safe
-#define WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL _Thread_local
+#define WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL WG14_SIGNALS_THREAD_LOCAL
 #endif
 #endif
 #endif
@@ -74,15 +82,27 @@ which are async signal safe, and which are not.
 #endif
 #endif
 
-#ifndef WG14_SIGNALS_EXTERN
+#ifndef WG14_SIGNALS_ENABLE_HEADER_ONLY
+#define WG14_SIGNALS_ENABLE_HEADER_ONLY 0
+#endif
+
+#ifndef WG14_SIGNALS_EXTERN_IMPL
 #if WG14_SIGNALS_SOURCE
 #ifdef _WIN32
-#define WG14_SIGNALS_EXTERN extern __declspec(dllexport)
+#define WG14_SIGNALS_EXTERN_IMPL extern __declspec(dllexport)
 #else
-#define WG14_SIGNALS_EXTERN extern __attribute__((visibility("default")))
+#define WG14_SIGNALS_EXTERN_IMPL extern __attribute__((visibility("default")))
 #endif
 #else
-#define WG14_SIGNALS_EXTERN extern
+#define WG14_SIGNALS_EXTERN_IMPL extern
+#endif
+#endif
+
+#ifndef WG14_SIGNALS_EXTERN
+#if WG14_SIGNALS_ENABLE_HEADER_ONLY
+#define WG14_SIGNALS_EXTERN WG14_SIGNALS_INLINE
+#else
+#define WG14_SIGNALS_EXTERN WG14_SIGNALS_EXTERN_IMPL
 #endif
 #endif
 

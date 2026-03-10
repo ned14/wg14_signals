@@ -20,20 +20,28 @@ limitations under the License.
 #ifndef WG14_SIGNALS_LOCK_UNLOCK_H
 #define WG14_SIGNALS_LOCK_UNLOCK_H
 
-#include "wg14_signals/config.h"
+#include "../../config.h"
 
 #include <assert.h>
+
+#ifdef __cplusplus
+#define WG14_SIGNALS_ATOMIC_PREFIX std::
+#else
+#define WG14_SIGNALS_ATOMIC_PREFIX
+#endif
 
 #define LOCK(x)                                                                \
   for(;;)                                                                      \
   {                                                                            \
-    if(atomic_load_explicit(&(x), memory_order_relaxed))                       \
+    if(atomic_load_explicit(&(x),                                              \
+                            WG14_SIGNALS_ATOMIC_PREFIX memory_order_relaxed))  \
     {                                                                          \
       continue;                                                                \
     }                                                                          \
     unsigned expected = 0;                                                     \
     if(atomic_compare_exchange_weak_explicit(                                  \
-       &(x), &expected, 1, memory_order_acq_rel, memory_order_relaxed))        \
+       &(x), &expected, 1, WG14_SIGNALS_ATOMIC_PREFIX memory_order_acq_rel,    \
+       WG14_SIGNALS_ATOMIC_PREFIX memory_order_relaxed))                       \
     {                                                                          \
       break;                                                                   \
     }                                                                          \
@@ -44,7 +52,8 @@ limitations under the License.
 #else
 #define UNLOCK(x)                                                              \
   {                                                                            \
-    unsigned former = atomic_exchange_explicit(&(x), 0, memory_order_release); \
+    unsigned former = atomic_exchange_explicit(                                \
+    &(x), 0, WG14_SIGNALS_ATOMIC_PREFIX memory_order_release);                 \
     assert(former == 1);                                                       \
   }
 #endif

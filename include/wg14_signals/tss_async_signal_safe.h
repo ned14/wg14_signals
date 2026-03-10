@@ -28,7 +28,7 @@ extern "C"
 #endif
 
   //! \brief The type of an async signal safe thread local
-  typedef struct WG14_SIGNALS_PREFIX(tss_async_signal_safe) *
+  typedef struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *
   WG14_SIGNALS_PREFIX(tss_async_signal_safe);
 
   //! \brief The attributes for creating an async signal safe thread local
@@ -69,6 +69,10 @@ extern "C"
 
 #ifdef __cplusplus
 }
+#endif
+
+#if WG14_SIGNALS_ENABLE_HEADER_ONLY
+#include "detail/impl/tss_async_signal_safe.c.ipp"
 #endif
 
 #endif

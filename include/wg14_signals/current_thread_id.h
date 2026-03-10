@@ -38,6 +38,8 @@ extern "C"
 #if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
 #ifdef _WIN32
   static
+#elif WG14_SIGNALS_ENABLE_HEADER_ONLY
+  WG14_SIGNALS_EXTERN_IMPL
 #else
   WG14_SIGNALS_EXTERN
 #endif
@@ -67,6 +69,10 @@ extern "C"
 
 #ifdef __cplusplus
 }
+#endif
+
+#if WG14_SIGNALS_ENABLE_HEADER_ONLY
+#include "detail/impl/current_thread_id.c.ipp"
 #endif
 
 #endif

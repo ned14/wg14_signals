@@ -20,7 +20,7 @@ limitations under the License.
 #ifndef WG14_SIGNALS_LINKED_LIST_H
 #define WG14_SIGNALS_LINKED_LIST_H
 
-#include "wg14_signals/config.h"
+#include "../../config.h"
 
 #include <assert.h>
 

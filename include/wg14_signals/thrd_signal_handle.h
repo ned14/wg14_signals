@@ -375,4 +375,13 @@ WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
 }
 #endif
 
+#if WG14_SIGNALS_ENABLE_HEADER_ONLY
+#ifdef _WIN32
+#include "detail/impl/thrd_signal_handle_windows.c.ipp"
+#else
+#include "detail/impl/thrd_signal_handle_posix.c.ipp"
+#endif
+#endif
+
+
 #endif
