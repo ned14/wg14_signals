@@ -25,7 +25,6 @@ limitations under the License.
 
 #include <pthread.h>
 #include <signal.h>
-#include <stdatomic.h>
 
 #ifdef __cplusplus
 extern "C"

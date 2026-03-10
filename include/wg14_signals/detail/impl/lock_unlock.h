@@ -48,7 +48,9 @@ limitations under the License.
   }
 
 #ifdef NDEBUG
-#define UNLOCK(x) atomic_store_explicit(&(x), 0, memory_order_release)
+#define UNLOCK(x)                                                              \
+  atomic_store_explicit(&(x), 0,                                               \
+                        WG14_SIGNALS_ATOMIC_PREFIX memory_order_release)
 #else
 #define UNLOCK(x)                                                              \
   {                                                                            \

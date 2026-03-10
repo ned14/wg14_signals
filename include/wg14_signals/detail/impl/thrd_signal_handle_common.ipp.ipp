@@ -32,7 +32,6 @@ limitations under the License.
 #include <assert.h>
 #include <errno.h>
 #include <setjmp.h>
-#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,8 +41,11 @@ limitations under the License.
 #endif
 
 #ifdef __cplusplus
+#include <atomic>
 extern "C"
 {
+#else
+#include <stdatomic.h>
 #endif
 
   struct sighandler_t;
@@ -147,7 +149,7 @@ extern "C"
 
   struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t)
   {
-    atomic_uint lock;
+    WG14_SIGNALS_ATOMIC_PREFIX atomic_uint lock;
     int sighandlers_count;
 #ifdef _WIN32
     PVOID vectored_continue_handler;

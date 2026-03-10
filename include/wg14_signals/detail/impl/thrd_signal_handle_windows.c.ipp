@@ -19,8 +19,6 @@ limitations under the License.
 
 #include "../../thrd_signal_handle.h"
 
-#include "thrd_signal_handle_common.ipp.ipp"
-
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -28,6 +26,8 @@ limitations under the License.
 #define NOMINMAX
 #endif
 #include <windows.h>
+
+#include "thrd_signal_handle_common.ipp.ipp"
 
 #ifdef __cplusplus
 extern "C"

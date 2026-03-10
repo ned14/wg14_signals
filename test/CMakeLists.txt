@@ -21,3 +21,4 @@ target_compile_features(header_only_test PRIVATE c_std_11 cxx_std_11)
 set_target_properties(header_only_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
+add_test(NAME header_only_test COMMAND $<TARGET_FILE:header_only_test>)
