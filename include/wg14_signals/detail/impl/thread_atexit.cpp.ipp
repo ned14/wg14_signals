@@ -22,7 +22,8 @@ limitations under the License.
 #include <cerrno>
 #include <vector>
 
-extern "C" int WG14_SIGNALS_PREFIX(thread_atexit)(void (*func)(void *obj), void *obj)
+extern "C" int WG14_SIGNALS_PREFIX(thread_atexit)(void (*func)(void *obj),
+                                                  void *obj)
 {
   struct item
   {
@@ -53,15 +54,19 @@ extern "C" int WG14_SIGNALS_PREFIX(thread_atexit)(void (*func)(void *obj), void 
       }
     }
   };
+#ifdef __cpp_exceptions
   try
+#endif
   {
     static thread_local std::vector<item> items;
     items.emplace_back(func, obj);
     return 0;
   }
+#ifdef __cpp_exceptions
   catch(...)
   {
     errno = ENOMEM;
     return -1;
   }
+#endif
 }

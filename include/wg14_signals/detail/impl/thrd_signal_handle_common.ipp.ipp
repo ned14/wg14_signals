@@ -286,10 +286,9 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
 #endif
 
 
-  static bool
-  install_sighandler_impl(struct WG14_SIGNALS_PREFIX(sighandler_info) * item,
-                          const int signo);
-  static bool install_sighandler(const int signo)
+  static bool WG14_SIGNALS_PREFIX(install_sighandler_impl)(
+  struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo);
+  static bool WG14_SIGNALS_PREFIX(install_sighandler)(const int signo)
   {
     struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
     WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
@@ -307,7 +306,7 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
         UNLOCK(state->lock);
         return false;
       }
-      if(!install_sighandler_impl(newitem, signo))
+      if(!WG14_SIGNALS_PREFIX(install_sighandler_impl)(newitem, signo))
       {
         int errcode = errno;
         free(newitem);
@@ -330,10 +329,9 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
     return true;
   }
 
-  static bool
-  uninstall_sighandler_impl(struct WG14_SIGNALS_PREFIX(sighandler_info) * item,
-                            const int signo);
-  static bool uninstall_sighandler(const int signo)
+  static bool WG14_SIGNALS_PREFIX(uninstall_sighandler_impl)(
+  struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo);
+  static bool WG14_SIGNALS_PREFIX(uninstall_sighandler)(const int signo)
   {
     struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
     WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
@@ -354,8 +352,8 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
       const bool need_to_destroy_tss = (0 == --state->sighandlers_count);
       if(0 == --signo_to_sighandler_map_t_value(it)->count)
       {
-        (void) uninstall_sighandler_impl(signo_to_sighandler_map_t_value(it),
-                                         signo);
+        (void) WG14_SIGNALS_PREFIX(uninstall_sighandler_impl)(
+        signo_to_sighandler_map_t_value(it), signo);
         free(signo_to_sighandler_map_t_value(it));
         WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_erase_itr)
         (&state->signo_to_sighandler_map, it);
@@ -398,7 +396,7 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
 #endif
       if(sigismember(ret, signo))
       {
-        if(!install_sighandler(signo))
+        if(!WG14_SIGNALS_PREFIX(install_sighandler)(signo))
         {
           const int errcode = errno;
           free(ret);
@@ -426,7 +424,7 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
       }
       if(sigismember(sigset, signo))
       {
-        if(!uninstall_sighandler(signo))
+        if(!WG14_SIGNALS_PREFIX(uninstall_sighandler)(signo))
         {
           return -1;
         }

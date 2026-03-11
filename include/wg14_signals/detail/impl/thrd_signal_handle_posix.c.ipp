@@ -231,16 +231,17 @@ static void __attribute__((noreturn)) default_abort(void)
     {
       abort();
     }
-    if(0 != thrd_signal_global_tss_state_init())
+    if(0 != WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_init)())
     {
       union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) ret;
       ret.int_value = -1;
       return ret;
     }
-    struct thrd_signal_global_state_tss_state_t *tss =
-    thrd_signal_global_tss_state();
-    struct thrd_signal_global_state_tss_state_per_frame_t *old = tss->front,
-                                                          current;
+    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_t) *tss =
+    WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state)();
+    struct WG14_SIGNALS_PREFIX(
+    thrd_signal_global_state_tss_state_per_frame_t) *old = tss->front,
+                                                    current;
     memset(&current, 0, sizeof(current));
     current.prev = old;
     current.guarded = signals;
@@ -274,7 +275,7 @@ static void __attribute__((noreturn)) default_abort(void)
     // This isn't async signal safe, but caller may not have called
     // threadsafe_signals_install() so we have no other choice within this
     // library
-    if(0 != thrd_signal_global_tss_state_init())
+    if(0 != WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_init)())
     {
       return false;
     }
@@ -283,9 +284,10 @@ static void __attribute__((noreturn)) default_abort(void)
       // Caller is doing the non-async safe setup
       return false;
     }
-    struct thrd_signal_global_state_tss_state_t *tss =
-    thrd_signal_global_tss_state();
-    struct thrd_signal_global_state_tss_state_per_frame_t *frame = tss->front;
+    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_t) *tss =
+    WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state)();
+    struct WG14_SIGNALS_PREFIX(
+    thrd_signal_global_state_tss_state_per_frame_t) *frame = tss->front;
     while(frame != WG14_SIGNALS_NULLPTR)
     {
       if(sigismember(frame->guarded, signo))
@@ -313,9 +315,10 @@ static void __attribute__((noreturn)) default_abort(void)
     struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
     WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
     LOCK(state->lock);
-    signo_to_sighandler_map_t_itr it =
-    signo_to_sighandler_map_t_get(&state->signo_to_sighandler_map, signo);
-    if(signo_to_sighandler_map_t_is_end(it))
+    WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_itr)
+    it = WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_get)(
+    &state->signo_to_sighandler_map, signo);
+    if(WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_is_end)(it))
     {
       // We don't have a handler installed for that signal
       UNLOCK(state->lock);
@@ -327,7 +330,7 @@ static void __attribute__((noreturn)) default_abort(void)
     if(signo_to_sighandler_map_t_value(it)->global_handler.front !=
        WG14_SIGNALS_NULLPTR)
     {
-      struct global_signal_decider_t *current =
+      struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *current =
       signo_to_sighandler_map_t_value(it)->global_handler.front;
       do
       {
@@ -340,7 +343,8 @@ static void __attribute__((noreturn)) default_abort(void)
         if(0 == --current->refcount)
         {
           // Add to free later list
-          struct global_signal_decider_t *to_free_later = current;
+          struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *to_free_later =
+          current;
           current = current->next;
           LIST_REMOVE(signo_to_sighandler_map_t_value(it)->global_handler,
                       to_free_later);

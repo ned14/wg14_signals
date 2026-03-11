@@ -20,7 +20,7 @@ limitations under the License.
 #ifndef WG14_SIGNALS_THREAD_ATEXIT_H
 #define WG14_SIGNALS_THREAD_ATEXIT_H
 
-#include "wg14_signals/config.h"
+#include "../../config.h"
 
 #ifdef __cplusplus
 extern "C"
