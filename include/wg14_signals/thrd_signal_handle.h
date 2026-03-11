@@ -119,6 +119,8 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
   WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t);
 #elif __GLIBC__
 typedef siginfo_t WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t);
+#elif __ANDROID__
+typedef struct siginfo WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t);
 #else
 typedef struct __siginfo WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t);
 #endif
