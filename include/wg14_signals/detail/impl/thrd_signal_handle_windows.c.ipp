@@ -232,17 +232,22 @@ extern "C"
       abort();
     }
     struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
-    __try
-    {
-      return guarded(value);
-    }
-    __except(WG14_SIGNALS_PREFIX(win32_exception_filter)(
-    &rsi, signals,
-    WG14_SIGNALS_PREFIX(signal_from_win32_exception_code)(GetExceptionCode()),
-    recovery, decider, value, GetExceptionInformation()))
-    {
-      return recovery(&rsi);
-    }
+#ifdef __MINGW32__
+#error                                                                         \
+"FATAL: Donations of a Mingw suitable alternative to __try ... __except are welcome"
+#else
+  __try
+  {
+    return guarded(value);
+  }
+  __except(WG14_SIGNALS_PREFIX(win32_exception_filter)(
+  &rsi, signals,
+  WG14_SIGNALS_PREFIX(signal_from_win32_exception_code)(GetExceptionCode()),
+  recovery, decider, value, GetExceptionInformation()))
+  {
+    return recovery(&rsi);
+  }
+#endif
   }
 
   // You must NOT do anything async signal unsafe in here!

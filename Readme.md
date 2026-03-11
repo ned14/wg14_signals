@@ -43,13 +43,15 @@ Current CI test targets:
 - Ubuntu Linux, x64.
 - Mac OS, AArch64.
 - Microsoft Windows, x64.
-- Mingw, x64.
 
 Current compilers:
 
 - GCC
 - clang
 - MSVC
+
+Mingw does not work due to lack of `__try ... __except` support. Donations of
+a suitable workaround are welcome.
 
 ## Configuration
 
