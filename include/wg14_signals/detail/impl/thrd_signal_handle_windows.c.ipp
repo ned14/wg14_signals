@@ -34,7 +34,14 @@ extern "C"
 {
 #endif
 
-  static const sigset_t *synchronous_sigset(void)
+#ifdef __cplusplus
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+#endif
+
+  static const sigset_t *WG14_SIGNALS_PREFIX(synchronous_sigset)(void)
   {
     static sigset_t v;
     static const int signos[] = {SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGSEGV};
@@ -53,11 +60,11 @@ extern "C"
   }
   int WG14_SIGNALS_PREFIX(fill_synchronous_sigset)(sigset_t *set)
   {
-    memcpy(set, synchronous_sigset(), sizeof(*set));
+    memcpy(set, WG14_SIGNALS_PREFIX(synchronous_sigset)(), sizeof(*set));
     return 0;
   }
 
-  static const sigset_t *asynchronous_nondebug_sigset(void)
+  static const sigset_t *WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(void)
   {
     static sigset_t v;
     static const int signos[] = {SIGINT, SIGKILL, SIGSTOP, SIGTERM};
@@ -76,11 +83,12 @@ extern "C"
   }
   int WG14_SIGNALS_PREFIX(fill_asynchronous_nondebug_sigset)(sigset_t *set)
   {
-    memcpy(set, asynchronous_nondebug_sigset(), sizeof(*set));
+    memcpy(set, WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(),
+           sizeof(*set));
     return 0;
   }
 
-  static const sigset_t *asynchronous_debug_sigset(void)
+  static const sigset_t *WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(void)
   {
     static sigset_t v;
     sigset_t x;
@@ -90,12 +98,12 @@ extern "C"
   }
   int WG14_SIGNALS_PREFIX(fill_asynchronous_debug_sigset)(sigset_t *set)
   {
-    memcpy(set, asynchronous_debug_sigset(), sizeof(*set));
+    memcpy(set, WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(), sizeof(*set));
     return 0;
   }
 
 
-  static DWORD win32_exception_code_from_signal(int c)
+  static DWORD WG14_SIGNALS_PREFIX(win32_exception_code_from_signal)(int c)
   {
     switch(c)
     {
@@ -147,9 +155,9 @@ extern "C"
     }
   }
 
-  static void prepare_rsi(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *
-                          rsi,
-                          const int signo, EXCEPTION_POINTERS *ptrs)
+  static void WG14_SIGNALS_PREFIX(prepare_rsi)(
+  struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi, const int signo,
+  EXCEPTION_POINTERS *ptrs)
   {
     memset(rsi, 0, sizeof(*rsi));
     rsi->signo = signo;
@@ -159,21 +167,24 @@ extern "C"
        (ULONG_PTR) 0xdeadbeefdeadbeef)
     {
       rsi->raw_context =
-      (void *) ptrs->ExceptionRecord
+      (WG14_SIGNALS_PREFIX(
+      thrd_raised_signal_info_context_t) *) ptrs->ExceptionRecord
       ->ExceptionInformation[ptrs->ExceptionRecord->NumberParameters - 1];
     }
     else
     {
-      rsi->raw_context = (void *) ptrs->ContextRecord;
+      rsi->raw_context = (WG14_SIGNALS_PREFIX(
+      thrd_raised_signal_info_context_t) *) ptrs->ContextRecord;
     }
-    rsi->raw_info = (void *) ptrs->ExceptionRecord;
+    rsi->raw_info = (WG14_SIGNALS_PREFIX(
+    thrd_raised_signal_info_siginfo_t) *) ptrs->ExceptionRecord;
     rsi->error_code =
     (WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t))
     ptrs->ExceptionRecord->ExceptionInformation[2];  // NTSTATUS
     rsi->addr = (void *) ptrs->ExceptionRecord->ExceptionInformation[1];
   }
 
-  static long win32_exception_filter(
+  static long WG14_SIGNALS_PREFIX(win32_exception_filter)(
   struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi,
   const sigset_t *guarded, const int signo,
   WG14_SIGNALS_PREFIX(thrd_signal_recover_t) recovery,
@@ -183,7 +194,7 @@ extern "C"
   {
     if(sigismember(guarded, signo))
     {
-      prepare_rsi(rsi, signo, ptrs);
+      WG14_SIGNALS_PREFIX(prepare_rsi)(rsi, signo, ptrs);
       rsi->value = value;
       switch(decider(rsi))
       {
@@ -217,7 +228,7 @@ extern "C"
     {
       return guarded(value);
     }
-    __except(win32_exception_filter(
+    __except(WG14_SIGNALS_PREFIX(win32_exception_filter)(
     &rsi, signals, signal_from_win32_exception_code(GetExceptionCode()),
     recovery, decider, value, GetExceptionInformation()))
     {
@@ -250,7 +261,8 @@ extern "C"
       return true;
     }
 
-    const DWORD win32sehcode = win32_exception_code_from_signal(signo);
+    const DWORD win32sehcode =
+    WG14_SIGNALS_PREFIX(win32_exception_code_from_signal)(signo);
     // info->ExceptionInformation[0] = 0=read 1=write 8=DEP
     // info->ExceptionInformation[1] = causing address
     // info->ExceptionInformation[2] = NTSTATUS causing exception
@@ -274,7 +286,7 @@ extern "C"
     return true;
   }
 
-  static long __stdcall win32_vectored_exception_function(
+  static long __stdcall WG14_SIGNALS_PREFIX(win32_vectored_exception_function)(
   EXCEPTION_POINTERS *ptrs)
   {
     const int signo =
@@ -296,7 +308,7 @@ extern "C"
       return EXCEPTION_CONTINUE_SEARCH;
     }
     struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
-    prepare_rsi(&rsi, signo, ptrs);
+    WG14_SIGNALS_PREFIX(prepare_rsi)(&rsi, signo, ptrs);
     if(signo_to_sighandler_map_t_value(it)->global_handler.front !=
        WG14_SIGNALS_NULLPTR)
     {
@@ -378,8 +390,8 @@ extern "C"
   calls the installed unhandled exception filter function if under a debugger.
   */
 
-  static bool install_sighandler_impl(struct sighandler_t *item,
-                                      const int signo)
+  static bool WG14_SIGNALS_PREFIX(install_sighandler_impl)(
+  struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo)
   {
     (void) item;
     (void) signo;
@@ -387,19 +399,19 @@ extern "C"
     WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
     if(0 == state->sighandlers_count)
     {
-      state->vectored_continue_handler =
-      AddVectoredContinueHandler(true, win32_vectored_exception_function);
+      state->vectored_continue_handler = AddVectoredContinueHandler(
+      true, WG14_SIGNALS_PREFIX(win32_vectored_exception_function));
       if(state->vectored_continue_handler == WG14_SIGNALS_NULLPTR)
       {
         return false;
       }
-      state->old_unhandled_exception_filter =
-      SetUnhandledExceptionFilter(win32_vectored_exception_function);
+      state->old_unhandled_exception_filter = SetUnhandledExceptionFilter(
+      WG14_SIGNALS_PREFIX(win32_vectored_exception_function));
     }
     return true;
   }
-  static bool uninstall_sighandler_impl(struct sighandler_t *item,
-                                        const int signo)
+  static bool WG14_SIGNALS_PREFIX(uninstall_sighandler_impl)(
+  struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo)
   {
     (void) item;
     (void) signo;
@@ -412,6 +424,13 @@ extern "C"
     }
     return true;
   }
+
+#ifdef __cplusplus
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+#endif
+
 
 #ifdef __cplusplus
 }

@@ -46,9 +46,6 @@ extern "C"
 #endif
 
 #if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
-#ifdef _WIN32
-  static
-#endif
   WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL WG14_SIGNALS_PREFIX(thread_id_t)
   WG14_SIGNALS_PREFIX(current_thread_id_cached) =
 #ifdef _WIN32
@@ -58,7 +55,8 @@ extern "C"
 #endif
 #endif
 
-  static inline WG14_SIGNALS_PREFIX(thread_id_t) get_current_thread_id(void)
+  static inline WG14_SIGNALS_PREFIX(thread_id_t)
+  WG14_SIGNALS_PREFIX(get_current_thread_id)(void)
   {
 #ifdef _WIN32
     return (WG14_SIGNALS_PREFIX(thread_id_t)) GetCurrentThreadId();
@@ -77,7 +75,8 @@ extern "C"
   WG14_SIGNALS_PREFIX(internal_current_thread_id_cached_set)(void)
   {
 #if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
-    WG14_SIGNALS_PREFIX(current_thread_id_cached) = get_current_thread_id();
+    WG14_SIGNALS_PREFIX(current_thread_id_cached) =
+    WG14_SIGNALS_PREFIX(get_current_thread_id)();
     return WG14_SIGNALS_PREFIX(current_thread_id_cached);
 #else
   return get_current_thread_id();

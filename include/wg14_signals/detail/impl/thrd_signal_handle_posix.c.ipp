@@ -39,7 +39,15 @@ extern "C"
 #define WG14_SIGNALS_LONGJMP longjmp
 #endif
 
-  static __attribute__((constructor)) const sigset_t *synchronous_sigset(void)
+#ifdef __cplusplus
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wclass-memaccess"
+#endif
+#endif
+
+  static __attribute__((constructor)) const sigset_t *
+  WG14_SIGNALS_PREFIX(synchronous_sigset)(void)
   {
     static sigset_t v;
     static const int signos[] = {SIGABRT, SIGBUS,  SIGFPE, SIGILL,
@@ -59,12 +67,12 @@ extern "C"
   }
   int WG14_SIGNALS_PREFIX(fill_synchronous_sigset)(sigset_t *set)
   {
-    memcpy(set, synchronous_sigset(), sizeof(*set));
+    memcpy(set, WG14_SIGNALS_PREFIX(synchronous_sigset)(), sizeof(*set));
     return 0;
   }
 
   static __attribute__((constructor)) const sigset_t *
-  asynchronous_nondebug_sigset(void)
+  WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(void)
   {
     static sigset_t v;
     static const int signos[] = {SIGALRM, SIGCHLD, SIGCONT,  SIGHUP,  SIGINT,
@@ -89,12 +97,13 @@ extern "C"
   }
   int WG14_SIGNALS_PREFIX(fill_asynchronous_nondebug_sigset)(sigset_t *set)
   {
-    memcpy(set, asynchronous_nondebug_sigset(), sizeof(*set));
+    memcpy(set, WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(),
+           sizeof(*set));
     return 0;
   }
 
   static __attribute__((constructor)) const sigset_t *
-  asynchronous_debug_sigset(void)
+  WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(void)
   {
     static sigset_t v;
     static const int signos[] = {SIGQUIT, SIGTRAP, SIGXCPU, SIGXFSZ};
@@ -113,7 +122,7 @@ extern "C"
   }
   int WG14_SIGNALS_PREFIX(fill_asynchronous_debug_sigset)(sigset_t *set)
   {
-    memcpy(set, asynchronous_debug_sigset(), sizeof(*set));
+    memcpy(set, WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(), sizeof(*set));
     return 0;
   }
 
@@ -131,8 +140,10 @@ static void __attribute__((noreturn)) default_abort(void)
 
 
   // Invoke a sigaction as if it were the first signal handler
-  static bool invoke_sigaction(const struct sigaction *sa, const int signo,
-                               siginfo_t *siginfo, void *context)
+  static bool WG14_SIGNALS_PREFIX(invoke_sigaction)(const struct sigaction *sa,
+                                                    const int signo,
+                                                    siginfo_t *siginfo,
+                                                    void *context)
   {
     if((sa->sa_flags & SA_SIGINFO) != 0)
     {
@@ -172,11 +183,10 @@ static void __attribute__((noreturn)) default_abort(void)
     return true;
   }
 
-  static void
-  prepare_rsi(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi,
-              const int signo,
-              WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t) * siginfo,
-              WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) * context)
+  static void WG14_SIGNALS_PREFIX(prepare_rsi)(
+  struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi, const int signo,
+  WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t) * siginfo,
+  WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) * context)
   {
     rsi->signo = signo;
     rsi->raw_context = context;
@@ -190,9 +200,13 @@ static void __attribute__((noreturn)) default_abort(void)
 
   // The base signal handler for POSIX
   // You must NOT do anything async signal unsafe in here!
-  static void raw_signal_handler(int signo, siginfo_t *siginfo, void *context)
+  static void WG14_SIGNALS_PREFIX(raw_signal_handler)(int signo,
+                                                      siginfo_t *siginfo,
+                                                      void *context)
   {
-    if(!WG14_SIGNALS_PREFIX(thrd_signal_raise)(signo, siginfo, context))
+    if(!WG14_SIGNALS_PREFIX(thrd_signal_raise)(
+       signo, siginfo,
+       (WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) *) context))
     {
       // It shouldn't happen that this handler gets called when we have no
       // knowledge of the signal. We could default_abort() here, but it seems
@@ -201,7 +215,7 @@ static void __attribute__((noreturn)) default_abort(void)
       struct sigaction sa;
       memset(&sa, 0, sizeof(sa));
       sa.sa_handler = SIG_DFL;
-      invoke_sigaction(&sa, signo, siginfo, context);
+      WG14_SIGNALS_PREFIX(invoke_sigaction)(&sa, signo, siginfo, context);
     }
   }
 
@@ -239,16 +253,16 @@ static void __attribute__((noreturn)) default_abort(void)
       tss->front = old;
       // Technically needed to ensure previous handler is active before recovery
       // function is called, as it may raise a signal
-      atomic_signal_fence(memory_order_acq_rel);
+      atomic_signal_fence(WG14_SIGNALS_ATOMIC_PREFIX memory_order_acq_rel);
       return recovery(&current.rsi);
     }
     // Technically needed to ensure setjmp buffer written out before guarded
     // function is called
-    atomic_signal_fence(memory_order_acq_rel);
+    atomic_signal_fence(WG14_SIGNALS_ATOMIC_PREFIX memory_order_acq_rel);
     union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) ret =
     guarded(value);
     tss->front = old;
-    atomic_signal_fence(memory_order_acq_rel);
+    atomic_signal_fence(WG14_SIGNALS_ATOMIC_PREFIX memory_order_acq_rel);
     return ret;
   }
 
@@ -276,7 +290,7 @@ static void __attribute__((noreturn)) default_abort(void)
     {
       if(sigismember(frame->guarded, signo))
       {
-        prepare_rsi(&frame->rsi, signo, info, raw_context);
+        WG14_SIGNALS_PREFIX(prepare_rsi)(&frame->rsi, signo, info, raw_context);
         switch(frame->decider(&frame->rsi))
         {
         case WG14_SIGNALS_PREFIX(thrd_signal_decision_next_decider):
@@ -309,7 +323,7 @@ static void __attribute__((noreturn)) default_abort(void)
     }
     struct sigaction sa = signo_to_sighandler_map_t_value(it)->old_handler;
     struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
-    prepare_rsi(&rsi, signo, info, raw_context);
+    WG14_SIGNALS_PREFIX(prepare_rsi)(&rsi, signo, info, raw_context);
     if(signo_to_sighandler_map_t_value(it)->global_handler.front !=
        WG14_SIGNALS_NULLPTR)
     {
@@ -347,16 +361,16 @@ static void __attribute__((noreturn)) default_abort(void)
     // None of our deciders want this, so call previously installed signal
     // handler
     UNLOCK(state->lock);
-    invoke_sigaction(&sa, signo, info, raw_context);
+    WG14_SIGNALS_PREFIX(invoke_sigaction)(&sa, signo, info, raw_context);
     return true;
   }
 
-  static bool install_sighandler_impl(struct sighandler_t *item,
-                                      const int signo)
+  static bool WG14_SIGNALS_PREFIX(install_sighandler_impl)(
+  struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo)
   {
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
-    sa.sa_sigaction = raw_signal_handler;
+    sa.sa_sigaction = WG14_SIGNALS_PREFIX(raw_signal_handler);
     sa.sa_flags = SA_SIGINFO | SA_NOCLDWAIT | SA_NODEFER;
     if(-1 == sigaction(signo, &sa, &item->old_handler))
     {
@@ -365,12 +379,19 @@ static void __attribute__((noreturn)) default_abort(void)
     return true;
   }
 
-  static bool uninstall_sighandler_impl(struct sighandler_t *item,
-                                        const int signo)
+  static bool WG14_SIGNALS_PREFIX(uninstall_sighandler_impl)(
+  struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo)
   {
     (void) sigaction(signo, &item->old_handler, WG14_SIGNALS_NULLPTR);
     return true;
   }
+
+#ifdef __cplusplus
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+#endif
+
 
 #ifdef __cplusplus
 }

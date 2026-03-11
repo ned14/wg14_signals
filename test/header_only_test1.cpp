@@ -1,3 +1,4 @@
+#define WG14_SIGNALS_ENABLE_HEADER_ONLY 1
 #include "wg14_signals/current_thread_id.h"
 
 // Drag in everything else while we're at it

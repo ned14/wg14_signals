@@ -36,10 +36,11 @@ extern "C"
   WG14_SIGNALS_PREFIX(thread_id_t_tombstone) = 0;
 
 #if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
-#ifdef _WIN32
-  static
-#elif WG14_SIGNALS_ENABLE_HEADER_ONLY
+// If this platform has async signal safe thread locals, we can cache the thread
+// id in an inlineable variable.
+#if WG14_SIGNALS_ENABLE_HEADER_ONLY
   WG14_SIGNALS_EXTERN_IMPL
+  WG14_SIGNALS_IGNORE_MULTIPLE_DEFINITIONS
 #else
   WG14_SIGNALS_EXTERN
 #endif

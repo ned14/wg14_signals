@@ -23,7 +23,7 @@
 #include <pthread.h>
 
 typedef int (*thrd_start_t)(void *);
-typedef struct thrd_t
+typedef struct thrd_s
 {
   void *arg;
   int res;
@@ -40,7 +40,7 @@ static inline void *thrd_runner(void *arg)
 
 static inline int thrd_create(thrd_t *thr, thrd_start_t func, void *arg)
 {
-  thrd_t ret = (thrd_t) calloc(1, sizeof(struct thrd_t));
+  thrd_t ret = (thrd_t) calloc(1, sizeof(struct thrd_s));
   ret->arg = arg;
   ret->res = 0;
   ret->func = func;

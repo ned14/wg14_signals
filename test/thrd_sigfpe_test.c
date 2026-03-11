@@ -167,7 +167,7 @@ int main(void)
 {
   int ret = 0;
   void *handlers =
-  WG14_SIGNALS_PREFIX(threadsafe_signals_install)(WG14_SIGNALS_NULLPTR, 0);
+  WG14_SIGNALS_PREFIX(threadsafe_signals_install)(WG14_SIGNALS_NULLPTR);
   if(handlers == WG14_SIGNALS_NULLPTR)
   {
     fprintf(stderr, "FATAL: threadsafe_signals_install() failed with %s\n",

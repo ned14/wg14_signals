@@ -27,7 +27,8 @@ extern "C"
 {
 #endif
 
-  extern int WG14_SIGNALS_PREFIX(thread_atexit)(void (*)(void *obj), void *obj);
+  WG14_SIGNALS_EXTERN int
+  WG14_SIGNALS_PREFIX(thread_atexit)(void (*)(void *obj), void *obj);
 
 #ifdef __cplusplus
 }

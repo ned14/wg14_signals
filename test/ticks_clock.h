@@ -40,6 +40,7 @@ extern "C"
 
   static inline cpu_ticks_count get_ticks_count(memory_order rel)
   {
+    (void) rel;
 #if defined(__APPLE__) || DISABLE_INLINE_ASM
     (void) rel;
     struct timespec ts;
@@ -72,7 +73,6 @@ defined(_M_X64)
   return (uint64_t) lo | ((uint64_t) hi << 32);
 #endif
 #elif defined(_MSC_VER) && !defined(__clang__)
-  (void) rel;
   LARGE_INTEGER val;
   if(!QueryPerformanceCounter(&val))
   {

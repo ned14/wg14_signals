@@ -36,7 +36,7 @@ extern "C"
 #include <stdatomic.h>
 #endif
 
-#define NAME thread_id_to_tls_map_t
+#define NAME WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t)
 #define KEY_TY WG14_SIGNALS_PREFIX(thread_id_t)
 #define VAL_TY void *
 #define HASH_FN vt_hash_integer
@@ -49,13 +49,13 @@ extern "C"
 #undef NAME
 
 #ifdef __cplusplus
-#ifdef __GNUC__
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
 #endif
 
-  struct deinit_state
+  struct WG14_SIGNALS_PREFIX(deinit_state)
   {
 #ifdef __cplusplus
     std::
@@ -71,14 +71,15 @@ extern "C"
     std::
 #endif
     atomic_uint lock;
-    struct deinit_state *state;
-    thread_id_to_tls_map_t thread_id_to_tls_map;
+    struct WG14_SIGNALS_PREFIX(deinit_state) * state;
+    WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t) thread_id_to_tls_map;
   };
 
   // Keep a local cache of the current thread id, if thread locals aren't async
   // signal safe on this platform it doesn't matter as we'll ensure it is
   // initialised from outside the signal handler
-  static WG14_SIGNALS_PREFIX(thread_id_t) my_current_thread_id(void)
+  static WG14_SIGNALS_PREFIX(thread_id_t)
+  WG14_SIGNALS_PREFIX(my_current_thread_id)(void)
   {
     static WG14_SIGNALS_THREAD_LOCAL WG14_SIGNALS_PREFIX(thread_id_t)
     current_thread_id_mycache;
@@ -101,7 +102,8 @@ extern "C"
       return -1;
     }
     memcpy(&mem->attr, attr, sizeof(mem->attr));
-    thread_id_to_tls_map_t_init(&mem->thread_id_to_tls_map);
+    WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_init)
+    (&mem->thread_id_to_tls_map);
     *val = mem;
     return 0;
   }
@@ -117,30 +119,33 @@ extern "C"
       mem->state->val = WG14_SIGNALS_NULLPTR;
       mem->state = WG14_SIGNALS_NULLPTR;
     }
-    for(thread_id_to_tls_map_t_itr it =
-        thread_id_to_tls_map_t_first(&mem->thread_id_to_tls_map);
-        !thread_id_to_tls_map_t_is_end(it);
-        it = thread_id_to_tls_map_t_next(it))
+    for(WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_itr)
+        it = WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_first)(
+        &mem->thread_id_to_tls_map);
+        !WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_is_end)(it);
+        it = WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_next)(it))
     {
       mem->attr.destroy(it.data->val);
     }
-    thread_id_to_tls_map_t_cleanup(&mem->thread_id_to_tls_map);
+    WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_cleanup)
+    (&mem->thread_id_to_tls_map);
     free(mem);
     return 0;
   }
 
   static int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_deinit)(
-  struct deinit_state *state)
+  struct WG14_SIGNALS_PREFIX(deinit_state) * state)
   {
     struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *mem =
     (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *) state->val;
     if(mem != WG14_SIGNALS_NULLPTR)
     {
-      const uint64_t mytid = my_current_thread_id();
+      const uint64_t mytid = WG14_SIGNALS_PREFIX(my_current_thread_id)();
       LOCK(mem->lock);
-      thread_id_to_tls_map_t_itr it =
-      thread_id_to_tls_map_t_get(&mem->thread_id_to_tls_map, mytid);
-      if(!thread_id_to_tls_map_t_is_end(it))
+      WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_itr)
+      it = WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_get)(
+      &mem->thread_id_to_tls_map, mytid);
+      if(!WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_is_end)(it))
       {
         UNLOCK(mem->lock);
         int ret = mem->attr.destroy(it.data->val);
@@ -149,7 +154,8 @@ extern "C"
           return ret;
         }
         LOCK(mem->lock);
-        thread_id_to_tls_map_t_erase(&mem->thread_id_to_tls_map, mytid);
+        WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_erase)
+        (&mem->thread_id_to_tls_map, mytid);
       }
       UNLOCK(mem->lock);
     }
@@ -167,12 +173,13 @@ extern "C"
     struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *mem =
     (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *) val;
     // This will force init the TLS from outside a signal handle
-    const uint64_t mytid = my_current_thread_id();
+    const uint64_t mytid = WG14_SIGNALS_PREFIX(my_current_thread_id)();
     LOCK(mem->lock);
-    thread_id_to_tls_map_t_itr it =
-    thread_id_to_tls_map_t_get(&mem->thread_id_to_tls_map, mytid);
+    WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_itr)
+    it = WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_get)(
+    &mem->thread_id_to_tls_map, mytid);
     int res = 0;
-    if(thread_id_to_tls_map_t_is_end(it))
+    if(WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_is_end)(it))
     {
       UNLOCK(mem->lock);
       void *newitem = WG14_SIGNALS_NULLPTR;
@@ -182,9 +189,9 @@ extern "C"
         return ret;
       }
       LOCK(mem->lock);
-      it =
-      thread_id_to_tls_map_t_insert(&mem->thread_id_to_tls_map, mytid, newitem);
-      if(thread_id_to_tls_map_t_is_end(it))
+      it = WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_insert)(
+      &mem->thread_id_to_tls_map, mytid, newitem);
+      if(WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_is_end)(it))
       {
         UNLOCK(mem->lock);
         mem->attr.destroy(newitem);
@@ -193,8 +200,8 @@ extern "C"
       }
       if(mem->state == WG14_SIGNALS_NULLPTR)
       {
-        mem->state =
-        (struct deinit_state *) calloc(1, sizeof(struct deinit_state));
+        mem->state = (struct WG14_SIGNALS_PREFIX(deinit_state) *) calloc(
+        1, sizeof(struct WG14_SIGNALS_PREFIX(deinit_state)));
         if(mem->state == WG14_SIGNALS_NULLPTR)
         {
           UNLOCK(mem->lock);
@@ -221,12 +228,13 @@ extern "C"
   {
     struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *mem =
     (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *) val;
-    const uint64_t mytid = my_current_thread_id();
+    const uint64_t mytid = WG14_SIGNALS_PREFIX(my_current_thread_id)();
     void *ret = WG14_SIGNALS_NULLPTR;
     LOCK(mem->lock);
-    thread_id_to_tls_map_t_itr it =
-    thread_id_to_tls_map_t_get(&mem->thread_id_to_tls_map, mytid);
-    if(!thread_id_to_tls_map_t_is_end(it))
+    WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_itr)
+    it = WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_get)(
+    &mem->thread_id_to_tls_map, mytid);
+    if(!WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_is_end)(it))
     {
       ret = it.data->val;
     }
@@ -235,7 +243,7 @@ extern "C"
   }
 
 #ifdef __cplusplus
-#ifdef __GNUC__
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
 #endif

@@ -177,6 +177,10 @@ WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
 #pragma warning(push)
 #pragma warning(disable : 4190)  // C-linkage with UDTs
 #endif
+#if defined(__clang__) && defined(__cplusplus)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
+#endif
   /*! \brief THREADSAFE ASYNC-SIGNAL-SAFE Fills the set of synchronous signals
   for this platform.
 
@@ -266,6 +270,9 @@ WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
   WG14_SIGNALS_PREFIX(thrd_signal_recover_t) recovery,
   WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
   union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value);
+#if defined(__clang__) && defined(__cplusplus)
+#pragma clang diagnostic pop
+#endif
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
@@ -306,8 +313,7 @@ WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
   threadsafe reference counted, so this is safe to call from multiple threads or
   instantiate multiple times.
 
-  If `guarded` is null, all the standard POSIX signals are used. `version` is
-  reserved for future use, and should be zero.
+  If `guarded` is null, all the standard POSIX signals are used.
 
   ## POSIX only
 
@@ -328,8 +334,7 @@ WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
   global signal handlers.
   */
   WG14_SIGNALS_EXTERN void *
-  WG14_SIGNALS_PREFIX(threadsafe_signals_install)(const sigset_t *guarded,
-                                                  int version);
+  WG14_SIGNALS_PREFIX(threadsafe_signals_install)(const sigset_t *guarded);
   /*! \brief THREADSAFE Uninstall a previously installed signal guard.
    */
   WG14_SIGNALS_EXTERN int

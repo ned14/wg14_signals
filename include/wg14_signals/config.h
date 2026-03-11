@@ -74,6 +74,14 @@ which are async signal safe, and which are not.
 #endif
 #endif
 
+#ifndef WG14_SIGNALS_IGNORE_MULTIPLE_DEFINITIONS
+#ifdef _MSC_VER
+#define WG14_SIGNALS_IGNORE_MULTIPLE_DEFINITIONS __declspec(selectany)
+#else
+#define WG14_SIGNALS_IGNORE_MULTIPLE_DEFINITIONS __attribute__((weak))
+#endif
+#endif
+
 #ifndef WG14_SIGNALS_DEFAULT_VISIBILITY
 #ifdef _WIN32
 #define WG14_SIGNALS_DEFAULT_VISIBILITY
