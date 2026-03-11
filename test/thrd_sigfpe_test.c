@@ -1,3 +1,5 @@
+#define _CRT_SECURE_NO_WARNINGS 1
+
 #include "test_common.h"
 
 #include "wg14_signals/thrd_signal_handle.h"
@@ -60,7 +62,8 @@ sigfpe_func(union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
 {
   /* This should trigger SIGFPE */
   volatile int result = 42 / divisor;
-  /* If we get here, something is wrong */
+  /* If we get here, this architecture doesn't trap integer divide by zero */
+  thrd_signal_raise(SIGFPE, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
   (void) result;
   return value;
 }

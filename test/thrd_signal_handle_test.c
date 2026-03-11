@@ -1,3 +1,5 @@
+#define _CRT_SECURE_NO_WARNINGS 1
+
 #include "test_common.h"
 
 #include "wg14_signals/thrd_signal_handle.h"
