@@ -12,6 +12,9 @@
 #define SIGFPE 8
 #endif
 
+extern volatile int divisor;
+volatile int divisor;
+
 struct shared_t
 {
   int count_decider, count_recovery;
@@ -49,7 +52,6 @@ sigfpe_decider_func(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi)
 static union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
 sigfpe_func(union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
 {
-  volatile int divisor = 0;
   /* This should trigger SIGFPE */
   volatile int result = 42 / divisor;
   /* If we get here, something is wrong */
