@@ -38,7 +38,10 @@ extern "C"
 #if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
 // If this platform has async signal safe thread locals, we can cache the thread
 // id in an inlineable variable.
-#if WG14_SIGNALS_ENABLE_HEADER_ONLY
+#ifdef _WIN32
+  // On Windows thread local vars can't be dllexported, so cache per DLL
+  extern WG14_SIGNALS_IGNORE_MULTIPLE_DEFINITIONS
+#elif WG14_SIGNALS_ENABLE_HEADER_ONLY
   WG14_SIGNALS_EXTERN_IMPL
   WG14_SIGNALS_IGNORE_MULTIPLE_DEFINITIONS
 #else

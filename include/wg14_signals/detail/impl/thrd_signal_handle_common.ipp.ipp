@@ -48,6 +48,11 @@ extern "C"
 #include <stdatomic.h>
 #endif
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4324)  // structure was padded
+#endif
+
   struct WG14_SIGNALS_PREFIX(sighandler_info);
 
 #if NSIG < 1024
@@ -613,6 +618,10 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
     free(p);
     return ret;
   }
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 #ifdef __cplusplus
 }

@@ -49,9 +49,9 @@ sigfpe_decider_func(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi)
 static union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
 sigfpe_func(union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
 {
-  int divisor = 0;
+  volatile int divisor = 0;
   /* This should trigger SIGFPE */
-  int result = 42 / divisor;
+  volatile int result = 42 / divisor;
   /* If we get here, something is wrong */
   (void) result;
   return value;

@@ -40,6 +40,12 @@ extern "C"
 #pragma GCC diagnostic ignored "-Wclass-memaccess"
 #endif
 #endif
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4190)  // C-linkage with UDTs
+#pragma warning(disable : 4611)  // Interaction between setjmp and C++
+#endif
+
 
   static const sigset_t *WG14_SIGNALS_PREFIX(synchronous_sigset)(void)
   {
@@ -425,6 +431,9 @@ extern "C"
     return true;
   }
 
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 #ifdef __cplusplus
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop

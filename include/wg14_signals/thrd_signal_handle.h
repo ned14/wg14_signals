@@ -74,6 +74,15 @@ extern "C"
 #endif
 #endif
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4190)  // C-linkage with UDTs
+#endif
+#if defined(__clang__) && defined(__cplusplus)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
+#endif
+
   /*! \union thrd_raised_signal_info_value
   \brief User defined value.
   */
@@ -120,8 +129,7 @@ typedef struct __siginfo WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t);
   typedef struct _CONTEXT
   WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
 #else
-typedef struct ucontext_t
-WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
+typedef ucontext_t WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
 #endif
 
   /*! \struct thrd_raised_signal_info
@@ -173,14 +181,6 @@ WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
   typedef enum WG14_SIGNALS_PREFIX(thrd_signal_decision_t)(WG14_SIGNALS_PREFIX(
   thrd_signal_decide_t))(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *);
 
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable : 4190)  // C-linkage with UDTs
-#endif
-#if defined(__clang__) && defined(__cplusplus)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
-#endif
   /*! \brief THREADSAFE ASYNC-SIGNAL-SAFE Fills the set of synchronous signals
   for this platform.
 
