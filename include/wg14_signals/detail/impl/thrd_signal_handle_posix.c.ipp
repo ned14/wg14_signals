@@ -19,12 +19,12 @@ limitations under the License.
 
 #include "../../thrd_signal_handle.h"
 
+#include <pthread.h>
+#include <signal.h>
+
 #include "thrd_signal_handle_common.ipp.ipp"
 
 #include "linked_list.h"
-
-#include <pthread.h>
-#include <signal.h>
 
 #ifdef __cplusplus
 extern "C"

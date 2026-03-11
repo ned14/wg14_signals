@@ -79,7 +79,7 @@ extern "C"
     WG14_SIGNALS_PREFIX(get_current_thread_id)();
     return WG14_SIGNALS_PREFIX(current_thread_id_cached);
 #else
-  return get_current_thread_id();
+  return WG14_SIGNALS_PREFIX(get_current_thread_id)();
 #endif
   }
 

@@ -258,7 +258,7 @@ extern "C"
     // This isn't async signal safe, but caller may not have called
     // threadsafe_signals_install() so we have no other choice within this
     // library
-    if(0 != WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state) _init())
+    if(0 != WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_init)())
     {
       return false;
     }
