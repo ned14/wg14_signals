@@ -132,7 +132,7 @@ extern "C"
       return ((unsigned long) 0xC0000090L) /*EXCEPTION_FLT_INVALID_OPERATION*/;
     }
   }
-  static int signal_from_win32_exception_code(DWORD c)
+  static int WG14_SIGNALS_PREFIX(signal_from_win32_exception_code)(DWORD c)
   {
     switch(c)
     {
@@ -155,6 +155,8 @@ extern "C"
     case((unsigned long) 0xC0000091L) /*EXCEPTION_FLT_OVERFLOW*/:
     case((unsigned long) 0xC0000092L) /*EXCEPTION_FLT_STACK_CHECK*/:
     case((unsigned long) 0xC0000093L) /*EXCEPTION_FLT_UNDERFLOW*/:
+    case((unsigned long) 0xC0000094L) /*EXCEPTION_INT_DIVIDE_BY_ZERO*/:
+    case((unsigned long) 0xC0000095L) /*EXCEPTION_INT_OVERFLOW*/:
       return SIGFPE;
     default:
       return 0;
@@ -235,7 +237,8 @@ extern "C"
       return guarded(value);
     }
     __except(WG14_SIGNALS_PREFIX(win32_exception_filter)(
-    &rsi, signals, signal_from_win32_exception_code(GetExceptionCode()),
+    &rsi, signals,
+    WG14_SIGNALS_PREFIX(signal_from_win32_exception_code)(GetExceptionCode()),
     recovery, decider, value, GetExceptionInformation()))
     {
       return recovery(&rsi);
@@ -295,8 +298,8 @@ extern "C"
   static long __stdcall WG14_SIGNALS_PREFIX(win32_vectored_exception_function)(
   EXCEPTION_POINTERS *ptrs)
   {
-    const int signo =
-    signal_from_win32_exception_code(ptrs->ExceptionRecord->ExceptionCode);
+    const int signo = WG14_SIGNALS_PREFIX(signal_from_win32_exception_code)(
+    ptrs->ExceptionRecord->ExceptionCode);
     if(signo == 0)
     {
       // Not a supported exception code

@@ -49,7 +49,13 @@ sigfpe_decider_func(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi)
 }
 
 /* Guarded function that triggers SIGFPE via division by zero */
-static union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
+static
+#ifdef __clang__
+__attribute__((no_sanitize("undefined")))
+#elif defined(__GNUC__)
+__attribute__((no_sanitize_undefined))
+#endif
+union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
 sigfpe_func(union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
 {
   /* This should trigger SIGFPE */
