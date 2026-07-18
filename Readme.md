@@ -23,13 +23,13 @@ execution of `func`, call `decider_func` as a filter to decide what to do.
 If `decider_func` chooses to initiate recovery, perform as-if a `longjmp()`
 back to before `func` was called, and invoke `recovery_func` to recover.
 
-`thrd_signal_invoke()` can be stacked i.e. `func` can invoke subfunctions
+`sigguarded()` can be stacked i.e. `func` can invoke subfunctions
 with their own signal raise filter functions.
 */
 sigset_t guarded;
 sigemptyset(&guarded);
 sigaddset(&guarded, SIGILL);
-thrd_signal_invoke(&guarded, func, recovery_func, decider_func, user_value);
+sigguarded(&guarded, func, recovery_func, decider_func, user_value);
 ```
 
 ## Supported targets
@@ -94,7 +94,7 @@ maybe 29 clock cycles.
 With `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=1` (the default on Linux,
 Windows, and other ELF based platforms):
 
-    - `thrd_signal_invoke()` which invokes a function which thread locally
+    - `sigguarded()` which invokes a function which thread locally
 handles any signals raised costs about 16 nanoseconds (31 clock cycles)
 for the happy case (most of this is the cost of `_setjmp()` on this platform
 and glibc).
@@ -105,7 +105,7 @@ clock cycles) to reach (there is a CAS lock-unlock sequence needed).
 
 With `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0`:
 
-    - `thrd_signal_invoke()` which invokes a function which thread locally
+    - `sigguarded()` which invokes a function which thread locally
 handles any signals raised costs about 25 nanoseconds for the happy case.
 
     - A globally installed signal decider takes about 10 nanoseconds to reach.
@@ -115,7 +115,7 @@ handles any signals raised costs about 25 nanoseconds for the happy case.
 - `tss_async_signal_safe_get()` which implements an async signal safe
 thread local storage using a hash table costs about 16 nanoseconds.
 
-    - `thrd_signal_invoke()` which invokes a function which thread locally
+    - `sigguarded()` which invokes a function which thread locally
 handles any signals raised costs about 20 nanoseconds for the happy case
 (most of this is the cost of `_setjmp()` on this platform and libc).
 
@@ -127,7 +127,7 @@ handles any signals raised costs about 20 nanoseconds for the happy case
 - `tss_async_signal_safe_get()` which implements an async signal safe
 thread local storage using a hash table costs about 22 nanoseconds.
 
-- `thrd_signal_invoke()` which invokes a function which thread locally
+- `sigguarded()` which invokes a function which thread locally
 handles any signals raised costs about 17 nanoseconds (this is Windows
 Structured Exception Handling, not our library code).
 

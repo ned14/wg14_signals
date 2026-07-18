@@ -141,8 +141,8 @@ extern "C"
     struct WG14_SIGNALS_PREFIX(global_signal_decider_t) * prev, *next;
     int refcount;
 
-    WG14_SIGNALS_PREFIX(thrd_signal_decide_t) * decider;
-    union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value;
+    WG14_SIGNALS_PREFIX(sig_decide_t) * decider;
+    union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value;
   };
 
   struct WG14_SIGNALS_PREFIX(sighandler_info)
@@ -161,7 +161,7 @@ extern "C"
     } deferred_frees;
   };
 
-  struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t)
+  struct WG14_SIGNALS_PREFIX(sig_global_state_t)
   {
     WG14_SIGNALS_ATOMIC_PREFIX atomic_uint lock;
     int sighandlers_count;
@@ -171,57 +171,53 @@ extern "C"
 #endif
     WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t) signo_to_sighandler_map;
   };
-  WG14_SIGNALS_EXTERN struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *
-  WG14_SIGNALS_PREFIX(thrd_signal_global_state)(void)
+  WG14_SIGNALS_EXTERN struct WG14_SIGNALS_PREFIX(sig_global_state_t) *
+  WG14_SIGNALS_PREFIX(sig_global_state)(void)
   {
-    static struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) v;
+    static struct WG14_SIGNALS_PREFIX(sig_global_state_t) v;
     return &v;
   }
 
 
-  struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_per_frame_t)
+  struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t)
   {
-    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_per_frame_t) *
-    prev;
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) * prev;
 #ifndef _WIN32
     const sigset_t *guarded;
-    WG14_SIGNALS_PREFIX(thrd_signal_recover_t) * recovery;
-    WG14_SIGNALS_PREFIX(thrd_signal_decide_t) * decider;
-    struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
+    WG14_SIGNALS_PREFIX(sig_recover_t) * recovery;
+    WG14_SIGNALS_PREFIX(sig_decide_t) * decider;
+    struct WG14_SIGNALS_PREFIX(stdc_siginfo) rsi;
 #endif
     jmp_buf buf;
   };
-  struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_t)
+  struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t)
   {
-    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_per_frame_t) *
-    front;
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) * front;
   };
 #if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
-  WG14_SIGNALS_EXTERN struct WG14_SIGNALS_PREFIX(
-  thrd_signal_global_state_tss_state_t) *
-  *WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)(void)
+  WG14_SIGNALS_EXTERN struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *
+  *WG14_SIGNALS_PREFIX(sig_tss_state_raw)(void)
   {
     static WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL struct WG14_SIGNALS_PREFIX(
-    thrd_signal_global_state_tss_state_t) *
+    sig_global_state_tss_state_t) *
     v;
     return &v;
   }
-  static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_create)(void)
+  static int WG14_SIGNALS_PREFIX(sig_global_tss_state_create)(void)
   {
     return 0;
   }
-  static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_init)(void)
+  static int WG14_SIGNALS_PREFIX(sig_global_tss_state_init)(void)
   {
-    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_t) **state =
-    WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)();
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) **state =
+    WG14_SIGNALS_PREFIX(sig_tss_state_raw)();
     if(*state != WG14_SIGNALS_NULLPTR)
     {
       return 0;
     }
-    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_t) *mem =
-    (struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_t) *) calloc(
-    1,
-    sizeof(struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_t)));
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *mem =
+    (struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *) calloc(
+    1, sizeof(struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t)));
     if(mem == WG14_SIGNALS_NULLPTR)
     {
       return -1;
@@ -229,59 +225,59 @@ extern "C"
     *state = mem;
     return WG14_SIGNALS_PREFIX(thread_atexit)(free, mem);
   }
-  static struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_t) *
-  WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state)(void)
+  static struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *
+  WG14_SIGNALS_PREFIX(sig_global_tss_state)(void)
   {
-    return *WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)();
+    return *WG14_SIGNALS_PREFIX(sig_tss_state_raw)();
   }
-  static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
+  static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
   {
     return 0;
   }
 #else
 WG14_SIGNALS_EXTERN WG14_SIGNALS_PREFIX(tss_async_signal_safe) *
-WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)(void)
+WG14_SIGNALS_PREFIX(sig_tss_state_raw)(void)
 {
   static WG14_SIGNALS_PREFIX(tss_async_signal_safe) v;
   return &v;
 }
-static int thrd_signal_global_state_tss_state_create(void **dest)
+static int sig_global_state_tss_state_create(void **dest)
 {
   assert(*dest == WG14_SIGNALS_NULLPTR);
-  *dest = calloc(
-  1, sizeof(struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_t)));
+  *dest =
+  calloc(1, sizeof(struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t)));
   return (*dest != WG14_SIGNALS_NULLPTR) ? 0 : -1;
 }
-static int thrd_signal_global_state_tss_state_destroy(void *p)
+static int sig_global_state_tss_state_destroy(void *p)
 {
   free(p);
   return 0;
 }
-static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_create)(void)
+static int WG14_SIGNALS_PREFIX(sig_global_tss_state_create)(void)
 {
   const struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)
-  tss_attr = {.create = thrd_signal_global_state_tss_state_create,
-              .destroy = thrd_signal_global_state_tss_state_destroy};
+  tss_attr = {.create = sig_global_state_tss_state_create,
+              .destroy = sig_global_state_tss_state_destroy};
   return WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(
-  WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)(), &tss_attr);
+  WG14_SIGNALS_PREFIX(sig_tss_state_raw)(), &tss_attr);
 }
-static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_init)(void)
+static int WG14_SIGNALS_PREFIX(sig_global_tss_state_init)(void)
 {
   return WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(
-  *WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)());
+  *WG14_SIGNALS_PREFIX(sig_tss_state_raw)());
 }
-static struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_t) *
-WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state)(void)
+static struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *
+WG14_SIGNALS_PREFIX(sig_global_tss_state)(void)
 {
-  return (struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_t) *)
+  return (struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *)
   WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(
-  *WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)());
+  *WG14_SIGNALS_PREFIX(sig_tss_state_raw)());
 }
-static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
+static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
 {
   return WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(
-  *WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)());
-  *WG14_SIGNALS_PREFIX(thrd_signal_tss_state_raw)() = WG14_SIGNALS_NULLPTR;
+  *WG14_SIGNALS_PREFIX(sig_tss_state_raw)());
+  *WG14_SIGNALS_PREFIX(sig_tss_state_raw)() = WG14_SIGNALS_NULLPTR;
 }
 #endif
 
@@ -290,8 +286,8 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
   struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo);
   static bool WG14_SIGNALS_PREFIX(install_sighandler)(const int signo)
   {
-    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
-    WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
+    struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+    WG14_SIGNALS_PREFIX(sig_global_state)();
     LOCK(state->lock);
     WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_itr)
     it = WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_get)(
@@ -319,7 +315,7 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
     signo_to_sighandler_map_t_value(it)->count++;
     if(0 == state->sighandlers_count++)
     {
-      if(-1 == WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_create)())
+      if(-1 == WG14_SIGNALS_PREFIX(sig_global_tss_state_create)())
       {
         UNLOCK(state->lock);
         return false;
@@ -333,8 +329,8 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
   struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo);
   static bool WG14_SIGNALS_PREFIX(uninstall_sighandler)(const int signo)
   {
-    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
-    WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
+    struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+    WG14_SIGNALS_PREFIX(sig_global_state)();
     LOCK(state->lock);
     WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_itr)
     it = WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_get)(
@@ -360,14 +356,14 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
       }
       if(need_to_destroy_tss)
       {
-        (void) WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)();
+        (void) WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)();
       }
     }
     UNLOCK(state->lock);
     return true;
   }
 
-  void *WG14_SIGNALS_PREFIX(threadsafe_signals_install)(const sigset_t *guarded)
+  void *WG14_SIGNALS_PREFIX(siginstall)(const sigset_t *guarded)
   {
     sigset_t *ret = (sigset_t *) malloc(sizeof(sigset_t));
     if(ret == WG14_SIGNALS_NULLPTR)
@@ -408,7 +404,7 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
     return ret;
   }
 
-  int WG14_SIGNALS_PREFIX(threadsafe_signals_uninstall)(void *ss)
+  int WG14_SIGNALS_PREFIX(siguninstall)(void *ss)
   {
     if(ss == WG14_SIGNALS_NULLPTR)
     {
@@ -434,7 +430,7 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
     return 0;
   }
 
-  int WG14_SIGNALS_PREFIX(threadsafe_signals_uninstall_system)(int version)
+  int WG14_SIGNALS_PREFIX(siguninstall_system)(int version)
   {
     if(version != 0)
     {
@@ -446,8 +442,8 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
 
   void *WG14_SIGNALS_PREFIX(signal_decider_create)(
   const sigset_t *guarded, bool callfirst,
-  WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
-  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
+  WG14_SIGNALS_PREFIX(sig_decide_t) decider,
+  union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
   {
     if(guarded == WG14_SIGNALS_NULLPTR)
     {
@@ -492,8 +488,8 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
     (struct WG14_SIGNALS_PREFIX(global_signal_decider_t) **) ((char *) ret +
                                                               sigset_t_size);
 
-    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
-    WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
+    struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+    WG14_SIGNALS_PREFIX(sig_global_state)();
     for(int signo = 1; signo < NSIG; signo++)
     {
       if(signo == SIGKILL || signo == SIGSTOP)
@@ -555,8 +551,8 @@ static int WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_destroy)(void)
       return -1;
     }
     int ret = -1;
-    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
-    WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
+    struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+    WG14_SIGNALS_PREFIX(sig_global_state)();
     const sigset_t *guarded = (const sigset_t *) p;
     const size_t sigset_t_size =
     (sizeof(sigset_t) +

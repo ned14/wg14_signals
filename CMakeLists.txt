@@ -14,6 +14,7 @@ check_c_source_compiles("#include <setjmp.h>\nint main(void) { jmp_buf buf; retu
 
 set(LIBRARY_SOURCES
   "src/wg14_signals/current_thread_id.c"
+  "src/wg14_signals/sigfence_force_escaped.c"
   "src/wg14_signals/tss_async_signal_safe.c"
   $<$<NOT:$<PLATFORM_ID:Windows>>:src/wg14_signals/thrd_signal_handle_posix.c>
   $<$<PLATFORM_ID:Windows>:src/wg14_signals/thrd_signal_handle_windows.c>

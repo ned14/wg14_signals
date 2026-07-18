@@ -64,7 +64,7 @@ extern "C"
     v = x;
     return &v;
   }
-  int WG14_SIGNALS_PREFIX(fill_synchronous_sigset)(sigset_t *set)
+  int WG14_SIGNALS_PREFIX(sigfillset_synchronous)(sigset_t *set)
   {
     memcpy(set, WG14_SIGNALS_PREFIX(synchronous_sigset)(), sizeof(*set));
     return 0;
@@ -87,7 +87,7 @@ extern "C"
     v = x;
     return &v;
   }
-  int WG14_SIGNALS_PREFIX(fill_asynchronous_nondebug_sigset)(sigset_t *set)
+  int WG14_SIGNALS_PREFIX(sigfillset_asynchronous_nondebug)(sigset_t *set)
   {
     memcpy(set, WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(),
            sizeof(*set));
@@ -102,7 +102,7 @@ extern "C"
     v = x;
     return &v;
   }
-  int WG14_SIGNALS_PREFIX(fill_asynchronous_debug_sigset)(sigset_t *set)
+  int WG14_SIGNALS_PREFIX(sigfillset_asynchronous_debug)(sigset_t *set)
   {
     memcpy(set, WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(), sizeof(*set));
     return 0;
@@ -164,7 +164,7 @@ extern "C"
   }
 
   static void WG14_SIGNALS_PREFIX(prepare_rsi)(
-  struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi, const int signo,
+  struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi, const int signo,
   EXCEPTION_POINTERS *ptrs)
   {
     memset(rsi, 0, sizeof(*rsi));
@@ -175,17 +175,16 @@ extern "C"
        (ULONG_PTR) 0xdeadbeefdeadbeef)
     {
       rsi->raw_context =
-      (WG14_SIGNALS_PREFIX(
-      thrd_raised_signal_info_context_t) *) ptrs->ExceptionRecord
+      (WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) *) ptrs->ExceptionRecord
       ->ExceptionInformation[ptrs->ExceptionRecord->NumberParameters - 1];
     }
     else
     {
-      rsi->raw_context = (WG14_SIGNALS_PREFIX(
-      thrd_raised_signal_info_context_t) *) ptrs->ContextRecord;
+      rsi->raw_context =
+      (WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) *) ptrs->ContextRecord;
     }
-    rsi->raw_info = (WG14_SIGNALS_PREFIX(
-    thrd_raised_signal_info_siginfo_t) *) ptrs->ExceptionRecord;
+    rsi->raw_info =
+    (WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) *) ptrs->ExceptionRecord;
     rsi->error_code =
     (WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t))
     ptrs->ExceptionRecord->ExceptionInformation[2];  // NTSTATUS
@@ -193,12 +192,10 @@ extern "C"
   }
 
   static long WG14_SIGNALS_PREFIX(win32_exception_filter)(
-  struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi,
-  const sigset_t *guarded, const int signo,
-  WG14_SIGNALS_PREFIX(thrd_signal_recover_t) recovery,
-  WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
-  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value,
-  EXCEPTION_POINTERS *ptrs)
+  struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi, const sigset_t *guarded,
+  const int signo, WG14_SIGNALS_PREFIX(sig_recover_t) recovery,
+  WG14_SIGNALS_PREFIX(sig_decide_t) decider,
+  union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value, EXCEPTION_POINTERS *ptrs)
   {
     if(sigismember(guarded, signo))
     {
@@ -206,11 +203,11 @@ extern "C"
       rsi->value = value;
       switch(decider(rsi))
       {
-      case WG14_SIGNALS_PREFIX(thrd_signal_decision_next_decider):
+      case WG14_SIGNALS_PREFIX(sig_decision_next_decider):
         break;
-      case WG14_SIGNALS_PREFIX(thrd_signal_decision_resume_execution):
+      case WG14_SIGNALS_PREFIX(sig_decision_resume_execution):
         return EXCEPTION_CONTINUE_EXECUTION;
-      case WG14_SIGNALS_PREFIX(thrd_signal_decision_invoke_recovery):
+      case WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery):
         return (recovery != WG14_SIGNALS_NULLPTR) ?
                EXCEPTION_EXECUTE_HANDLER :
                EXCEPTION_CONTINUE_EXECUTION;
@@ -219,19 +216,20 @@ extern "C"
     return EXCEPTION_CONTINUE_SEARCH;
   }
 
-  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
-  WG14_SIGNALS_PREFIX(thrd_signal_invoke)(
-  const sigset_t *signals, WG14_SIGNALS_PREFIX(thrd_signal_func_t) guarded,
-  WG14_SIGNALS_PREFIX(thrd_signal_recover_t) recovery,
-  WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
-  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
+  union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
+  WG14_SIGNALS_PREFIX(sigguarded)(const sigset_t *signals,
+                                  WG14_SIGNALS_PREFIX(sig_func_t) guarded,
+                                  WG14_SIGNALS_PREFIX(sig_recover_t) recovery,
+                                  WG14_SIGNALS_PREFIX(sig_decide_t) decider,
+                                  union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
+                                  value)
   {
     if(signals == WG14_SIGNALS_NULLPTR || guarded == WG14_SIGNALS_NULLPTR ||
        decider == WG14_SIGNALS_NULLPTR)
     {
       abort();
     }
-    struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
+    struct WG14_SIGNALS_PREFIX(stdc_siginfo) rsi;
 #ifdef __MINGW32__
 #error                                                                         \
 "FATAL: Donations of a Mingw suitable alternative to __try ... __except are welcome"
@@ -251,22 +249,22 @@ extern "C"
   }
 
   // You must NOT do anything async signal unsafe in here!
-  bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(
-  int signo, WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t) * info,
-  WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) * raw_context)
+  bool WG14_SIGNALS_PREFIX(stdc_raise)(
+  int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * info,
+  WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * raw_context)
   {
     // This isn't async signal safe, but caller may not have called
-    // threadsafe_signals_install() so we have no other choice within this
+    // siginstall() so we have no other choice within this
     // library
-    if(0 != WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_init)())
+    if(0 != WG14_SIGNALS_PREFIX(sig_global_tss_state_init)())
     {
       return false;
     }
-    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_t) *tss =
-    WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state)();
-    struct WG14_SIGNALS_PREFIX(
-    thrd_signal_global_state_tss_state_per_frame_t) *old = tss->front,
-                                                    current;
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+    WG14_SIGNALS_PREFIX(sig_global_tss_state)();
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *old =
+    tss->front,
+                                                                       current;
     memset(&current, 0, sizeof(current));
     current.prev = old;
     tss->front = &current;
@@ -311,8 +309,8 @@ extern "C"
       // Not a supported exception code
       return EXCEPTION_CONTINUE_SEARCH;
     }
-    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
-    WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
+    struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+    WG14_SIGNALS_PREFIX(sig_global_state)();
     LOCK(state->lock);
     WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_itr)
     it = WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_get)(
@@ -323,7 +321,7 @@ extern "C"
       UNLOCK(state->lock);
       return EXCEPTION_CONTINUE_SEARCH;
     }
-    struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
+    struct WG14_SIGNALS_PREFIX(stdc_siginfo) rsi;
     WG14_SIGNALS_PREFIX(prepare_rsi)(&rsi, signo, ptrs);
     if(signo_to_sighandler_map_t_value(it)->global_handler.front !=
        WG14_SIGNALS_NULLPTR)
@@ -335,7 +333,7 @@ extern "C"
         rsi.value = current->value;
         current->refcount++;
         UNLOCK(state->lock);
-        const enum WG14_SIGNALS_PREFIX(thrd_signal_decision_t) res =
+        const enum WG14_SIGNALS_PREFIX(sig_decision_t) res =
         current->decider(&rsi);
         LOCK(state->lock);
         if(0 == --current->refcount)
@@ -356,9 +354,8 @@ extern "C"
         if(res)
         {
           UNLOCK(state->lock);
-          struct WG14_SIGNALS_PREFIX(
-          thrd_signal_global_state_tss_state_t) *tss =
-          WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state)();
+          struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+          WG14_SIGNALS_PREFIX(sig_global_tss_state)();
           // If there is a most recent thread local handler, resume there
           // instead
           if(tss->front != WG14_SIGNALS_NULLPTR)
@@ -413,8 +410,8 @@ extern "C"
   {
     (void) item;
     (void) signo;
-    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
-    WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
+    struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+    WG14_SIGNALS_PREFIX(sig_global_state)();
     if(0 == state->sighandlers_count)
     {
       state->vectored_continue_handler = AddVectoredContinueHandler(
@@ -433,8 +430,8 @@ extern "C"
   {
     (void) item;
     (void) signo;
-    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
-    WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
+    struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+    WG14_SIGNALS_PREFIX(sig_global_state)();
     if(0 == state->sighandlers_count)
     {
       SetUnhandledExceptionFilter(state->old_unhandled_exception_filter);

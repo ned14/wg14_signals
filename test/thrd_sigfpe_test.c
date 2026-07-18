@@ -24,9 +24,8 @@ struct shared_t
 };
 
 /* Recovery function for SIGFPE tests */
-static union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
-sigfpe_recovery_func(const struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *
-                     rsi)
+static union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
+sigfpe_recovery_func(const struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   struct shared_t *shared = (struct shared_t *) rsi->value.ptr_value;
   shared->count_recovery++;
@@ -36,8 +35,8 @@ sigfpe_recovery_func(const struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *
 }
 
 /* Decider function for SIGFPE tests */
-static enum WG14_SIGNALS_PREFIX(thrd_signal_decision_t)
-sigfpe_decider_func(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi)
+static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+sigfpe_decider_func(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   struct shared_t *shared = (struct shared_t *) rsi->value.ptr_value;
   shared->count_decider++;
@@ -46,8 +45,7 @@ sigfpe_decider_func(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi)
   {
     shared->test_value = SIGFPE;
   }
-  return WG14_SIGNALS_PREFIX(
-  thrd_signal_decision_invoke_recovery); /* handled */
+  return WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery); /* handled */
 }
 
 /* Guarded function that triggers SIGFPE via division by zero */
@@ -57,13 +55,16 @@ __attribute__((no_sanitize("undefined")))
 #elif defined(__GNUC__)
 __attribute__((no_sanitize_undefined))
 #endif
-union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
-sigfpe_func(union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
+union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
+sigfpe_func(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 {
   /* This should trigger SIGFPE */
   volatile int result = 42 / divisor;
+  /* Not necessary, only here so we're unit testing sigfence() */
+  sigfence(result);
   /* If we get here, this architecture doesn't trap integer divide by zero */
-  thrd_signal_raise(SIGFPE, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
+  WG14_SIGNALS_PREFIX(stdc_raise)(SIGFPE, WG14_SIGNALS_NULLPTR,
+                                  WG14_SIGNALS_NULLPTR);
   (void) result;
   return value;
 }
@@ -75,12 +76,11 @@ static int test_thread_local_sigfpe(void)
   puts("Test 1: Thread-local SIGFPE handling ...");
   struct shared_t shared = {
   .count_decider = 0, .count_recovery = 0, .test_value = 0};
-  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
-  value = {.ptr_value = &shared};
+  union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value = {.ptr_value = &shared};
   sigset_t guarded;
   sigemptyset(&guarded);
   sigaddset(&guarded, SIGFPE);
-  WG14_SIGNALS_PREFIX(thrd_signal_invoke)
+  WG14_SIGNALS_PREFIX(sigguarded)
   (&guarded, sigfpe_func, sigfpe_recovery_func, sigfpe_decider_func, value);
   CHECK(shared.count_decider == 1);
   CHECK(shared.count_recovery == 1);
@@ -95,15 +95,14 @@ static int test_global_sigfpe(void)
   puts("Test 2: Global SIGFPE handling ...");
   struct shared_t shared = {
   .count_decider = 0, .count_recovery = 0, .test_value = 0};
-  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
-  value = {.ptr_value = &shared};
+  union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value = {.ptr_value = &shared};
   sigset_t guarded;
   sigemptyset(&guarded);
   sigaddset(&guarded, SIGFPE);
   void *sigfpe_decider = WG14_SIGNALS_PREFIX(signal_decider_create)(
   &guarded, false, sigfpe_decider_func, value);
-  /* Trigger SIGFPE via thrd_signal_raise */
-  WG14_SIGNALS_PREFIX(thrd_signal_raise)
+  /* Trigger SIGFPE via stdc_raise */
+  WG14_SIGNALS_PREFIX(stdc_raise)
   (SIGFPE, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
   CHECK(shared.count_decider == 1);
   /* Recovery is not called for global handlers */
@@ -120,13 +119,12 @@ static int test_sigfpe_with_custom_value(void)
   puts("Test 3: SIGFPE with custom value ...");
   struct shared_t shared = {
   .count_decider = 0, .count_recovery = 0, .test_value = 0};
-  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
-  value = {.ptr_value = &shared};
+  union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value = {.ptr_value = &shared};
   sigset_t guarded;
   sigemptyset(&guarded);
   sigaddset(&guarded, SIGFPE);
-  /* Pass a custom value through thrd_signal_invoke */
-  WG14_SIGNALS_PREFIX(thrd_signal_invoke)
+  /* Pass a custom value through sigguarded */
+  WG14_SIGNALS_PREFIX(sigguarded)
   (&guarded, sigfpe_func, sigfpe_recovery_func, sigfpe_decider_func, value);
   CHECK(shared.count_decider == 1);
   CHECK(shared.count_recovery == 1);
@@ -142,14 +140,13 @@ static int test_multiple_sigfpe_invocations(void)
   puts("Test 4: Multiple SIGFPE invocations ...");
   struct shared_t shared = {
   .count_decider = 0, .count_recovery = 0, .test_value = 0};
-  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
-  value = {.ptr_value = &shared};
+  union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value = {.ptr_value = &shared};
   sigset_t guarded;
   sigemptyset(&guarded);
   sigaddset(&guarded, SIGFPE);
 
   /* First invocation */
-  WG14_SIGNALS_PREFIX(thrd_signal_invoke)
+  WG14_SIGNALS_PREFIX(sigguarded)
   (&guarded, sigfpe_func, sigfpe_recovery_func, sigfpe_decider_func, value);
   CHECK(shared.count_decider == 1);
   CHECK(shared.count_recovery == 1);
@@ -159,7 +156,7 @@ static int test_multiple_sigfpe_invocations(void)
   shared.count_recovery = 0;
 
   /* Second invocation - state should be properly reset */
-  WG14_SIGNALS_PREFIX(thrd_signal_invoke)
+  WG14_SIGNALS_PREFIX(sigguarded)
   (&guarded, sigfpe_func, sigfpe_recovery_func, sigfpe_decider_func, value);
   CHECK(shared.count_decider == 1);
   CHECK(shared.count_recovery == 1);
@@ -167,7 +164,7 @@ static int test_multiple_sigfpe_invocations(void)
   /* Third invocation */
   shared.count_decider = 0;
   shared.count_recovery = 0;
-  WG14_SIGNALS_PREFIX(thrd_signal_invoke)
+  WG14_SIGNALS_PREFIX(sigguarded)
   (&guarded, sigfpe_func, sigfpe_recovery_func, sigfpe_decider_func, value);
   CHECK(shared.count_decider == 1);
   CHECK(shared.count_recovery == 1);
@@ -177,12 +174,10 @@ static int test_multiple_sigfpe_invocations(void)
 int main(void)
 {
   int ret = 0;
-  void *handlers =
-  WG14_SIGNALS_PREFIX(threadsafe_signals_install)(WG14_SIGNALS_NULLPTR);
+  void *handlers = WG14_SIGNALS_PREFIX(siginstall)(WG14_SIGNALS_NULLPTR);
   if(handlers == WG14_SIGNALS_NULLPTR)
   {
-    fprintf(stderr, "FATAL: threadsafe_signals_install() failed with %s\n",
-            strerror(errno));
+    fprintf(stderr, "FATAL: siginstall() failed with %s\n", strerror(errno));
     return 1;
   }
 
@@ -192,7 +187,7 @@ int main(void)
   ret += test_sigfpe_with_custom_value();
   ret += test_multiple_sigfpe_invocations();
 
-  CHECK(WG14_SIGNALS_PREFIX(threadsafe_signals_uninstall)(handlers) == 0);
+  CHECK(WG14_SIGNALS_PREFIX(siguninstall)(handlers) == 0);
   printf("Exiting main with result %d ...\n", ret);
   return ret;
 }

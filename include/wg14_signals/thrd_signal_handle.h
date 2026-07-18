@@ -74,6 +74,89 @@ extern "C"
 #endif
 #endif
 
+#ifndef WG14_SIGNALS_DISABLE_SIGFENCE_MACRO
+  WG14_SIGNALS_EXTERN void WG14_SIGNALS_PREFIX(sigfence_force_escaped)(int,
+                                                                       ...);
+#define SIGFENCE_GLUE(x, y) x y
+#define SIGFENCE_RETURN_ARG_COUNT(_1_, _2_, _3_, _4_, _5_, _6_, _7_, _8_,      \
+                                  count, ...)                                  \
+  count
+#define SIGFENCE_EXPAND_ARGS(args) SIGFENCE_RETURN_ARG_COUNT args
+#define SIGFENCE_COUNT_ARGS_MAX8(...)                                          \
+  SIGFENCE_EXPAND_ARGS((__VA_ARGS__ __VA_OPT__(, ) 8, 7, 6, 5, 4, 3, 2, 1, 0))
+#define SIGFENCE_OVERLOAD_MACRO2(name, count) name##count
+#define SIGFENCE_OVERLOAD_MACRO1(name, count)                                  \
+  SIGFENCE_OVERLOAD_MACRO2(name, count)
+#define SIGFENCE_OVERLOAD_MACRO(name, count)                                   \
+  SIGFENCE_OVERLOAD_MACRO1(name, count)
+#define SIGFENCE_CALL_OVERLOAD(name, ...)                                      \
+  SIGFENCE_GLUE(                                                               \
+  SIGFENCE_OVERLOAD_MACRO(name, SIGFENCE_COUNT_ARGS_MAX8(__VA_ARGS__)),        \
+  (__VA_ARGS__))
+
+#if defined(__GNUC__) || defined(__clang__)
+// On compilers with extended inline asm, we can tell the compiler that a
+// specific list of variables must be specifically written out and reloaded
+// around the fence. You may find https://godbolt.org/z/chh8ee6Mj useful to
+// review.
+#define SIGFENCE_IMPL_0() __asm__ volatile(";" : : : "memory")
+#define SIGFENCE_IMPL_1(a) __asm__ volatile(";" : "+m"(a) : : "memory")
+#define SIGFENCE_IMPL_2(a, b)                                                  \
+  __asm__ volatile(";" : "+m"(a), "+m"(b) : : "memory")
+#define SIGFENCE_IMPL_3(a, b, c)                                               \
+  __asm__ volatile(";" : "+m"(a), "+m"(b), "+m"(c) : : "memory")
+#define SIGFENCE_IMPL_4(a, b, c, d)                                            \
+  __asm__ volatile(";" : "+m"(a), "+m"(b), "+m"(c), "+m"(d) : : "memory")
+#define SIGFENCE_IMPL_5(a, b, c, d, e)                                         \
+  __asm__ volatile(";"                                                         \
+                   : "+m"(a), "+m"(b), "+m"(c), "+m"(d), "+m"(e)               \
+                   :                                                           \
+                   : "memory")
+#define SIGFENCE_IMPL_6(a, b, c, d, e, f)                                      \
+  __asm__ volatile(";"                                                         \
+                   : "+m"(a), "+m"(b), "+m"(c), "+m"(d), "+m"(e), "+m"(f)      \
+                   :                                                           \
+                   : "memory")
+#define SIGFENCE_IMPL_7(a, b, c, d, e, f, g)                                   \
+  __asm__ volatile(";"                                                         \
+                   : "+m"(a), "+m"(b), "+m"(c), "+m"(d), "+m"(e), "+m"(f),     \
+                     "+m"(g)                                                   \
+                   :                                                           \
+                   : "memory")
+#define SIGFENCE_IMPL_8(a, b, c, d, e, f, g, h)                                \
+  __asm__ volatile(";"                                                         \
+                   : "+m"(a), "+m"(b), "+m"(c), "+m"(d), "+m"(e), "+m"(f),     \
+                     "+m"(g), "+m"(h)                                          \
+                   :                                                           \
+                   : "memory")
+#else
+  // This is a much less efficient way of forcing the compiler to treat
+  // variables as having escaped, but it's portable.
+#define SIGFENCE_IMPL_0() WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0)
+#define SIGFENCE_IMPL_1(a) WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a))
+#define SIGFENCE_IMPL_2(a, b)                                                  \
+  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a), &(b))
+#define SIGFENCE_IMPL_3(a, b, c)                                               \
+  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a), &(b), &(c))
+#define SIGFENCE_IMPL_4(a, b, c, d)                                            \
+  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a), &(b), &(c), &(d))
+#define SIGFENCE_IMPL_5(a, b, c, d, e)                                         \
+  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a), &(b), &(c), &(d), &(e))
+#define SIGFENCE_IMPL_6(a, b, c, d, e, f)                                      \
+  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a), &(b), &(c), &(d), &(e), \
+                                              &(f))
+#define SIGFENCE_IMPL_7(a, b, c, d, e, f, g)                                   \
+  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a), &(b), &(c), &(d), &(e), \
+                                              &(f), &(g))
+#define SIGFENCE_IMPL_8(a, b, c, d, e, f, g, h)                                \
+  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a), &(b), &(c), &(d), &(e), \
+                                              &(f), &(g), &(h))
+#endif
+//! \brief A compiler-only memory barrier, including for local variables in the
+//! argument list.
+#define sigfence(...) SIGFENCE_CALL_OVERLOAD(SIGFENCE_IMPL_, __VA_ARGS__)
+#endif
+
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable : 4190)  // C-linkage with UDTs
@@ -83,23 +166,23 @@ extern "C"
 #pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
 #endif
 
-  /*! \union thrd_raised_signal_info_value
+  /*! \union stdc_siginfo_value
   \brief User defined value.
   */
-  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
+  union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
   {
     intptr_t int_value;
     void *ptr_value;
 #if defined(__cplusplus)
-    constexpr WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)()
+    constexpr WG14_SIGNALS_PREFIX(stdc_siginfo_value)()
         : int_value(0)
     {
     }
-    constexpr WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)(int v)
+    constexpr WG14_SIGNALS_PREFIX(stdc_siginfo_value)(int v)
         : int_value(v)
     {
     }
-    constexpr WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)(void *v)
+    constexpr WG14_SIGNALS_PREFIX(stdc_siginfo_value)(void *v)
         : ptr_value(v)
     {
     }
@@ -115,29 +198,27 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
 //! \brief A placeholder type for an OS specific `siginfo_t *` (POSIX) or
 //! `PEXCEPTION_RECORD` (Windows)
 #ifdef _WIN32
-  typedef struct _EXCEPTION_RECORD
-  WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t);
+  typedef struct _EXCEPTION_RECORD WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #elif __GLIBC__
-typedef siginfo_t WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t);
+typedef siginfo_t WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #elif __ANDROID__
-typedef struct siginfo WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t);
+typedef struct siginfo WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #else
-typedef struct __siginfo WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t);
+typedef struct __siginfo WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #endif
 
   //! \brief A placeholder type for an OS specific `ucontext_t` (POSIX) or
   //! `PCONTEXT` (Windows)
 #ifdef _WIN32
-  typedef struct _CONTEXT
-  WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
+  typedef struct _CONTEXT WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
 #else
-typedef ucontext_t WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
+typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
 #endif
 
-  /*! \struct thrd_raised_signal_info
+  /*! \struct stdc_siginfo
   \brief A platform independent subset of `siginfo_t`.
   */
-  struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info)
+  struct WG14_SIGNALS_PREFIX(stdc_siginfo)
   {
     int signo;  //!< The signal raised
 
@@ -146,42 +227,40 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
     WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t) error_code;
     void *addr;  //!< Memory location which caused fault, if appropriate
     union WG14_SIGNALS_PREFIX(
-    thrd_raised_signal_info_value) value;  //!< A user-defined value
+    stdc_siginfo_value) value;  //!< A user-defined value
 
     //! \brief The OS specific signal info
-    WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t) * raw_info;
+    WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * raw_info;
     //! \brief The OS specific `ucontext_t` (POSIX) or `PCONTEXT` (Windows)
-    WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) * raw_context;
+    WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * raw_context;
   };
 
   //! \brief The type of the guarded function.
-  typedef union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)(
-  WG14_SIGNALS_PREFIX(thrd_signal_func_t))(
-  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value));
+  typedef union WG14_SIGNALS_PREFIX(stdc_siginfo_value)(WG14_SIGNALS_PREFIX(
+  sig_func_t))(union WG14_SIGNALS_PREFIX(stdc_siginfo_value));
 
   //! \brief The type of the function called to recover from a signal being
   //! raised in a guarded section.
-  typedef union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)(
-  WG14_SIGNALS_PREFIX(thrd_signal_recover_t))(
-  const struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *);
+  typedef union WG14_SIGNALS_PREFIX(stdc_siginfo_value)(WG14_SIGNALS_PREFIX(
+  sig_recover_t))(const struct WG14_SIGNALS_PREFIX(stdc_siginfo) *);
 
   //! \brief The decision taken by the decider function
-  enum WG14_SIGNALS_PREFIX(thrd_signal_decision_t)
+  enum WG14_SIGNALS_PREFIX(sig_decision_t)
   {
     //! \brief We have decided to do nothing
-    WG14_SIGNALS_PREFIX(thrd_signal_decision_next_decider),
+    WG14_SIGNALS_PREFIX(sig_decision_next_decider),
     //! \brief We have fixed the cause of the signal, please resume execution
-    WG14_SIGNALS_PREFIX(thrd_signal_decision_resume_execution),
+    WG14_SIGNALS_PREFIX(sig_decision_resume_execution),
     //! \brief Thread local signal deciders only: reset the stack and local
-    //! state to entry to `thrd_signal_invoke()`, and call the recovery
+    //! state to entry to `sigguarded()`, and call the recovery
     //! function.
-    WG14_SIGNALS_PREFIX(thrd_signal_decision_invoke_recovery)
+    WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery)
   };
 
   //! \brief The type of the function called when a signal is raised. Returns
   //! a decision of how to handle the signal.
-  typedef enum WG14_SIGNALS_PREFIX(thrd_signal_decision_t)(WG14_SIGNALS_PREFIX(
-  thrd_signal_decide_t))(struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) *);
+  typedef enum WG14_SIGNALS_PREFIX(sig_decision_t)(WG14_SIGNALS_PREFIX(
+  sig_decide_t))(struct WG14_SIGNALS_PREFIX(stdc_siginfo) *);
 
   /*! \brief THREADSAFE ASYNC-SIGNAL-SAFE Fills the set of synchronous signals
   for this platform.
@@ -199,7 +278,7 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
   * `SIGSYS`
   */
   WG14_SIGNALS_EXTERN int
-  WG14_SIGNALS_PREFIX(fill_synchronous_sigset)(sigset_t *set);
+  WG14_SIGNALS_PREFIX(sigfillset_synchronous)(sigset_t *set);
 
   /*! \brief THREADSAFE ASYNC-SIGNAL-SAFE Fills the set of non-debug
   asynchronous signals for this platform.
@@ -228,7 +307,7 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
   * `SIGVTALRM`
   */
   WG14_SIGNALS_EXTERN int
-  WG14_SIGNALS_PREFIX(fill_asynchronous_nondebug_sigset)(sigset_t *set);
+  WG14_SIGNALS_PREFIX(sigfillset_asynchronous_nondebug)(sigset_t *set);
 
   /*! \brief THREADSAFE ASYNC-SIGNAL-SAFE Fille the set of debug asynchronous
   signals for this platform.
@@ -244,7 +323,7 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
   * `SIGXFSZ`
   */
   WG14_SIGNALS_EXTERN int
-  WG14_SIGNALS_PREFIX(fill_asynchronous_debug_sigset)(sigset_t *set);
+  WG14_SIGNALS_PREFIX(sigfillset_asynchronous_debug)(sigset_t *set);
 
   /*! \brief THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal
   guard for the calling thread, and calls the guarded function `guarded`.
@@ -262,16 +341,17 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
   By "usually async signal safe" we mean that if any function from this library
   has been called from the called from the calling thread, this is async signal
   safe. If you need to set up this library for a calling thread without doing
-  anything else, calling `thrd_signal_raise(0, nullptr, nullptr)`, this will
+  anything else, calling `stdc_raise(0, nullptr, nullptr)`, this will
   ensure the calling thread's thread local state is set up and return
   immediately doing nothing else.
    */
-  WG14_SIGNALS_EXTERN union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
-  WG14_SIGNALS_PREFIX(thrd_signal_invoke)(
-  const sigset_t *signals, WG14_SIGNALS_PREFIX(thrd_signal_func_t) guarded,
-  WG14_SIGNALS_PREFIX(thrd_signal_recover_t) recovery,
-  WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
-  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value);
+  WG14_SIGNALS_EXTERN union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
+  WG14_SIGNALS_PREFIX(sigguarded)(const sigset_t *signals,
+                                  WG14_SIGNALS_PREFIX(sig_func_t) guarded,
+                                  WG14_SIGNALS_PREFIX(sig_recover_t) recovery,
+                                  WG14_SIGNALS_PREFIX(sig_decide_t) decider,
+                                  union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
+                                  value);
 #if defined(__clang__) && defined(__cplusplus)
 #pragma clang diagnostic pop
 #endif
@@ -306,9 +386,9 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
   anything else, specify zero for `signo`, this will ensure the calling thread's
   thread local state is set up and return immediately doing nothing else.
   */
-  WG14_SIGNALS_EXTERN bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(
-  int signo, WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t) * raw_info,
-  WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) * raw_context);
+  WG14_SIGNALS_EXTERN bool WG14_SIGNALS_PREFIX(stdc_raise)(
+  int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * raw_info,
+  WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * raw_context);
 
   /*! \brief THREADSAFE Installs, and potentially enables, the global signal
   handlers for the signals specified by `guarded`. Each signal installed is
@@ -336,15 +416,13 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
   global signal handlers.
   */
   WG14_SIGNALS_EXTERN void *
-  WG14_SIGNALS_PREFIX(threadsafe_signals_install)(const sigset_t *guarded);
+  WG14_SIGNALS_PREFIX(siginstall)(const sigset_t *guarded);
   /*! \brief THREADSAFE Uninstall a previously installed signal guard.
    */
-  WG14_SIGNALS_EXTERN int
-  WG14_SIGNALS_PREFIX(threadsafe_signals_uninstall)(void *i);
+  WG14_SIGNALS_EXTERN int WG14_SIGNALS_PREFIX(siguninstall)(void *i);
   /*! \brief THREADSAFE Uninstall a previously system installed signal guard.
    */
-  WG14_SIGNALS_EXTERN int
-  WG14_SIGNALS_PREFIX(threadsafe_signals_uninstall_system)(int version);
+  WG14_SIGNALS_EXTERN int WG14_SIGNALS_PREFIX(siguninstall_system)(int version);
 
   /*! \brief THREADSAFE NOT REENTRANT Create a global signal continuation
   decider. Threadsafe with respect to other calls of this function, but not
@@ -367,8 +445,8 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t);
   */
   WG14_SIGNALS_EXTERN void *WG14_SIGNALS_PREFIX(signal_decider_create)(
   const sigset_t *guarded, bool callfirst,
-  WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
-  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value);
+  WG14_SIGNALS_PREFIX(sig_decide_t) decider,
+  union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value);
   /*! \brief THREADSAFE NOT REENTRANT Destroy a global signal continuation
   decider. Threadsafe with respect to other calls of this function, but not
   reentrant i.e. do not call whilst inside a global signal continuation decider.

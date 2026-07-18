@@ -46,8 +46,8 @@ extern "C"
 #endif
 #endif
 
-  static __attribute__((constructor)) const sigset_t *
-  WG14_SIGNALS_PREFIX(synchronous_sigset)(void)
+  static __attribute__((constructor))
+  const sigset_t *WG14_SIGNALS_PREFIX(synchronous_sigset)(void)
   {
     static sigset_t v;
     static const int signos[] = {SIGABRT, SIGBUS,  SIGFPE, SIGILL,
@@ -65,7 +65,7 @@ extern "C"
     v = x;
     return &v;
   }
-  int WG14_SIGNALS_PREFIX(fill_synchronous_sigset)(sigset_t *set)
+  int WG14_SIGNALS_PREFIX(sigfillset_synchronous)(sigset_t *set)
   {
     memcpy(set, WG14_SIGNALS_PREFIX(synchronous_sigset)(), sizeof(*set));
     return 0;
@@ -95,7 +95,7 @@ extern "C"
     v = x;
     return &v;
   }
-  int WG14_SIGNALS_PREFIX(fill_asynchronous_nondebug_sigset)(sigset_t *set)
+  int WG14_SIGNALS_PREFIX(sigfillset_asynchronous_nondebug)(sigset_t *set)
   {
     memcpy(set, WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(),
            sizeof(*set));
@@ -120,7 +120,7 @@ extern "C"
     v = x;
     return &v;
   }
-  int WG14_SIGNALS_PREFIX(fill_asynchronous_debug_sigset)(sigset_t *set)
+  int WG14_SIGNALS_PREFIX(sigfillset_asynchronous_debug)(sigset_t *set)
   {
     memcpy(set, WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(), sizeof(*set));
     return 0;
@@ -184,9 +184,9 @@ static void __attribute__((noreturn)) default_abort(void)
   }
 
   static void WG14_SIGNALS_PREFIX(prepare_rsi)(
-  struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) * rsi, const int signo,
-  WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t) * siginfo,
-  WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) * context)
+  struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi, const int signo,
+  WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * siginfo,
+  WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * context)
   {
     rsi->signo = signo;
     rsi->raw_context = context;
@@ -204,9 +204,8 @@ static void __attribute__((noreturn)) default_abort(void)
                                                       siginfo_t *siginfo,
                                                       void *context)
   {
-    if(!WG14_SIGNALS_PREFIX(thrd_signal_raise)(
-       signo, siginfo,
-       (WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) *) context))
+    if(!WG14_SIGNALS_PREFIX(stdc_raise)(
+       signo, siginfo, (WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) *) context))
     {
       // It shouldn't happen that this handler gets called when we have no
       // knowledge of the signal. We could default_abort() here, but it seems
@@ -219,29 +218,30 @@ static void __attribute__((noreturn)) default_abort(void)
     }
   }
 
-  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value)
-  WG14_SIGNALS_PREFIX(thrd_signal_invoke)(
-  const sigset_t *signals, WG14_SIGNALS_PREFIX(thrd_signal_func_t) guarded,
-  WG14_SIGNALS_PREFIX(thrd_signal_recover_t) recovery,
-  WG14_SIGNALS_PREFIX(thrd_signal_decide_t) decider,
-  union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) value)
+  union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
+  WG14_SIGNALS_PREFIX(sigguarded)(const sigset_t *signals,
+                                  WG14_SIGNALS_PREFIX(sig_func_t) guarded,
+                                  WG14_SIGNALS_PREFIX(sig_recover_t) recovery,
+                                  WG14_SIGNALS_PREFIX(sig_decide_t) decider,
+                                  union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
+                                  value)
   {
     if(signals == WG14_SIGNALS_NULLPTR || guarded == WG14_SIGNALS_NULLPTR ||
        decider == WG14_SIGNALS_NULLPTR)
     {
       abort();
     }
-    if(0 != WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_init)())
+    if(0 != WG14_SIGNALS_PREFIX(sig_global_tss_state_init)())
     {
-      union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) ret;
+      union WG14_SIGNALS_PREFIX(stdc_siginfo_value) ret;
       ret.int_value = -1;
       return ret;
     }
-    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_t) *tss =
-    WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state)();
-    struct WG14_SIGNALS_PREFIX(
-    thrd_signal_global_state_tss_state_per_frame_t) *old = tss->front,
-                                                    current;
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+    WG14_SIGNALS_PREFIX(sig_global_tss_state)();
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *old =
+    tss->front,
+                                                                       current;
     memset(&current, 0, sizeof(current));
     current.prev = old;
     current.guarded = signals;
@@ -260,22 +260,21 @@ static void __attribute__((noreturn)) default_abort(void)
     // Technically needed to ensure setjmp buffer written out before guarded
     // function is called
     atomic_signal_fence(WG14_SIGNALS_ATOMIC_PREFIX memory_order_acq_rel);
-    union WG14_SIGNALS_PREFIX(thrd_raised_signal_info_value) ret =
-    guarded(value);
+    union WG14_SIGNALS_PREFIX(stdc_siginfo_value) ret = guarded(value);
     tss->front = old;
     atomic_signal_fence(WG14_SIGNALS_ATOMIC_PREFIX memory_order_acq_rel);
     return ret;
   }
 
   // You must NOT do anything async signal unsafe in here!
-  bool WG14_SIGNALS_PREFIX(thrd_signal_raise)(
-  int signo, WG14_SIGNALS_PREFIX(thrd_raised_signal_info_siginfo_t) * info,
-  WG14_SIGNALS_PREFIX(thrd_raised_signal_info_context_t) * raw_context)
+  bool WG14_SIGNALS_PREFIX(stdc_raise)(
+  int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * info,
+  WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * raw_context)
   {
     // This isn't async signal safe, but caller may not have called
-    // threadsafe_signals_install() so we have no other choice within this
+    // siginstall() so we have no other choice within this
     // library
-    if(0 != WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state_init)())
+    if(0 != WG14_SIGNALS_PREFIX(sig_global_tss_state_init)())
     {
       return false;
     }
@@ -284,10 +283,10 @@ static void __attribute__((noreturn)) default_abort(void)
       // Caller is doing the non-async safe setup
       return false;
     }
-    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_tss_state_t) *tss =
-    WG14_SIGNALS_PREFIX(thrd_signal_global_tss_state)();
-    struct WG14_SIGNALS_PREFIX(
-    thrd_signal_global_state_tss_state_per_frame_t) *frame = tss->front;
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+    WG14_SIGNALS_PREFIX(sig_global_tss_state)();
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *frame =
+    tss->front;
     while(frame != WG14_SIGNALS_NULLPTR)
     {
       if(sigismember(frame->guarded, signo))
@@ -295,12 +294,12 @@ static void __attribute__((noreturn)) default_abort(void)
         WG14_SIGNALS_PREFIX(prepare_rsi)(&frame->rsi, signo, info, raw_context);
         switch(frame->decider(&frame->rsi))
         {
-        case WG14_SIGNALS_PREFIX(thrd_signal_decision_next_decider):
+        case WG14_SIGNALS_PREFIX(sig_decision_next_decider):
           break;
-        case WG14_SIGNALS_PREFIX(thrd_signal_decision_resume_execution):
+        case WG14_SIGNALS_PREFIX(sig_decision_resume_execution):
           frame = frame->prev;
           return true;
-        case WG14_SIGNALS_PREFIX(thrd_signal_decision_invoke_recovery):
+        case WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery):
           if(frame->recovery == WG14_SIGNALS_NULLPTR)
           {
             frame = frame->prev;
@@ -312,8 +311,8 @@ static void __attribute__((noreturn)) default_abort(void)
       frame = frame->prev;
     }
 
-    struct WG14_SIGNALS_PREFIX(thrd_signal_global_state_t) *state =
-    WG14_SIGNALS_PREFIX(thrd_signal_global_state)();
+    struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+    WG14_SIGNALS_PREFIX(sig_global_state)();
     LOCK(state->lock);
     WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_itr)
     it = WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_get)(
@@ -325,7 +324,7 @@ static void __attribute__((noreturn)) default_abort(void)
       return false;
     }
     struct sigaction sa = signo_to_sighandler_map_t_value(it)->old_handler;
-    struct WG14_SIGNALS_PREFIX(thrd_raised_signal_info) rsi;
+    struct WG14_SIGNALS_PREFIX(stdc_siginfo) rsi;
     WG14_SIGNALS_PREFIX(prepare_rsi)(&rsi, signo, info, raw_context);
     if(signo_to_sighandler_map_t_value(it)->global_handler.front !=
        WG14_SIGNALS_NULLPTR)
@@ -337,7 +336,7 @@ static void __attribute__((noreturn)) default_abort(void)
         rsi.value = current->value;
         current->refcount++;
         UNLOCK(state->lock);
-        const enum WG14_SIGNALS_PREFIX(thrd_signal_decision_t) res =
+        const enum WG14_SIGNALS_PREFIX(sig_decision_t) res =
         current->decider(&rsi);
         LOCK(state->lock);
         if(0 == --current->refcount)
