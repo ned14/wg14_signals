@@ -1,6 +1,4 @@
 var searchData=
 [
-  ['fill_5fasynchronous_5fdebug_5fsigset_0',['fill_asynchronous_debug_sigset',['../thrd__signal__handle_8h.html#aa1966310a6c0db5452030392128fa104',1,'thrd_signal_handle.h']]],
-  ['fill_5fasynchronous_5fnondebug_5fsigset_1',['fill_asynchronous_nondebug_sigset',['../thrd__signal__handle_8h.html#a29136051848105dcfb0637834a23a50e',1,'thrd_signal_handle.h']]],
-  ['fill_5fsynchronous_5fsigset_2',['fill_synchronous_sigset',['../thrd__signal__handle_8h.html#ad9806c076d46700adf2844727c33820c',1,'thrd_signal_handle.h']]]
+  ['internal_5fcurrent_5fthread_5fid_5fcached_5fset_0',['internal_current_thread_id_cached_set',['../current__thread__id_8h.html#ad96dc5d90892155a05cecfbb3bc59b3f',1,'current_thread_id.h']]]
 ];

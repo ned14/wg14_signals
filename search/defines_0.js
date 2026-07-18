@@ -1,9 +1,21 @@
 var searchData=
 [
-  ['wg14_5fsignals_5fdefault_5fvisibility_0',['WG14_SIGNALS_DEFAULT_VISIBILITY',['../config_8h.html#a78b30746a169ba8738358d11a536804a',1,'config.h']]],
-  ['wg14_5fsignals_5fextern_1',['WG14_SIGNALS_EXTERN',['../config_8h.html#aa640326afd22c3cc84a4ebc7804130a6',1,'config.h']]],
-  ['wg14_5fsignals_5fhave_5fasync_5fsafe_5fthread_5flocal_2',['WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL',['../config_8h.html#a2cff741f25ff4df0861b34254f221b51',1,'config.h']]],
-  ['wg14_5fsignals_5finline_3',['WG14_SIGNALS_INLINE',['../config_8h.html#a35e3fd56ef3a9b15642e7728907cd16b',1,'config.h']]],
-  ['wg14_5fsignals_5fnullptr_4',['WG14_SIGNALS_NULLPTR',['../config_8h.html#a2cfe524bf0a702560fa348ed9e612646',1,'config.h']]],
-  ['wg14_5fsignals_5fstderr_5fprintf_5',['WG14_SIGNALS_STDERR_PRINTF',['../config_8h.html#a0d270aa278b5ab279205778f558f8039',1,'config.h']]]
+  ['sigfence_0',['sigfence',['../thrd__signal__handle_8h.html#a4c49302e8279e42dc1bf9a6fac4c3a97',1,'thrd_signal_handle.h']]],
+  ['sigfence_5fcall_5foverload_1',['SIGFENCE_CALL_OVERLOAD',['../thrd__signal__handle_8h.html#af3dfd9bf14b8fd03db089c4df68facc8',1,'thrd_signal_handle.h']]],
+  ['sigfence_5fcount_5fargs_5fmax8_2',['SIGFENCE_COUNT_ARGS_MAX8',['../thrd__signal__handle_8h.html#aab3a885b560af1e9eedd99cde7fa89df',1,'thrd_signal_handle.h']]],
+  ['sigfence_5fexpand_5fargs_3',['SIGFENCE_EXPAND_ARGS',['../thrd__signal__handle_8h.html#ab5030e94fbbdfaaae003a1e9e0a02ba2',1,'thrd_signal_handle.h']]],
+  ['sigfence_5fglue_4',['SIGFENCE_GLUE',['../thrd__signal__handle_8h.html#ad5301deabec1e1150ac1c0f1a4248938',1,'thrd_signal_handle.h']]],
+  ['sigfence_5fimpl_5f0_5',['SIGFENCE_IMPL_0',['../thrd__signal__handle_8h.html#a753e7cc37c881ddd372f842d03591e0f',1,'thrd_signal_handle.h']]],
+  ['sigfence_5fimpl_5f1_6',['SIGFENCE_IMPL_1',['../thrd__signal__handle_8h.html#ae6cc0fae8de91f3923d3e0458c3f946f',1,'thrd_signal_handle.h']]],
+  ['sigfence_5fimpl_5f2_7',['SIGFENCE_IMPL_2',['../thrd__signal__handle_8h.html#afb15b765b7918f2f45a8b6a8bf635fd9',1,'thrd_signal_handle.h']]],
+  ['sigfence_5fimpl_5f3_8',['SIGFENCE_IMPL_3',['../thrd__signal__handle_8h.html#addd0570a69184bec6ee53f4c212eaf38',1,'thrd_signal_handle.h']]],
+  ['sigfence_5fimpl_5f4_9',['SIGFENCE_IMPL_4',['../thrd__signal__handle_8h.html#a377a6e4eaae45b3280b8eacdf5d7ea65',1,'thrd_signal_handle.h']]],
+  ['sigfence_5fimpl_5f5_10',['SIGFENCE_IMPL_5',['../thrd__signal__handle_8h.html#a69710a9aae0c1f5d089ba9bf9a84c40d',1,'thrd_signal_handle.h']]],
+  ['sigfence_5fimpl_5f6_11',['SIGFENCE_IMPL_6',['../thrd__signal__handle_8h.html#abfa2bb34894a5fc662f6087408a727b8',1,'thrd_signal_handle.h']]],
+  ['sigfence_5fimpl_5f7_12',['SIGFENCE_IMPL_7',['../thrd__signal__handle_8h.html#a7646b2b041ee9035a2ae3f606b40995c',1,'thrd_signal_handle.h']]],
+  ['sigfence_5fimpl_5f8_13',['SIGFENCE_IMPL_8',['../thrd__signal__handle_8h.html#a545b2b53bdca348d685b95b60c7062fe',1,'thrd_signal_handle.h']]],
+  ['sigfence_5foverload_5fmacro_14',['SIGFENCE_OVERLOAD_MACRO',['../thrd__signal__handle_8h.html#acfc9dde228172f7ca5e5860a08fdb508',1,'thrd_signal_handle.h']]],
+  ['sigfence_5foverload_5fmacro1_15',['SIGFENCE_OVERLOAD_MACRO1',['../thrd__signal__handle_8h.html#ab029881082ad929cf7077573808dd4a8',1,'thrd_signal_handle.h']]],
+  ['sigfence_5foverload_5fmacro2_16',['SIGFENCE_OVERLOAD_MACRO2',['../thrd__signal__handle_8h.html#aea8c67ab4aa7467c5d5f7c47bff9d8a2',1,'thrd_signal_handle.h']]],
+  ['sigfence_5freturn_5farg_5fcount_17',['SIGFENCE_RETURN_ARG_COUNT',['../thrd__signal__handle_8h.html#a2398af10c9b66a1ca6307c3e293759dc',1,'thrd_signal_handle.h']]]
 ];

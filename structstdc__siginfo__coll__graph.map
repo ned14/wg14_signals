@@ -1,0 +1,5 @@
+<map id="stdc_siginfo" name="stdc_siginfo">
+<area shape="rect" id="Node000001" title="A platform independent subset of siginfo_t." alt="" coords="24,102,116,128"/>
+<area shape="rect" id="Node000002" href="$unionstdc__siginfo__value.html" title="User defined value." alt="" coords="5,5,135,31"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="72,45,73,102,67,101,68,48"/>
+</map>

@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['ptr_5fvalue_0',['ptr_value',['../unionthrd__raised__signal__info__value.html#a265a07df9b1d140b7ca2a31f8a8274c7',1,'thrd_raised_signal_info_value']]]
+  ['ptr_5fvalue_0',['ptr_value',['../unionstdc__siginfo__value.html#ab1e392ec7265df88c6bbdedb68cad43b',1,'stdc_siginfo_value']]]
 ];
