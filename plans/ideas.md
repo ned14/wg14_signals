@@ -855,6 +855,7 @@ Add to `test/` (all `add_code_test`, C11):
 |---|---|---|
 | `standalone_setup_test.c` **[DONE]** | `stdc_raise(0,NULL,NULL)` and bare `sigguarded` with no prior `siginstall` | 1.3, 1.4 |
 | `stdc_raise_zero_test.c` **[DONE]** | `stdc_raise(0,NULL,NULL)` returns false (no abort) | 1.4 |
+| `recovery_null_loop_test.c` **[DONE]** | nested `sigguarded`, inner frame has NULL recovery + decider returns invoke_recovery, genuine SIGSEGV; must fall through to outer recovery | 1.7, C1 |
 | `decider_mixed_set_test.c` **[DONE]** | `siginstall({SIGUSR2})` then create+destroy decider for {SIGUSR1,SIGUSR2}, then `stdc_raise(SIGUSR2)` ×100 | 1.1, 1.2, AA1 |
 | `decider_cycle_test.c` | siginstall → decider → destroy → uninstall → siginstall → decider → raise (the AA1 orphan cycle) | AA1, Z3 |
 | `tss_concurrent_exit_test.c` | two threads sharing one `tss_async_signal_safe`, both `thread_init`, both exit; 1000 iterations | 2.1, X1/X2 |

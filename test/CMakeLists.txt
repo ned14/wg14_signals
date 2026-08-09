@@ -8,6 +8,8 @@ add_code_test(decider_mixed_set_test SOURCES "decider_mixed_set_test.c" FEATURES
 set_tests_properties(decider_mixed_set_test PROPERTIES TIMEOUT 60)
 add_code_test(standalone_setup_test SOURCES "standalone_setup_test.c" FEATURES c_std_11)
 add_code_test(stdc_raise_zero_test SOURCES "stdc_raise_zero_test.c" FEATURES c_std_11)
+add_code_test(recovery_null_loop_test SOURCES "recovery_null_loop_test.c" FEATURES c_std_11)
+set_tests_properties(recovery_null_loop_test PROPERTIES TIMEOUT 60)
 
 add_executable(header_only_test "header_only_test1.cpp" "header_only_test2.cpp" "header_only_test.cpp")
 if(MSVC)

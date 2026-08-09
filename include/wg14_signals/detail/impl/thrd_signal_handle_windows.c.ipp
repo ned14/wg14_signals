@@ -214,9 +214,12 @@ extern "C"
       case WG14_SIGNALS_PREFIX(sig_decision_resume_execution):
         return EXCEPTION_CONTINUE_EXECUTION;
       case WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery):
-        return (recovery != WG14_SIGNALS_NULLPTR) ?
-               EXCEPTION_EXECUTE_HANDLER :
-               EXCEPTION_CONTINUE_EXECUTION;
+        // No recovery routine: continue the exception search (outer frames,
+        // then the unhandled filter / global deciders, then default handling)
+        // instead of EXCEPTION_CONTINUE_EXECUTION, which would re-execute the
+        // faulting instruction forever (analysis.md 1.7/C1).
+        return (recovery != WG14_SIGNALS_NULLPTR) ? EXCEPTION_EXECUTE_HANDLER :
+                                                    EXCEPTION_CONTINUE_SEARCH;
       }
     }
     return EXCEPTION_CONTINUE_SEARCH;

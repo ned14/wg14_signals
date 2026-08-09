@@ -302,8 +302,12 @@ static void __attribute__((noreturn)) default_abort(void)
         case WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery):
           if(frame->recovery == WG14_SIGNALS_NULLPTR)
           {
+            // No recovery routine: fall through to the outer frame / global
+            // deciders / previously installed handler instead of returning,
+            // which would make the faulting instruction re-execute forever
+            // (analysis.md 1.7/C1).
             frame = frame->prev;
-            return true;
+            continue;
           }
           WG14_SIGNALS_LONGJMP(frame->buf, 1);
         }

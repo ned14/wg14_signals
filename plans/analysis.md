@@ -288,7 +288,7 @@ the TLS pointer is created lazily per thread) and `tss->front` dereferences NULL
 a crash *inside* the exception handler. This is a distinct failure from the dangling
 frame above, and it is reachable by a genuine fault on any fresh thread.**
 
-### 1.7 Windows: NULL `recovery` + `sig_decision_invoke_recovery` -> infinite fault loop
+### 1.7 Windows: NULL `recovery` + `sig_decision_invoke_recovery` -> infinite fault loop [FIXED]
 
 `thrd_signal_handle_windows.c.ipp:210-213`:
 
@@ -306,6 +306,18 @@ next decider / previous handler" for this case as originally claimed — it exec
 `return true` (`thrd_signal_handle_posix.c.ipp:302-307`), which for a real fault makes
 the handler return and the faulting instruction re-execute — the identical infinite
 fault loop. The backends livelock alike; only the mechanism differs.**
+
+**Status: FIXED (2026-08-09).** A NULL `recovery` is now treated as "decline": POSIX
+`stdc_raise` walks to the next frame (`thrd_signal_handle_posix.c.ipp:302-309`) instead
+of `return true`, and the Windows `win32_exception_filter` returns
+`EXCEPTION_CONTINUE_SEARCH` instead of `EXCEPTION_CONTINUE_EXECUTION`
+(`thrd_signal_handle_windows.c.ipp:216-223`), so the exception falls through to outer
+frames, global deciders, or default handling rather than re-faulting forever. Verified:
+new regression test `test/recovery_null_loop_test.c` (registered in `test/CMakeLists.txt`,
+TIMEOUT 60) triggers a genuine synchronous fault (store to address 0) inside a nested
+`sigguarded` whose inner frame has `recovery == NULL`; it bails with `_Exit(2)` when the
+inner decider is called >100 times (the pre-fix loop) and passes 8/8 with the fix. The
+Windows leg of the fix is compiled and run by the Windows CI matrix.
 
 ### 1.8 Header-only build is entirely broken [confirmed]
 
@@ -886,7 +898,7 @@ unblock/block signals relative to the interrupted context. Platform-dependent.
 | 1.4 | ~~Critical~~ **FIXED** | Windows `stdc_raise(0,...)` aborts (fixed at `thrd_signal_handle_windows.c.ipp:263-267`) | `thrd_signal_handle_windows.c.ipp:277-278` |
 | 1.5 | ~~High~~ **FIXED** | Windows `prepare_rsi` OOB `ExceptionInformation` read (fixed at `thrd_signal_handle_windows.c.ipp:188-199`) | `thrd_signal_handle_windows.c.ipp:190-191` |
 | 1.6 | ~~High~~ **FIXED** | Windows `tss->front` frame stack dangling/unmaintained (fixed at `thrd_signal_handle_windows.c.ipp:310-314`) | `thrd_signal_handle_windows.c.ipp:265-299,357-367` |
-| 1.7 | High | Windows NULL-recovery + invoke_recovery -> infinite fault loop | `thrd_signal_handle_windows.c.ipp:210-213` |
+| 1.7 | ~~High~~ **FIXED** | Windows NULL-recovery + invoke_recovery -> infinite fault loop (fixed at `thrd_signal_handle_posix.c.ipp:302-309`, `thrd_signal_handle_windows.c.ipp:216-223`) | `thrd_signal_handle_windows.c.ipp:210-213` |
 | 1.8 | High | Header-only build broken (build option + C path) | CMake + all `.ipp` |
 | 2.1 | High | tss deinit count/state race -> UAF | `tss_async_signal_safe.c.ipp:136-168` |
 | 2.2 | High | `siguninstall` vs in-flight `stdc_raise` -> container UAF | `thrd_signal_handle_posix.c.ipp:314-368` |
@@ -936,7 +948,10 @@ unblock/block signals relative to the interrupted context. Platform-dependent.
   hardware fault the handler then returns and the faulting instruction re-executes:
   the POSIX backend livelocks exactly like Windows. Both backends need a fix here
   (POSIX should continue to outer frames / the previous handler instead of `return
-  true`).
+  true`). **[FIXED 2026-08-09]** — POSIX now `continue`s to the next frame
+  (`thrd_signal_handle_posix.c.ipp:302-309`) and the Windows filter returns
+  `EXCEPTION_CONTINUE_SEARCH` (`thrd_signal_handle_windows.c.ipp:216-223`); regression
+  test `test/recovery_null_loop_test.c`.
 - **C2 (fixes 1.6):** the "real fault inside a `sigguarded` region, global decider
   returns resume" infinite-fault-loop is not Windows-specific: on POSIX the same
   sequence makes `stdc_raise` return true, the handler return, and the faulting
