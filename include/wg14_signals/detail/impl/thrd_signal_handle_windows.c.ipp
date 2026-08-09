@@ -185,10 +185,16 @@ extern "C"
     }
     rsi->raw_info =
     (WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) *) ptrs->ExceptionRecord;
-    rsi->error_code =
-    (WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t))
-    ptrs->ExceptionRecord->ExceptionInformation[2];  // NTSTATUS
-    rsi->addr = (void *) ptrs->ExceptionRecord->ExceptionInformation[1];
+    if(ptrs->ExceptionRecord->NumberParameters >= 3)
+    {
+      rsi->error_code =
+      (WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t))
+      ptrs->ExceptionRecord->ExceptionInformation[2];  // NTSTATUS
+    }
+    if(ptrs->ExceptionRecord->NumberParameters >= 2)
+    {
+      rsi->addr = (void *) ptrs->ExceptionRecord->ExceptionInformation[1];
+    }
   }
 
   static long WG14_SIGNALS_PREFIX(win32_exception_filter)(

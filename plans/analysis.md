@@ -200,7 +200,7 @@ regression test `test/stdc_raise_zero_test.c` (registered in `test/CMakeLists.tx
 the Windows CI matrix (MSVC, C11/C17, Debug/Release, static/shared). Local macOS suite
 passes 7/7.
 
-### 1.5 Windows: `prepare_rsi()` reads `ExceptionInformation[]` out of bounds
+### 1.5 Windows: `prepare_rsi()` reads `ExceptionInformation[]` out of bounds [FIXED]
 
 `thrd_signal_handle_windows.c.ipp:166-192`:
 
@@ -222,6 +222,15 @@ OOB read.
 heap overrun, but they read past `NumberParameters`. A genuine x64 access violation has
 `NumberParameters == 2`, so `ExceptionInformation[2]` (the "NTSTATUS") is *uninitialised
 garbage for virtually every real fault*, not just for the `info == NULL` raise path.**
+
+**Status: FIXED (2026-08-09).** Both reads are now guarded by `NumberParameters` checks in
+`prepare_rsi` (`thrd_signal_handle_windows.c.ipp:188-199`): `error_code` is read from
+`ExceptionInformation[2]` only when `NumberParameters >= 3`, and `addr` from
+`ExceptionInformation[1]` only when `NumberParameters >= 2`. The `memset` at the top of
+`prepare_rsi` keeps both fields 0 when the guards fail, so a real x64 access violation
+(`NumberParameters == 2`) no longer fills `error_code` with uninitialised garbage. No
+behavioural regression on POSIX (7/7 local tests pass); the change is compiled and
+exercised by the Windows CI matrix.
 
 ### 1.6 Windows: thread-local frame stack (`tss->front`) is left dangling / never maintained
 
@@ -863,7 +872,7 @@ unblock/block signals relative to the interrupted context. Platform-dependent.
 | 1.2 | ~~Critical~~ **FIXED** | decider-handle slot misalignment -> UAF on destroy + raise (fixed at `thrd_signal_handle_common.ipp.ipp:514`) | `thrd_signal_handle_common.ipp.ipp:443-614` |
 | 1.3 | ~~Critical~~ **FIXED** | `sigguarded`/`stdc_raise` NULL-deref before first `siginstall` on fallback-TLS platforms (fixed at `thrd_signal_handle_common.ipp.ipp:264-272`) | `thrd_signal_handle_common.ipp.ipp:264-268`, `tss_async_signal_safe.c.ipp:177` |
 | 1.4 | ~~Critical~~ **FIXED** | Windows `stdc_raise(0,...)` aborts (fixed at `thrd_signal_handle_windows.c.ipp:263-267`) | `thrd_signal_handle_windows.c.ipp:277-278` |
-| 1.5 | High | Windows `prepare_rsi` OOB `ExceptionInformation` read | `thrd_signal_handle_windows.c.ipp:190-191` |
+| 1.5 | ~~High~~ **FIXED** | Windows `prepare_rsi` OOB `ExceptionInformation` read (fixed at `thrd_signal_handle_windows.c.ipp:188-199`) | `thrd_signal_handle_windows.c.ipp:190-191` |
 | 1.6 | High | Windows `tss->front` frame stack dangling/unmaintained | `thrd_signal_handle_windows.c.ipp:265-299,357-367` |
 | 1.7 | High | Windows NULL-recovery + invoke_recovery -> infinite fault loop | `thrd_signal_handle_windows.c.ipp:210-213` |
 | 1.8 | High | Header-only build broken (build option + C path) | CMake + all `.ipp` |

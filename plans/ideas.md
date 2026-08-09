@@ -748,7 +748,7 @@ the functions read-only afterwards, preserving the "ASYNC-SIGNAL-SAFE" claim.
   `test/standalone_setup_test.c` re-enabled. (The broader V4 abort for non-signo-0
   unsupported codes is still open.)
 
-- **`prepare_rsi` OOB reads (1.5)** — `:186-192` reads
+- **`prepare_rsi` OOB reads (1.5) [DONE]** — `:186-192` reads
   `ExceptionInformation[1]`/`[2]` with no `NumberParameters` check; a genuine
   x64 access violation has `NumberParameters == 2`, so `[2]` (the "NTSTATUS")
   is garbage on virtually every real fault. Guard:
@@ -759,6 +759,8 @@ the functions read-only afterwards, preserving the "ASYNC-SIGNAL-SAFE" claim.
   if(ptrs->ExceptionRecord->NumberParameters >= 2)
     rsi->addr = ...ExceptionInformation[1];
   ```
+  Applied 2026-08-09 at `thrd_signal_handle_windows.c.ipp:188-199`; `prepare_rsi`'s
+  initial `memset` keeps the unguarded fields 0. No POSIX regression (7/7 tests pass).
 
 - **Dangling frame in Windows `stdc_raise` (1.6)** — `:265-299` pushes a frame
   on `tss->front` but only pops it on the `setjmp`-return path; the
@@ -990,7 +992,7 @@ not exist. Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattrib
 | 3 | `signal_decider_create`: unlock + align slot on the warning path **[DONE]** | `thrd_signal_handle_common.ipp.ipp:505-514,539` | 1.1, 1.2, AA1 | Small |
 | 4 | `signal_decider_destroy` slot alignment / signo-indexed handle **[DONE]** | `:564-611` | 1.2 | Small |
 | 5 | Fallback-path setup: self-creating tss init + dead-code fix + NULL-safe tss API | `:264-281`, `tss_async_signal_safe.c.ipp:93-243` | 1.3, 2.4, 2.6, Z3 | Small |
-| 6 | Windows `stdc_raise(0,...)` short-circuit + `prepare_rsi` bounds + frame pop + NULL-tss guard | `thrd_signal_handle_windows.c.ipp:186-192,265-299,357-367` | 1.4, 1.5, 1.6, V2 | Small |
+| 6 | Windows `stdc_raise(0,...)` short-circuit + `prepare_rsi` bounds + frame pop + NULL-tss guard **[1.4, 1.5 done]** | `thrd_signal_handle_windows.c.ipp:186-192,265-299,357-367` | 1.4, 1.5, 1.6, V2 | Small |
 | 7 | Install-consumer ctest | `test/install_consumer/` | V1 regression-proofing | Medium |
 | 8 | TSan CI job + `tsan-toolchain.cmake` + TSAN-aware `test_common.h` | `.github/workflows/ci.yml`, `test/test_common.h` | 5.4, 2.1, 2.2, 3.1 | Medium |
 | 9 | Per-test `TIMEOUT 60` | `CMakeLists.txt:88-91` | test hygiene | Trivial |
