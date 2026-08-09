@@ -169,10 +169,10 @@ dependency on `siginstall()` is real and unstated. Linux is unaffected because t
 regression test `test/standalone_setup_test.c` (registered in `test/CMakeLists.txt`) calls
 `stdc_raise(0, NULL, NULL)` and a bare `sigguarded(...)` with no prior `siginstall()`; it
 crashed with the ASan SEGV at `tss_async_signal_safe.c.ipp:177` (address 0x10) before the
-fix and passes 6/6 under the sanitizer build afterwards. (Windows does not exercise the
-`stdc_raise(0, ...)` leg here because of the unfixed 1.4 `abort()`.)
+fix and passes 6/6 under the sanitizer build afterwards. (The `stdc_raise(0, ...)` leg also
+runs on Windows since 1.4 was fixed the same day — see below.)
 
-### 1.4 Windows: `stdc_raise(0, ...)` aborts the process
+### 1.4 Windows: `stdc_raise(0, ...)` aborts the process [FIXED]
 
 `thrd_signal_handle_windows.c.ipp:252-300`: the Windows `stdc_raise` has **no
 `signo == 0` short-circuit** (the POSIX backend has one at
@@ -190,6 +190,15 @@ calls `abort()` on Windows. This is a direct, platform-visible crash of a docume
 `stdc_raise(SIGTERM)`, `stdc_raise(SIGPIPE)` — so the defect is broader than `signo == 0`.**
 On the fallback-TLS platforms the same documented setup call segfaults instead (1.3), so
 the recommended one-line setup crashes on every non-Linux platform.
+
+**Status: FIXED (2026-08-09).** The Windows `stdc_raise` now has a `signo == 0`
+short-circuit after the tss-init block at `thrd_signal_handle_windows.c.ipp:263-267`,
+mirroring the POSIX backend (`thrd_signal_handle_posix.c.ipp:281-285`). Verified: new
+regression test `test/stdc_raise_zero_test.c` (registered in `test/CMakeLists.txt`) calls
+`stdc_raise(0, NULL, NULL)` and asserts it returns false; the previously Windows-excluded
+`stdc_raise(0, ...)` legs of `test/standalone_setup_test.c` were re-enabled. Both run on
+the Windows CI matrix (MSVC, C11/C17, Debug/Release, static/shared). Local macOS suite
+passes 7/7.
 
 ### 1.5 Windows: `prepare_rsi()` reads `ExceptionInformation[]` out of bounds
 
@@ -853,7 +862,7 @@ unblock/block signals relative to the interrupted context. Platform-dependent.
 | 1.1 | ~~Critical~~ **FIXED** | `signal_decider_create` leaks global spinlock on non-installed signal (fixed at `thrd_signal_handle_common.ipp.ipp:513`) | `thrd_signal_handle_common.ipp.ipp:513` |
 | 1.2 | ~~Critical~~ **FIXED** | decider-handle slot misalignment -> UAF on destroy + raise (fixed at `thrd_signal_handle_common.ipp.ipp:514`) | `thrd_signal_handle_common.ipp.ipp:443-614` |
 | 1.3 | ~~Critical~~ **FIXED** | `sigguarded`/`stdc_raise` NULL-deref before first `siginstall` on fallback-TLS platforms (fixed at `thrd_signal_handle_common.ipp.ipp:264-272`) | `thrd_signal_handle_common.ipp.ipp:264-268`, `tss_async_signal_safe.c.ipp:177` |
-| 1.4 | Critical | Windows `stdc_raise(0,...)` aborts | `thrd_signal_handle_windows.c.ipp:277-278` |
+| 1.4 | ~~Critical~~ **FIXED** | Windows `stdc_raise(0,...)` aborts (fixed at `thrd_signal_handle_windows.c.ipp:263-267`) | `thrd_signal_handle_windows.c.ipp:277-278` |
 | 1.5 | High | Windows `prepare_rsi` OOB `ExceptionInformation` read | `thrd_signal_handle_windows.c.ipp:190-191` |
 | 1.6 | High | Windows `tss->front` frame stack dangling/unmaintained | `thrd_signal_handle_windows.c.ipp:265-299,357-367` |
 | 1.7 | High | Windows NULL-recovery + invoke_recovery -> infinite fault loop | `thrd_signal_handle_windows.c.ipp:210-213` |

@@ -32,12 +32,10 @@ int main(void)
   // The documented one-line setup call. On fallback-TLS platforms (macOS and
   // any non-GNU/MSVC platform) this dereferenced the never-created NULL TSS
   // handle inside tss_async_signal_safe_thread_init() and crashed with a
-  // SIGSEGV before analysis.md 1.3 was fixed. (Windows is excluded here
-  // because stdc_raise(0, ...) hits the unfixed 1.4 abort instead.)
-#if !defined(_WIN32)
+  // SIGSEGV before analysis.md 1.3 was fixed; on Windows it aborted the
+  // process before analysis.md 1.4 was fixed.
   WG14_SIGNALS_PREFIX(stdc_raise)(0, WG14_SIGNALS_NULLPTR,
                                   WG14_SIGNALS_NULLPTR);
-#endif
 
   // A bare sigguarded() with no prior siginstall() must not crash either.
   sigset_t guarded;
@@ -49,10 +47,8 @@ int main(void)
   CHECK(retv.int_value == 42);
 
   // The TSS state now exists; a further setup call must still not crash.
-#if !defined(_WIN32)
   WG14_SIGNALS_PREFIX(stdc_raise)(0, WG14_SIGNALS_NULLPTR,
                                   WG14_SIGNALS_NULLPTR);
-#endif
 
   return ret;
 }

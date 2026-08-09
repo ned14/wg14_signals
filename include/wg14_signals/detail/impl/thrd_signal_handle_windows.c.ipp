@@ -260,6 +260,11 @@ extern "C"
     {
       return false;
     }
+    if(signo == 0)
+    {
+      // Caller is doing the non-async safe setup
+      return false;
+    }
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
     WG14_SIGNALS_PREFIX(sig_global_tss_state)();
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *old =

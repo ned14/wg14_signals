@@ -730,7 +730,7 @@ the functions read-only afterwards, preserving the "ASYNC-SIGNAL-SAFE" claim.
 
 ### 5.10 Windows backend concrete fixes (1.4, 1.5, 1.6, V2)
 
-- **`stdc_raise(0, ...)` aborts (1.4)** — `thrd_signal_handle_windows.c.ipp:252-300`
+- **`stdc_raise(0, ...)` aborts (1.4) [DONE]** — `thrd_signal_handle_windows.c.ipp:252-300`
   has no `signo == 0` short-circuit (POSIX has one at
   `thrd_signal_handle_posix.c.ipp:281-285`), so the documented setup call hits
   `default: abort()` in `win32_exception_code_from_signal` (`:112-134`), as
@@ -743,6 +743,10 @@ the functions read-only afterwards, preserving the "ASYNC-SIGNAL-SAFE" claim.
     return false;   /* caller is doing the non-async-safe setup */
   }
   ```
+  Applied 2026-08-09 at `thrd_signal_handle_windows.c.ipp:263-267`; regression test
+  `test/stdc_raise_zero_test.c` added and the Windows-excluded `stdc_raise(0, ...)` legs of
+  `test/standalone_setup_test.c` re-enabled. (The broader V4 abort for non-signo-0
+  unsupported codes is still open.)
 
 - **`prepare_rsi` OOB reads (1.5)** — `:186-192` reads
   `ExceptionInformation[1]`/`[2]` with no `NumberParameters` check; a genuine
@@ -845,6 +849,7 @@ Add to `test/` (all `add_code_test`, C11):
 | Test file | Exercise | Catches |
 |---|---|---|
 | `standalone_setup_test.c` **[DONE]** | `stdc_raise(0,NULL,NULL)` and bare `sigguarded` with no prior `siginstall` | 1.3, 1.4 |
+| `stdc_raise_zero_test.c` **[DONE]** | `stdc_raise(0,NULL,NULL)` returns false (no abort) | 1.4 |
 | `decider_mixed_set_test.c` **[DONE]** | `siginstall({SIGUSR2})` then create+destroy decider for {SIGUSR1,SIGUSR2}, then `stdc_raise(SIGUSR2)` ×100 | 1.1, 1.2, AA1 |
 | `decider_cycle_test.c` | siginstall → decider → destroy → uninstall → siginstall → decider → raise (the AA1 orphan cycle) | AA1, Z3 |
 | `tss_concurrent_exit_test.c` | two threads sharing one `tss_async_signal_safe`, both `thread_init`, both exit; 1000 iterations | 2.1, X1/X2 |
