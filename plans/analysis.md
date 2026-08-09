@@ -52,7 +52,7 @@ installed package ships no headers and `find_package()` hard-fails).**
 
 ## 1. Critical bugs
 
-### 1.1 `signal_decider_create()` leaks the global state spinlock permanently [confirmed]
+### 1.1 `signal_decider_create()` leaks the global state spinlock permanently [FIXED]
 
 `include/wg14_signals/detail/impl/thrd_signal_handle_common.ipp.ipp:500-514`:
 
@@ -84,6 +84,10 @@ in the next library call (verified: 100% CPU spin inside `signal_decider_create`
 `LOCK` with the lock value observed to be left =1).
 
 Fix: `UNLOCK(state->lock)` before `continue`.
+
+**Status: FIXED (2026-08-09).** `UNLOCK(state->lock)` was added at
+`thrd_signal_handle_common.ipp.ipp:513` before the warning-path `continue`. Verified by a
+rebuild plus `ctest -E benchmark` (4/4 pass).
 
 ### 1.2 `signal_decider_create()` / `signal_decider_destroy()` slot misalignment -> use-after-free [confirmed]
 
@@ -822,7 +826,7 @@ unblock/block signals relative to the interrupted context. Platform-dependent.
 
 | # | Severity | Issue | Location |
 |---|----------|-------|----------|
-| 1.1 | Critical | `signal_decider_create` leaks global spinlock on non-installed signal | `thrd_signal_handle_common.ipp.ipp:513` |
+| 1.1 | ~~Critical~~ **FIXED** | `signal_decider_create` leaks global spinlock on non-installed signal (fixed at `thrd_signal_handle_common.ipp.ipp:513`) | `thrd_signal_handle_common.ipp.ipp:513` |
 | 1.2 | Critical | decider-handle slot misalignment -> UAF on destroy + raise | `thrd_signal_handle_common.ipp.ipp:443-614` |
 | 1.3 | Critical | `sigguarded`/`stdc_raise` NULL-deref before first `siginstall` on fallback-TLS platforms | `thrd_signal_handle_common.ipp.ipp:264-268`, `tss_async_signal_safe.c.ipp:177` |
 | 1.4 | Critical | Windows `stdc_raise(0,...)` aborts | `thrd_signal_handle_windows.c.ipp:277-278` |

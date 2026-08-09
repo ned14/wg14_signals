@@ -510,6 +510,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
           "but "
           "handler was never installed for that signal.\n",
           signo);
+          UNLOCK(state->lock);
           continue;
         }
         struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *i =
