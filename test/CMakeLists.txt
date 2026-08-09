@@ -4,6 +4,8 @@ add_code_test(benchmark_async_signal_safe_tls_test SOURCES "benchmark_async_sign
 add_code_test(benchmark_thrd_signal_handle_test SOURCES "benchmark_thrd_signal_handle_test.c" FEATURES c_std_11)
 add_code_test(thrd_signal_handle_test SOURCES "thrd_signal_handle_test.c" FEATURES c_std_11)
 add_code_test(thrd_signal_sigfpe_handle_test SOURCES "thrd_sigfpe_test.c" FEATURES c_std_11)
+add_code_test(decider_mixed_set_test SOURCES "decider_mixed_set_test.c" FEATURES c_std_11)
+set_tests_properties(decider_mixed_set_test PROPERTIES TIMEOUT 60)
 
 add_executable(header_only_test "header_only_test1.cpp" "header_only_test2.cpp" "header_only_test.cpp")
 if(MSVC)

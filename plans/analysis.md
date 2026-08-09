@@ -87,9 +87,11 @@ Fix: `UNLOCK(state->lock)` before `continue`.
 
 **Status: FIXED (2026-08-09).** `UNLOCK(state->lock)` was added at
 `thrd_signal_handle_common.ipp.ipp:513` before the warning-path `continue`. Verified by a
-rebuild plus `ctest -E benchmark` (4/4 pass).
+rebuild plus `ctest -E benchmark` (4/4 pass). A regression test
+(`test/decider_mixed_set_test.c`, TIMEOUT 60) now covers the mixed-set scenario: without
+this unlock the test hangs forever inside `signal_decider_destroy`.
 
-### 1.2 `signal_decider_create()` / `signal_decider_destroy()` slot misalignment -> use-after-free [confirmed]
+### 1.2 `signal_decider_create()` / `signal_decider_destroy()` slot misalignment -> use-after-free [FIXED]
 
 Even with the lock leak of 1.1 fixed, the decider handle layout is corrupted whenever a
 guarded signal has no installed handler:
@@ -119,6 +121,18 @@ explicitly anticipates this input, so it is not an exotic misuse.
 
 Fix: make slot advancement identical in both functions (or store the list of installed
 signal numbers in the handle instead of a positional array).
+
+**Status: FIXED (2026-08-09).** The warning path of `signal_decider_create` now advances
+the handle slot with `*retp++ = WG14_SIGNALS_NULLPTR` at
+`thrd_signal_handle_common.ipp.ipp:514`, so `create` and `destroy` both advance exactly
+one slot per guarded signal and NULL slots are skipped. Verified: the reproduction
+(install SIGUSR2 only; create + destroy a decider for {SIGUSR1, SIGUSR2}; raise SIGUSR2)
+crashes with an ASan heap-use-after-free in `stdc_raise` against the pre-fix library and
+runs 100 iterations cleanly against the fixed build; `ctest -E benchmark` passes 4/4. A
+regression test (`test/decider_mixed_set_test.c`, registered in `test/CMakeLists.txt` with
+TIMEOUT 60) runs the mixed-set create/destroy/raise cycle 10 times; with the alignment
+reverted it fails its `CHECK(signal_decider_destroy == 0)` and ASan reports the same
+heap-use-after-free in `stdc_raise`.
 
 ### 1.3 `sigguarded()` / `stdc_raise()` NULL-pointer dereference on fallback-TLS platforms when `siginstall()` was never called [confirmed]
 
@@ -827,7 +841,7 @@ unblock/block signals relative to the interrupted context. Platform-dependent.
 | # | Severity | Issue | Location |
 |---|----------|-------|----------|
 | 1.1 | ~~Critical~~ **FIXED** | `signal_decider_create` leaks global spinlock on non-installed signal (fixed at `thrd_signal_handle_common.ipp.ipp:513`) | `thrd_signal_handle_common.ipp.ipp:513` |
-| 1.2 | Critical | decider-handle slot misalignment -> UAF on destroy + raise | `thrd_signal_handle_common.ipp.ipp:443-614` |
+| 1.2 | ~~Critical~~ **FIXED** | decider-handle slot misalignment -> UAF on destroy + raise (fixed at `thrd_signal_handle_common.ipp.ipp:514`) | `thrd_signal_handle_common.ipp.ipp:443-614` |
 | 1.3 | Critical | `sigguarded`/`stdc_raise` NULL-deref before first `siginstall` on fallback-TLS platforms | `thrd_signal_handle_common.ipp.ipp:264-268`, `tss_async_signal_safe.c.ipp:177` |
 | 1.4 | Critical | Windows `stdc_raise(0,...)` aborts | `thrd_signal_handle_windows.c.ipp:277-278` |
 | 1.5 | High | Windows `prepare_rsi` OOB `ExceptionInformation` read | `thrd_signal_handle_windows.c.ipp:190-191` |

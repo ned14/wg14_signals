@@ -496,7 +496,7 @@ if(WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_is_end)(it))
 `signal_decider_create({SIGUSR1,SIGUSR2})`; the next `stdc_raise(0,...)` must
 return instead of hanging. (This is the exact 1.1 reproduction.)
 
-### 5.2 `signal_decider_create`/`destroy` slot alignment (fixes 1.2, AA1)
+### 5.2 `signal_decider_create`/`destroy` slot alignment (fixes 1.2, AA1) [DONE]
 
 **Why.** `create` advances the decider-pointer slot (`*retp++`, `:539`) only
 for guarded signals with an installed handler, while `destroy` advances it for
@@ -517,6 +517,11 @@ way, `destroy` must free only slots that `create` populated.
 {SIGUSR1,SIGUSR2}, destroy it, then `stdc_raise(SIGUSR2)` must not fault; then
 re-install and repeat 100× under ASan. (This is the 1.2 reproduction; 5.1 must
 land first.)
+
+**Status: DONE (2026-08-09).** The `*retp++ = WG14_SIGNALS_NULLPTR` line from §5.1
+was applied at `thrd_signal_handle_common.ipp.ipp:514`. The exact reproduction
+above crashes with an ASan heap-use-after-free in `stdc_raise` against the pre-fix
+library and passes 100 iterations under ASan/UBSan against the fixed build.
 
 ### 5.3 `sig_global_tss_state_*` on the fallback path (fixes 1.3, 2.4, 2.6)
 
@@ -834,7 +839,7 @@ Add to `test/` (all `add_code_test`, C11):
 | Test file | Exercise | Catches |
 |---|---|---|
 | `standalone_setup_test.c` | `stdc_raise(0,NULL,NULL)` and bare `sigguarded` with no prior `siginstall` | 1.3, 1.4 |
-| `decider_mixed_set_test.c` | `siginstall({SIGUSR2})` then create+destroy decider for {SIGUSR1,SIGUSR2}, then `stdc_raise(SIGUSR2)` ×100 | 1.1, 1.2, AA1 |
+| `decider_mixed_set_test.c` **[DONE]** | `siginstall({SIGUSR2})` then create+destroy decider for {SIGUSR1,SIGUSR2}, then `stdc_raise(SIGUSR2)` ×100 | 1.1, 1.2, AA1 |
 | `decider_cycle_test.c` | siginstall → decider → destroy → uninstall → siginstall → decider → raise (the AA1 orphan cycle) | AA1, Z3 |
 | `tss_concurrent_exit_test.c` | two threads sharing one `tss_async_signal_safe`, both `thread_init`, both exit; 1000 iterations | 2.1, X1/X2 |
 | `tss_null_handle_test.c` | `create/destroy/thread_init/get` on NULL and zeroed handles | 2.6 |
@@ -971,8 +976,8 @@ not exist. Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattrib
 |---|--------|----------|--------------------|--------|
 | 1 | Packaging: `configure_package_config_file` + version file + `install(DIRECTORY include/...)` | `CMakeLists.txt:10,58-70` | V1 | Small |
 | 2 | `WG14_SIGNALS_EXTERN` → `static WG14_SIGNALS_INLINE` in header-only mode | `config.h:109-115` | 1.8, C3, Y8, Y10 | Small |
-| 3 | `signal_decider_create`: unlock + align slot on the warning path | `thrd_signal_handle_common.ipp.ipp:505-514,539` | 1.1, 1.2, AA1 | Small |
-| 4 | `signal_decider_destroy` slot alignment / signo-indexed handle | `:564-611` | 1.2 | Small |
+| 3 | `signal_decider_create`: unlock + align slot on the warning path **[DONE]** | `thrd_signal_handle_common.ipp.ipp:505-514,539` | 1.1, 1.2, AA1 | Small |
+| 4 | `signal_decider_destroy` slot alignment / signo-indexed handle **[DONE]** | `:564-611` | 1.2 | Small |
 | 5 | Fallback-path setup: self-creating tss init + dead-code fix + NULL-safe tss API | `:264-281`, `tss_async_signal_safe.c.ipp:93-243` | 1.3, 2.4, 2.6, Z3 | Small |
 | 6 | Windows `stdc_raise(0,...)` short-circuit + `prepare_rsi` bounds + frame pop + NULL-tss guard | `thrd_signal_handle_windows.c.ipp:186-192,265-299,357-367` | 1.4, 1.5, 1.6, V2 | Small |
 | 7 | Install-consumer ctest | `test/install_consumer/` | V1 regression-proofing | Medium |
