@@ -263,6 +263,13 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_create)(void)
 }
 static int WG14_SIGNALS_PREFIX(sig_global_tss_state_init)(void)
 {
+  if(*WG14_SIGNALS_PREFIX(sig_tss_state_raw)() == WG14_SIGNALS_NULLPTR)
+  {
+    if(-1 == WG14_SIGNALS_PREFIX(sig_global_tss_state_create)())
+    {
+      return -1;
+    }
+  }
   return WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(
   *WG14_SIGNALS_PREFIX(sig_tss_state_raw)());
 }

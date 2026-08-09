@@ -134,7 +134,7 @@ TIMEOUT 60) runs the mixed-set create/destroy/raise cycle 10 times; with the ali
 reverted it fails its `CHECK(signal_decider_destroy == 0)` and ASan reports the same
 heap-use-after-free in `stdc_raise`.
 
-### 1.3 `sigguarded()` / `stdc_raise()` NULL-pointer dereference on fallback-TLS platforms when `siginstall()` was never called [confirmed]
+### 1.3 `sigguarded()` / `stdc_raise()` NULL-pointer dereference on fallback-TLS platforms when `siginstall()` was never called [FIXED]
 
 On platforms with `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL == 0` (Apple/macOS, and any
 platform not GNU/MSVC), the thread-local state object is created only inside
@@ -161,6 +161,16 @@ This means on macOS (the reference platform for the fallback path) the documente
 The header documents sigguarded/stdc_raise as usable without any other setup step; the
 dependency on `siginstall()` is real and unstated. Linux is unaffected because there
 `sig_global_tss_state_create` is a no-op and the TLS pointer is used directly.
+
+**Status: FIXED (2026-08-09).** The fallback `sig_global_tss_state_init`
+(`thrd_signal_handle_common.ipp.ipp:264-272`) is now self-creating: it calls
+`sig_global_tss_state_create()` when `*sig_tss_state_raw()` is NULL before calling
+`tss_async_signal_safe_thread_init()`, mirroring the native-TLS path. Verified: the new
+regression test `test/standalone_setup_test.c` (registered in `test/CMakeLists.txt`) calls
+`stdc_raise(0, NULL, NULL)` and a bare `sigguarded(...)` with no prior `siginstall()`; it
+crashed with the ASan SEGV at `tss_async_signal_safe.c.ipp:177` (address 0x10) before the
+fix and passes 6/6 under the sanitizer build afterwards. (Windows does not exercise the
+`stdc_raise(0, ...)` leg here because of the unfixed 1.4 `abort()`.)
 
 ### 1.4 Windows: `stdc_raise(0, ...)` aborts the process
 
@@ -842,7 +852,7 @@ unblock/block signals relative to the interrupted context. Platform-dependent.
 |---|----------|-------|----------|
 | 1.1 | ~~Critical~~ **FIXED** | `signal_decider_create` leaks global spinlock on non-installed signal (fixed at `thrd_signal_handle_common.ipp.ipp:513`) | `thrd_signal_handle_common.ipp.ipp:513` |
 | 1.2 | ~~Critical~~ **FIXED** | decider-handle slot misalignment -> UAF on destroy + raise (fixed at `thrd_signal_handle_common.ipp.ipp:514`) | `thrd_signal_handle_common.ipp.ipp:443-614` |
-| 1.3 | Critical | `sigguarded`/`stdc_raise` NULL-deref before first `siginstall` on fallback-TLS platforms | `thrd_signal_handle_common.ipp.ipp:264-268`, `tss_async_signal_safe.c.ipp:177` |
+| 1.3 | ~~Critical~~ **FIXED** | `sigguarded`/`stdc_raise` NULL-deref before first `siginstall` on fallback-TLS platforms (fixed at `thrd_signal_handle_common.ipp.ipp:264-272`) | `thrd_signal_handle_common.ipp.ipp:264-268`, `tss_async_signal_safe.c.ipp:177` |
 | 1.4 | Critical | Windows `stdc_raise(0,...)` aborts | `thrd_signal_handle_windows.c.ipp:277-278` |
 | 1.5 | High | Windows `prepare_rsi` OOB `ExceptionInformation` read | `thrd_signal_handle_windows.c.ipp:190-191` |
 | 1.6 | High | Windows `tss->front` frame stack dangling/unmaintained | `thrd_signal_handle_windows.c.ipp:265-299,357-367` |

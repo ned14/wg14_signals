@@ -523,7 +523,7 @@ was applied at `thrd_signal_handle_common.ipp.ipp:514`. The exact reproduction
 above crashes with an ASan heap-use-after-free in `stdc_raise` against the pre-fix
 library and passes 100 iterations under ASan/UBSan against the fixed build.
 
-### 5.3 `sig_global_tss_state_*` on the fallback path (fixes 1.3, 2.4, 2.6)
+### 5.3 `sig_global_tss_state_*` on the fallback path (fixes 1.3, 2.4, 2.6) [part 1 done]
 
 **Why.** On fallback platforms (`WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL == 0`,
 i.e. macOS and any non-GNU/MSVC platform), `*sig_tss_state_raw()` is a NULL
@@ -573,6 +573,12 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
 path, `stdc_raise(0, NULL, NULL)` and a bare `sigguarded(...)` must not crash
 without any prior `siginstall()`. This test must run on macOS (fallback) and
 must also pass on Linux under `-DALWAYS_USE_FALLBACK_TLS=ON` (§2.1).
+
+**Status: part 1 DONE (2026-08-09).** The self-creating `sig_global_tss_state_init` was
+applied at `thrd_signal_handle_common.ipp.ipp:264-272`, fixing 1.3. Regression test
+`test/standalone_setup_test.c` reproduces the crash (ASan SEGV at
+`tss_async_signal_safe.c.ipp:177`, address 0x10) before the fix and passes 6/6 afterwards.
+Parts 2-3 (2.4 dead code, 2.6 NULL-safe tss API) remain open.
 
 ### 5.4 `tss_async_signal_safe_thread_deinit`: count decrement under the lock (fixes 2.1, X1/X2)
 
@@ -838,7 +844,7 @@ Add to `test/` (all `add_code_test`, C11):
 
 | Test file | Exercise | Catches |
 |---|---|---|
-| `standalone_setup_test.c` | `stdc_raise(0,NULL,NULL)` and bare `sigguarded` with no prior `siginstall` | 1.3, 1.4 |
+| `standalone_setup_test.c` **[DONE]** | `stdc_raise(0,NULL,NULL)` and bare `sigguarded` with no prior `siginstall` | 1.3, 1.4 |
 | `decider_mixed_set_test.c` **[DONE]** | `siginstall({SIGUSR2})` then create+destroy decider for {SIGUSR1,SIGUSR2}, then `stdc_raise(SIGUSR2)` ×100 | 1.1, 1.2, AA1 |
 | `decider_cycle_test.c` | siginstall → decider → destroy → uninstall → siginstall → decider → raise (the AA1 orphan cycle) | AA1, Z3 |
 | `tss_concurrent_exit_test.c` | two threads sharing one `tss_async_signal_safe`, both `thread_init`, both exit; 1000 iterations | 2.1, X1/X2 |
