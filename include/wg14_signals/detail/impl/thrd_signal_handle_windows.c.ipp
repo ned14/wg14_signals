@@ -17,6 +17,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+#ifndef WG14_SIGNALS_THRD_SIGNAL_HANDLE_WINDOWS_IPP
+#define WG14_SIGNALS_THRD_SIGNAL_HANDLE_WINDOWS_IPP
+
 #include "../../thrd_signal_handle.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -470,4 +473,6 @@ extern "C"
 
 #ifdef __cplusplus
 }
+#endif
+
 #endif

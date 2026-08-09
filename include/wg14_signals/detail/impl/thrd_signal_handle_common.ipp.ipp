@@ -17,6 +17,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+#ifndef WG14_SIGNALS_THRD_SIGNAL_HANDLE_COMMON_IPP
+#define WG14_SIGNALS_THRD_SIGNAL_HANDLE_COMMON_IPP
+
 #include "../../config.h"
 #include "../../thrd_signal_handle.h"
 
@@ -628,4 +631,6 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
 
 #ifdef __cplusplus
 }
+#endif
+
 #endif

@@ -17,56 +17,73 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+/* The C++ implementation of thread_atexit(), selected (in preference to the C
+   implementation) only on platforms that do NOT supply __cxa_thread_atexit().
+   It uses a thread_local std::vector whose element destructors run at thread
+   exit. When __cxa_thread_atexit() is available the C implementation is used
+   instead and this file is neither compiled nor linked (see
+   thread_atexit.h and CMakeLists.txt). */
+
+#ifndef WG14_SIGNALS_THREAD_ATEXIT_CPP_IPP
+#define WG14_SIGNALS_THREAD_ATEXIT_CPP_IPP
+
 #include "thread_atexit.h"
 
 #include <cerrno>
 #include <vector>
 
-extern "C" int WG14_SIGNALS_PREFIX(thread_atexit)(void (*func)(void *obj),
-                                                  void *obj)
+extern "C"
 {
-  struct item
+  // WG14_SIGNALS_EXTERN is static inline in header-only mode so this matches
+  // the header's declaration and every TU gets its own copy (analysis.md 1.8).
+  WG14_SIGNALS_EXTERN int
+  WG14_SIGNALS_PREFIX(thread_atexit)(void (*func)(void *obj), void *obj)
   {
-    void (*func)(void *obj);
-    void *obj;
+    struct item
+    {
+      void (*func)(void *obj);
+      void *obj;
 
-    constexpr item(void (*_func)(void *obj), void *_obj)
-        : func(_func)
-        , obj(_obj)
-    {
-    }
-    item(const item &) = delete;
-    item(item &&o) noexcept
-        : func(o.func)
-        , obj(o.obj)
-    {
-      o.func = nullptr;
-      o.obj = nullptr;
-    }
-    item &operator=(const item &) = delete;
-    item &operator=(item &&) = delete;
-    ~item()
-    {
-      if(func != nullptr)
+      constexpr item(void (*_func)(void *obj), void *_obj)
+          : func(_func)
+          , obj(_obj)
       {
-        func(obj);
-        func = nullptr;
       }
+      item(const item &) = delete;
+      item(item &&o) noexcept
+          : func(o.func)
+          , obj(o.obj)
+      {
+        o.func = nullptr;
+        o.obj = nullptr;
+      }
+      item &operator=(const item &) = delete;
+      item &operator=(item &&) = delete;
+      ~item()
+      {
+        if(func != nullptr)
+        {
+          func(obj);
+          func = nullptr;
+        }
+      }
+    };
+#ifdef __cpp_exceptions
+    try
+#endif
+    {
+      static thread_local std::vector<item> items;
+      items.emplace_back(func, obj);
+      return 0;
     }
-  };
 #ifdef __cpp_exceptions
-  try
+    catch(...)
+    {
+      errno = ENOMEM;
+      return -1;
+    }
 #endif
-  {
-    static thread_local std::vector<item> items;
-    items.emplace_back(func, obj);
-    return 0;
   }
-#ifdef __cpp_exceptions
-  catch(...)
-  {
-    errno = ENOMEM;
-    return -1;
-  }
-#endif
 }
+
+#endif

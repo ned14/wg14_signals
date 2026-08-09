@@ -98,3 +98,62 @@ jobs:
     - name: CMake tests WinVS2022
       shell: bash
       run: cd build && ctest -C ${{ matrix.debug }} --output-on-failure --timeout 300 -E benchmark
+
+  HeaderOnly:
+    name: Header-only (${{ matrix.os }}, C${{ matrix.standard }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - os: ubuntu-latest
+          standard: 11
+        - os: ubuntu-latest
+          standard: 23
+        - os: macos-latest
+          standard: 11
+        - os: macos-latest
+          standard: 23
+        - os: windows-latest
+          standard: 11
+        - os: windows-latest
+          standard: 17
+    env:
+      NAME: HeaderOnly-${{ matrix.os }}-C${{ matrix.standard }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Configure (POSIX)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        mkdir build && cd build
+        cmake .. -DCMAKE_C_STANDARD=${{ matrix.standard }} -DHEADER_ONLY_BUILD=ON -DCMAKE_TOOLCHAIN_FILE=$PWD/../cmake/sanitize-toolchain.cmake
+
+    - name: Configure (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        mkdir build && cd build
+        cmake .. -DCMAKE_C_STANDARD=${{ matrix.standard }} -DHEADER_ONLY_BUILD=ON -DCMAKE_C_FLAGS=/fsanitize:address
+
+    - name: Build (POSIX)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: cd build && cmake --build . --parallel
+
+    - name: Build (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: cd build && cmake --build . --config Debug --parallel
+
+    - name: CMake tests (POSIX)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: cd build && ctest --output-on-failure --timeout 300 -E benchmark
+
+    - name: CMake tests (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: cd build && ctest -C Debug --output-on-failure --timeout 300 -E benchmark

@@ -17,6 +17,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+#ifndef WG14_SIGNALS_CURRENT_THREAD_ID_IPP
+#define WG14_SIGNALS_CURRENT_THREAD_ID_IPP
+
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -47,6 +50,17 @@ extern "C"
 #endif
 
 #if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
+  // The single shared definition of the cached thread id (declared extern in
+  // current_thread_id.h, so this file-scope definition has external linkage
+  // without needing a redundant 'extern' keyword). Visibility is forced to
+  // default so the symbol is exported from a shared library even under
+  // -fvisibility=hidden.
+  WG14_SIGNALS_DEFAULT_VISIBILITY
+#if WG14_SIGNALS_ENABLE_HEADER_ONLY
+  // In header-only mode every translation unit defines this TLS variable; the
+  // weak/selectany linkage lets the linker merge the copies (analysis.md Y10).
+  WG14_SIGNALS_IGNORE_MULTIPLE_DEFINITIONS
+#endif
   WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL WG14_SIGNALS_PREFIX(thread_id_t)
   WG14_SIGNALS_PREFIX(current_thread_id_cached) =
 #ifdef _WIN32
@@ -72,7 +86,7 @@ extern "C"
 #endif
   }
 
-  WG14_SIGNALS_PREFIX(thread_id_t)
+  WG14_SIGNALS_EXTERN WG14_SIGNALS_PREFIX(thread_id_t)
   WG14_SIGNALS_PREFIX(internal_current_thread_id_cached_set)(void)
   {
 #if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
@@ -86,4 +100,6 @@ extern "C"
 
 #ifdef __cplusplus
 }
+#endif
+
 #endif

@@ -17,6 +17,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+#ifndef WG14_SIGNALS_THRD_SIGNAL_HANDLE_POSIX_IPP
+#define WG14_SIGNALS_THRD_SIGNAL_HANDLE_POSIX_IPP
+
 #include "../../thrd_signal_handle.h"
 
 #include <pthread.h>
@@ -402,4 +405,6 @@ static void __attribute__((noreturn)) default_abort(void)
 
 #ifdef __cplusplus
 }
+#endif
+
 #endif

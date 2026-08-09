@@ -108,7 +108,12 @@ which are async signal safe, and which are not.
 
 #ifndef WG14_SIGNALS_EXTERN
 #if WG14_SIGNALS_ENABLE_HEADER_ONLY
-#define WG14_SIGNALS_EXTERN WG14_SIGNALS_INLINE
+// Per-TU static inline: an external-linkage inline function may not call the
+// internal static helpers used by the shared implementation
+// (-Wstatic-in-inline), and per-TU static definitions avoid duplicate symbols
+// when the header is included from more than one translation unit (analysis.md
+// 1.8, C3, Y8, Y10).
+#define WG14_SIGNALS_EXTERN static WG14_SIGNALS_INLINE
 #else
 #define WG14_SIGNALS_EXTERN WG14_SIGNALS_EXTERN_IMPL
 #endif

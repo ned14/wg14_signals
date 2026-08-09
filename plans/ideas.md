@@ -103,7 +103,7 @@ loader-path handling (`LD_LIBRARY_PATH`, `DYLD_LIBRARY_PATH`, and the Windows
 **Verification.** `ctest -R install_consumer_test` fails before the 1.1 fix
 ("missing include/wg14_signals/...") and passes after.
 
-### 1.3 Header-only mode: `static inline` instead of `inline` (fixes analysis.md 1.8, C3, Y8, Y10)
+### 1.3 Header-only mode: `static inline` instead of `inline` (fixes analysis.md 1.8, C3, Y8, Y10) [DONE]
 
 **Why.** `config.h:109-115` defines `WG14_SIGNALS_EXTERN` as plain `WG14_SIGNALS_INLINE`
 (`inline`) in header-only mode. Consequences, all verified:
@@ -139,6 +139,37 @@ loader-path handling (`LD_LIBRARY_PATH`, `DYLD_LIBRARY_PATH`, and the Windows
 a *C* header-only test TU links at `-O0` (it currently does not, C3); a 3-TU C++
 header-only program links (Y8/Y10).
 
+**Status: DONE (2026-08-09).** `WG14_SIGNALS_EXTERN` → `static WG14_SIGNALS_INLINE` in
+header-only mode; include guards added to `current_thread_id.c.ipp`,
+`tss_async_signal_safe.c.ipp`, `thrd_signal_handle_common.ipp.ipp`,
+`thrd_signal_handle_posix.c.ipp`, `thrd_signal_handle_windows.c.ipp` and
+`thread_atexit.cpp.ipp`; `internal_current_thread_id_cached_set` definition linkage fixed
+and the TLS variable made weak/selectany; a C `thread_atexit` (`thread_atexit.c.ipp`,
+pthread-key/FLS) added. Verified: `-DHEADER_ONLY_BUILD=ON` builds and passes all 10
+tests; `header_only_c_consumer` (single-TU C, -O0) and `header_only_c_multi_test` (3-TU
+C) build/link/run; the 3-TU C++ `header_only_test` links. Regression tests:
+`header_only_build_test.cmake` and `header_only_c_multi_test`.
+
+**Enhancement (2026-08-10):** `thread_atexit()` uses `__cxa_thread_atexit()` (the Itanium
+ABI thread-local destructor registration primitive) preferentially on platforms that
+supply it. A CMake compile/link probe (`check_c_source_compiles`, `CMakeLists.txt`)
+discovers availability and the supplying library
+(`WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT` + `WG14_SIGNALS_CXA_THREAD_ATEXIT_LIB`, which
+is linked PUBLIC and forwarded to the header-only consumer tests). The return value of
+`__cxa_thread_atexit()` is deliberately ignored because it is not reliable on every
+platform that supplies it (macOS returns garbage while the registration works).
+
+**C++ runtime elimination on `__cxa_thread_atexit()` platforms (2026-08-10, fixes
+analysis.md 5.2, Y7 on those platforms):** when the probe finds `__cxa_thread_atexit()`,
+the library compiles `src/wg14_signals/thread_atexit.c` (the C implementation, using
+`__cxa_thread_atexit()`) and the C++ `thread_atexit.cpp` is neither compiled nor linked;
+header-only C and C++ consumers both use `thread_atexit.c.ipp`, so the library is all-C
+with no C++ runtime dependency there. The C++ implementation (`thread_atexit.cpp` +
+`thread_atexit.cpp.ipp`, thread_local vector) is retained and selected — in preference to
+the C one — on platforms without `__cxa_thread_atexit()` (e.g. Windows), where C++
+consumers and the library use it while C header-only consumers fall back to the
+pthread-key/FLS implementation. Only one implementation is ever compiled.
+
 ### 1.4 Per-test `TIMEOUT` (test hygiene)
 
 **Concrete change.** `CMakeLists.txt:88-91` (`add_code_test`):
@@ -163,6 +194,9 @@ Port rules 4 and 5 from `../wg14_atomic_waits/AGENTS.md`:
   This targets the `thread_atexit.cpp` problem class (analysis.md 5.2, Y7,
   AA7): the one C++ file in `src/` forces a C++ toolchain and drags a hidden
   C++ runtime dependency into every C consumer of the static library.
+  **[PARTIALLY DONE 2026-08-10]** — on platforms with `__cxa_thread_atexit()`
+  the C++ file is neither compiled nor linked (the C implementation is used);
+  on platforms without it the C++ implementation is retained by design.
 - **Rule 5**: "Never, EVER use sleeps alone to synchronise between threads...
   ALWAYS use a proper synchronisation between threads." (Backbone of §6.1.)
 
@@ -286,7 +320,7 @@ proven rather than just warned about.
 concrete YAML adapted to this repo (branch `main`, no `ALWAYS_USE_PTHREADS`
 dimension, tests use `thrd_*`).
 
-### 3.1 HeaderOnly job (fixes analysis.md 1.8 / 5.4)
+### 3.1 HeaderOnly job (fixes analysis.md 1.8 / 5.4) [DONE]
 
 Append a job mirroring `../wg14_atomic_waits/.github/workflows/ci.yml:146-218`,
 matrix over `{os: ubuntu-latest, macos-latest, windows-latest} × standard`
@@ -295,6 +329,12 @@ matrix over `{os: ubuntu-latest, macos-latest, windows-latest} × standard`
 `-DCMAKE_C_FLAGS=/fsanitize:address` (Windows), build and
 `ctest --output-on-failure --timeout 300 -E benchmark`. 6 legs suffice (no
 pthreads dimension yet). This job proves the §1.3 fix on every runner.
+
+**Status: DONE (2026-08-09).** `HeaderOnly` job added to `.github/workflows/ci.yml`
+(6 legs: ubuntu/macos × C11/C23, windows × C11/C17), mirroring the existing Linux/MacOS/
+Windows jobs' configure/build/test style. Verified locally: the POSIX leg (sanitize
+toolchain, C11, `-DHEADER_ONLY_BUILD=ON`) configures, builds and passes all 10 ctest
+targets.
 
 ### 3.2 TSan job (fixes analysis.md 5.4 "no TSan"; targets 2.1, 2.2, 3.1)
 
@@ -856,6 +896,7 @@ Add to `test/` (all `add_code_test`, C11):
 | `standalone_setup_test.c` **[DONE]** | `stdc_raise(0,NULL,NULL)` and bare `sigguarded` with no prior `siginstall` | 1.3, 1.4 |
 | `stdc_raise_zero_test.c` **[DONE]** | `stdc_raise(0,NULL,NULL)` returns false (no abort) | 1.4 |
 | `recovery_null_loop_test.c` **[DONE]** | nested `sigguarded`, inner frame has NULL recovery + decider returns invoke_recovery, genuine SIGSEGV; must fall through to outer recovery | 1.7, C1 |
+| `header_only_c_consumer/` + `header_only_build_test.cmake` **[DONE]** | positive regression: `-DHEADER_ONLY_BUILD=ON` builds, single-TU C header-only consumer builds/links/runs; `header_only_c_multi_test` covers 3-TU C | 1.8, C3, Y10 |
 | `decider_mixed_set_test.c` **[DONE]** | `siginstall({SIGUSR2})` then create+destroy decider for {SIGUSR1,SIGUSR2}, then `stdc_raise(SIGUSR2)` ×100 | 1.1, 1.2, AA1 |
 | `decider_cycle_test.c` | siginstall → decider → destroy → uninstall → siginstall → decider → raise (the AA1 orphan cycle) | AA1, Z3 |
 | `tss_concurrent_exit_test.c` | two threads sharing one `tss_async_signal_safe`, both `thread_init`, both exit; 1000 iterations | 2.1, X1/X2 |
@@ -992,7 +1033,7 @@ not exist. Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattrib
 | # | Change | Location | Fixes (analysis.md) | Effort |
 |---|--------|----------|--------------------|--------|
 | 1 | Packaging: `configure_package_config_file` + version file + `install(DIRECTORY include/...)` | `CMakeLists.txt:10,58-70` | V1 | Small |
-| 2 | `WG14_SIGNALS_EXTERN` → `static WG14_SIGNALS_INLINE` in header-only mode | `config.h:109-115` | 1.8, C3, Y8, Y10 | Small |
+| 2 | `WG14_SIGNALS_EXTERN` → `static WG14_SIGNALS_INLINE` in header-only mode **[DONE]** | `config.h:109-115` | 1.8, C3, Y8, Y10 | Small |
 | 3 | `signal_decider_create`: unlock + align slot on the warning path **[DONE]** | `thrd_signal_handle_common.ipp.ipp:505-514,539` | 1.1, 1.2, AA1 | Small |
 | 4 | `signal_decider_destroy` slot alignment / signo-indexed handle **[DONE]** | `:564-611` | 1.2 | Small |
 | 5 | Fallback-path setup: self-creating tss init + dead-code fix + NULL-safe tss API | `:264-281`, `tss_async_signal_safe.c.ipp:93-243` | 1.3, 2.4, 2.6, Z3 | Small |
@@ -1005,7 +1046,7 @@ not exist. Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattrib
 | 12 | `install_sighandler` flags: drop `SA_NOCLDWAIT`, add `SA_RESTART` | `thrd_signal_handle_posix.c.ipp:371-383` | 3.3 | Small |
 | 13 | Regression tests for §9 rows 3-6 (standalone setup, mixed decider set, cycle, tss NULL) | `test/*` | 1.1-1.6, 2.1, 2.6, AA1, Z3 | Medium |
 | 14 | Compile-fail suite (`expect_compile_fail.cmake` + sigfence targets) | `test/` | 5.3, 2.8, X10 | Medium |
-| 15 | HeaderOnly CI job | `.github/workflows/ci.yml` | 5.4, 1.8 | Small |
+| 15 | HeaderOnly CI job **[DONE]** | `.github/workflows/ci.yml` | 5.4, 1.8 | Small |
 | 16 | FreeBSD VM job + `stdthreads` link + portable `pthread_self()` fallback | `ci.yml`, `CMakeLists.txt:82`, `current_thread_id.c.ipp:70-72` | 5.4, 4.1 | Medium |
 | 17 | Fil-C toolchain fix (`FILC_ROOT`-driven) + gate `SIGFENCE_IMPL_*` on `DISABLE_INLINE_ASM` | `cmake/filc-toolchain.cmake`, `thrd_signal_handle.h:97-131` | AA2 | Medium |
 | 18 | `sigfillset_*` constructor-attribute removal + init under lock | `thrd_signal_handle_posix.c.ipp:49-127` | 7.1, C11 rule 1 | Small |

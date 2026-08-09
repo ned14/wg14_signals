@@ -35,10 +35,16 @@ extern "C"
 #endif
 
 #if WG14_SIGNALS_ENABLE_HEADER_ONLY
-#ifdef __cplusplus
+#ifdef WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT
+// __cxa_thread_atexit() is available: the C implementation (which uses it) is
+// used for both C and C++ translation units.
+#include "thread_atexit.c.ipp"
+#elif defined(__cplusplus)
+// No __cxa_thread_atexit(): prefer the C++ implementation.
 #include "thread_atexit.cpp.ipp"
 #else
-// On C, you'll need to link in some implementation of thread_atexit()
+// No __cxa_thread_atexit() and no C++: use the C pthread-key/FLS fallback.
+#include "thread_atexit.c.ipp"
 #endif
 #endif
 

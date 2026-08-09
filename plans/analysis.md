@@ -319,7 +319,7 @@ TIMEOUT 60) triggers a genuine synchronous fault (store to address 0) inside a n
 inner decider is called >100 times (the pre-fix loop) and passes 8/8 with the fix. The
 Windows leg of the fix is compiled and run by the Windows CI matrix.
 
-### 1.8 Header-only build is entirely broken [confirmed]
+### 1.8 Header-only build is entirely broken [FIXED]
 
 - `-DHEADER_ONLY_BUILD=ON` fails to compile the library itself. Confirmed errors:
   - `redefinition of 'get_current_thread_id'` and `redefinition of
@@ -350,6 +350,38 @@ Windows leg of the fix is compiled and run by the Windows CI matrix.
     link at all.
   - The library's own TU compiles under `-Werror` fail as above, so the CMake option is
     unusable, and no CI configuration ever builds it.
+
+**Status: FIXED (2026-08-09).** Four changes make the header-only build work end to end:
+
+1. `config.h`: `WG14_SIGNALS_EXTERN` is now `static WG14_SIGNALS_INLINE` in header-only
+   mode (per-TU static inline). This fixes `-Werror=static-in-inline`,
+   `-Werror=static-local-in-inline`, the C11 6.7.4p7 undefined-symbol failures (C3) and
+   the C++/C multi-TU duplicate-symbol failures (Y8/Y10).
+2. Include guards added to `current_thread_id.c.ipp`, `tss_async_signal_safe.c.ipp`,
+   `thrd_signal_handle_common.ipp.ipp`, `thrd_signal_handle_posix.c.ipp` and
+   `thrd_signal_handle_windows.c.ipp` — the source→header→.ipp recursion was redefining
+   everything in the library's own TUs.
+3. `current_thread_id.c.ipp`: the `internal_current_thread_id_cached_set` definition now
+   carries `WG14_SIGNALS_EXTERN` linkage (matching its declaration), and the
+   `current_thread_id_cached` TLS variable is weak/selectany in header-only mode. Its
+   declaration is now explicitly `extern` with `WG14_SIGNALS_DEFAULT_VISIBILITY` (as is
+   the definition), so the single shared symbol stays exported from a shared library
+   even under the project's `CMAKE_C_VISIBILITY_PRESET=hidden` (previously it was a
+   hidden, non-exported symbol). The variable is deliberately NOT
+   `WG14_SIGNALS_EXTERN_IMPL`/dllexported: variables cannot be dllexported.
+4. New C `thread_atexit` implementation (`detail/impl/thread_atexit.c.ipp`, pthread-key
+   destructors on POSIX, FLS callbacks on Windows) included from `thread_atexit.h` for C
+   header-only consumers; `thread_atexit.cpp.ipp` got an include guard and its definition
+   now matches the header declaration.
+
+**Verification.** `-DHEADER_ONLY_BUILD=ON` configures and builds cleanly (all 10 tests
+pass, including the previously C++-only `header_only_test`); the single-TU C header-only
+consumer `test/header_only_c_consumer/` builds, links at -O0 and runs without the
+library; the 3-TU C consumer `test/header_only_c_multi_test` links and runs (Y10); the
+3-TU C++ `header_only_test` links and runs (Y8). Regression coverage is wired in as
+`test/header_only_build_test.cmake` (`header_only_build_test`) plus
+`header_only_c_multi_test`. Still open: Y9 (forced `HAVE_ASYNC_SAFE_THREAD_LOCAL=1` on
+Apple) and W11 (non-GNU C header-only `sigfence_force_escaped` undefined).
 
 ---
 
@@ -709,13 +741,23 @@ is a latent portability break for older compilers or strict MSVC C modes.
 
 ### 5.1 `HEADER_ONLY_BUILD` option is broken (see 1.8)
 
-### 5.2 Static library requires a C++ runtime, not declared
+### 5.2 Static library requires a C++ runtime, not declared [FIXED on __cxa platforms]
 
 `thread_atexit.cpp` is always compiled into the library (C++). The CMake package
 (`ProjectConfig.cmake.in`) does not express the C++ standard library dependency
 (`stdc++`/`libc++`), so a plain C consumer that links `libwg14_signals.a` gets
 unresolved C++ runtime symbols (verified: linking the test C program against the static
 library requires `clang++`).
+
+**Status: FIXED where `__cxa_thread_atexit()` is available (2026-08-10).** The library now
+selects one implementation only: when the CMake compile/link probe finds
+`__cxa_thread_atexit()`, `src/wg14_signals/thread_atexit.c` (the C implementation, using
+`__cxa_thread_atexit()`) is compiled and the C++ `thread_atexit.cpp` is neither compiled
+nor linked — the library is all-C with no C++ runtime dependency (verified: a plain C
+consumer links with no `-lc++`, and the shared dylib depends on no C++ runtime). On
+platforms without `__cxa_thread_atexit()` (e.g. Windows) the C++ implementation
+(`thread_atexit.cpp` / `thread_atexit.cpp.ipp`, thread_local vector) is retained and used
+in preference to the C one, restoring the C++ runtime dependency there by design.
 
 ### 5.3 CMake `CMAKE_C_STANDARD` cache variable is unused for consumers and the header-only test lacks `-Werror`
 
@@ -899,7 +941,7 @@ unblock/block signals relative to the interrupted context. Platform-dependent.
 | 1.5 | ~~High~~ **FIXED** | Windows `prepare_rsi` OOB `ExceptionInformation` read (fixed at `thrd_signal_handle_windows.c.ipp:188-199`) | `thrd_signal_handle_windows.c.ipp:190-191` |
 | 1.6 | ~~High~~ **FIXED** | Windows `tss->front` frame stack dangling/unmaintained (fixed at `thrd_signal_handle_windows.c.ipp:310-314`) | `thrd_signal_handle_windows.c.ipp:265-299,357-367` |
 | 1.7 | ~~High~~ **FIXED** | Windows NULL-recovery + invoke_recovery -> infinite fault loop (fixed at `thrd_signal_handle_posix.c.ipp:302-309`, `thrd_signal_handle_windows.c.ipp:216-223`) | `thrd_signal_handle_windows.c.ipp:210-213` |
-| 1.8 | High | Header-only build broken (build option + C path) | CMake + all `.ipp` |
+| 1.8 | ~~High~~ **FIXED** | Header-only build broken (build option + C path) (fixed: `config.h` static-inline EXTERN, .ipp include guards, C `thread_atexit`) | CMake + all `.ipp` |
 | 2.1 | High | tss deinit count/state race -> UAF | `tss_async_signal_safe.c.ipp:136-168` |
 | 2.2 | High | `siguninstall` vs in-flight `stdc_raise` -> container UAF | `thrd_signal_handle_posix.c.ipp:314-368` |
 | 2.3 | Med | `sighandlers_count` increment before TSS-create check | `thrd_signal_handle_common.ipp.ipp:316-323` |
@@ -963,6 +1005,10 @@ unblock/block signals relative to the interrupted context. Platform-dependent.
   any call that is not inlined (cross-TU, or -O0) becomes an undefined reference, and
   `thread_atexit` has no C implementation at all. Duplicate symbols would require a
   non-inline external definition somewhere, which does not exist.
+  **[FIXED 2026-08-09]** — `WG14_SIGNALS_EXTERN` is per-TU `static inline` in header-only
+  mode, `thread_atexit` has a C implementation (`thread_atexit.c.ipp`), and the .ipp
+  files are include-guarded; verified by `header_only_c_consumer` (single-TU C, -O0) and
+  `header_only_c_multi_test` (3-TU C).
 - **C4 (refines 1.5):** the `ExceptionInformation[2]`/`[1]` reads stay within the fixed
   15-slot array, so this is not a heap overrun — but they read past the valid prefix
   (`NumberParameters`) for *every* genuine access violation (which has 2 parameters),
@@ -1816,10 +1862,10 @@ so the header-only C path needs the same weak/selectany treatment the
 | Y4 | Low | deinit `attr.destroy` failure leaves stale TID entry + count desync (extends 3.6) | `tss_async_signal_safe.c.ipp:150-158` |
 | Y5 | Low | no `pthread_atfork`; stale TID caches/map across `fork()` | `current_thread_id.c.ipp:50-56,78-84`, `tss_async_signal_safe.c.ipp:81-91` |
 | Y6 | Low | missing `NSIG` → zero-length array + silently no-op `siginstall` | `thrd_signal_handle_common.ipp.ipp:58-62,381` |
-| Y7 | Low | unconditional CXX language + `thread_atexit.cpp` block C-only builds | `CMakeLists.txt:9,23` |
-| Y8 | Low | C header-only per-TU statics in inline functions (extends 1.8/C3) | `thrd_signal_handle_common.ipp.ipp:174-179` |
+| Y7 | ~~Low~~ **FIXED** | unconditional CXX language + `thread_atexit.cpp` block C-only builds (fixed 2026-08-10: `thread_atexit.c` used where `__cxa_thread_atexit()` exists, `thread_atexit.cpp` only otherwise, so C-only toolchains build on __cxa platforms) | `CMakeLists.txt:9,23` |
+| Y8 | ~~Low~~ **FIXED** | C header-only per-TU statics in inline functions (extends 1.8/C3; fixed 2026-08-09 via static-inline EXTERN) | `thrd_signal_handle_common.ipp.ipp:174-179` |
 | Y9 | Low | forced `HAVE_ASYNC_SAFE_THREAD_LOCAL=1` on Apple compiles silently (refines 4.2) | `config.h:41-51,53-67` |
-| Y10 | Low | multi-TU C header-only: duplicate `internal_current_thread_id_cached_set` (verified; extends 1.8/C3) | `current_thread_id.c.ipp:75-85` vs `current_thread_id.h:44-51` |
+| Y10 | ~~Low~~ **FIXED** | multi-TU C header-only: duplicate `internal_current_thread_id_cached_set` (verified; extends 1.8/C3; fixed 2026-08-09 via `WG14_SIGNALS_EXTERN` linkage + static-inline EXTERN) | `current_thread_id.c.ipp:75-85` vs `current_thread_id.h:44-51` |
 | C15 | — | **Refutes 1.6/V5 ordering claim**: Windows is frames-first too; divergence is claim outcome + invocation count | `thrd_signal_handle_windows.c.ipp:408-427,376-406` |
 | C16 | — | **Refines V5**: at most 2 invocations (1 under debugger), not 2-3 | `thrd_signal_handle_windows.c.ipp:376-406` |
 

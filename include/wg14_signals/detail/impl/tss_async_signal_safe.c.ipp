@@ -17,6 +17,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+#ifndef WG14_SIGNALS_TSS_ASYNC_SIGNAL_SAFE_IPP
+#define WG14_SIGNALS_TSS_ASYNC_SIGNAL_SAFE_IPP
+
 #include "../../tss_async_signal_safe.h"
 
 #include "../../current_thread_id.h"
@@ -250,4 +253,6 @@ extern "C"
 
 #ifdef __cplusplus
 }
+#endif
+
 #endif
