@@ -43,7 +43,7 @@ limitations under the License.
 will tell you all you need to know about TLS implementations and
 which are async signal safe, and which are not.
 */
-#if(defined(__GNUC__) || defined(_MSC_VER)) && !defined(__APPLE__)
+#if (defined(__GNUC__) || defined(_MSC_VER)) && !defined(__APPLE__)
 #define WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL 1
 #else
 #define WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL 0
@@ -67,7 +67,7 @@ which are async signal safe, and which are not.
 #endif
 
 #ifndef WG14_SIGNALS_NULLPTR
-#if __STDC_VERSION__ >= 202300L
+#if __STDC_VERSION__ >= 202300L || __cplusplus
 #define WG14_SIGNALS_NULLPTR nullptr
 #else
 #define WG14_SIGNALS_NULLPTR NULL
