@@ -762,7 +762,7 @@ the functions read-only afterwards, preserving the "ASYNC-SIGNAL-SAFE" claim.
   Applied 2026-08-09 at `thrd_signal_handle_windows.c.ipp:188-199`; `prepare_rsi`'s
   initial `memset` keeps the unguarded fields 0. No POSIX regression (7/7 tests pass).
 
-- **Dangling frame in Windows `stdc_raise` (1.6)** — `:265-299` pushes a frame
+- **Dangling frame in Windows `stdc_raise` (1.6) [DONE]** — `:265-299` pushes a frame
   on `tss->front` but only pops it on the `setjmp`-return path; the
   `RaiseException`-returns path leaves `tss->front` pointing at a dead stack
   frame, so `win32_vectored_exception_function` (`:357-367`) later longjmps
@@ -773,6 +773,9 @@ the functions read-only afterwards, preserving the "ASYNC-SIGNAL-SAFE" claim.
   tss->front = old;
   return true;
   ```
+  Applied 2026-08-09 at `thrd_signal_handle_windows.c.ipp:310-314`. Still open: the
+  `__except`-unwind path (a `sigguarded` catch unwinds past `stdc_raise` before it can
+  pop) and V2's NULL per-thread `tss` deref.
 
 - **NULL `tss->front` deref from a fresh thread (V2)** — the vectored handler
   calls `sig_global_tss_state()` on threads that never ran
@@ -992,7 +995,7 @@ not exist. Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattrib
 | 3 | `signal_decider_create`: unlock + align slot on the warning path **[DONE]** | `thrd_signal_handle_common.ipp.ipp:505-514,539` | 1.1, 1.2, AA1 | Small |
 | 4 | `signal_decider_destroy` slot alignment / signo-indexed handle **[DONE]** | `:564-611` | 1.2 | Small |
 | 5 | Fallback-path setup: self-creating tss init + dead-code fix + NULL-safe tss API | `:264-281`, `tss_async_signal_safe.c.ipp:93-243` | 1.3, 2.4, 2.6, Z3 | Small |
-| 6 | Windows `stdc_raise(0,...)` short-circuit + `prepare_rsi` bounds + frame pop + NULL-tss guard **[1.4, 1.5 done]** | `thrd_signal_handle_windows.c.ipp:186-192,265-299,357-367` | 1.4, 1.5, 1.6, V2 | Small |
+| 6 | Windows `stdc_raise(0,...)` short-circuit + `prepare_rsi` bounds + frame pop + NULL-tss guard **[1.4, 1.5, 1.6 done; V2 open]** | `thrd_signal_handle_windows.c.ipp:186-192,265-299,357-367` | 1.4, 1.5, 1.6, V2 | Small |
 | 7 | Install-consumer ctest | `test/install_consumer/` | V1 regression-proofing | Medium |
 | 8 | TSan CI job + `tsan-toolchain.cmake` + TSAN-aware `test_common.h` | `.github/workflows/ci.yml`, `test/test_common.h` | 5.4, 2.1, 2.2, 3.1 | Medium |
 | 9 | Per-test `TIMEOUT 60` | `CMakeLists.txt:88-91` | test hygiene | Trivial |

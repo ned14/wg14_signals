@@ -307,6 +307,10 @@ extern "C"
     {
       RaiseException(win32sehcode, 0, 0, WG14_SIGNALS_NULLPTR);
     }
+    // RaiseException() returns when the exception was continued (no handler
+    // claimed it). Pop the frame pushed above so tss->front never points at
+    // this dead stack frame (analysis.md 1.6).
+    tss->front = old;
     return true;
   }
 

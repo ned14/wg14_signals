@@ -232,7 +232,7 @@ garbage for virtually every real fault*, not just for the `info == NULL` raise p
 behavioural regression on POSIX (7/7 local tests pass); the change is compiled and
 exercised by the Windows CI matrix.
 
-### 1.6 Windows: thread-local frame stack (`tss->front`) is left dangling / never maintained
+### 1.6 Windows: thread-local frame stack (`tss->front`) is left dangling / never maintained [FIXED]
 
 The Windows `sigguarded` uses `__try/__except` directly and **never pushes a frame onto
 `tss->front`** (unlike POSIX). The Windows `stdc_raise` pushes a frame
@@ -269,6 +269,18 @@ Consequences:
 
 The Windows tests only ever exercise `stdc_raise` inside a `sigguarded` that handles the
 exception via `__except`, so these paths are untested.
+
+**Status: FIXED (2026-08-09).** `stdc_raise` now pops its pushed frame
+(`tss->front = old`) before returning when `RaiseException()` returns, i.e. whenever the
+exception was continued rather than claimed by a handler
+(`thrd_signal_handle_windows.c.ipp:310-314`). `tss->front` can therefore no longer point
+at the dead `current` stack frame on the continued-raise path, which is the path the
+vectored/unhandled handler (`:357-363`) would previously longjmp through. Still open:
+the V2 NULL per-thread `tss` deref on threads that never ran `sig_global_tss_state_init`,
+and the `__except`-unwind path (an exception caught by an enclosing `sigguarded` unwinds
+past `stdc_raise` before it can pop its frame — making `sigguarded` push/maintain its own
+frame as POSIX does is a larger change not covered here). No POSIX regression (7/7 local
+tests pass); the Windows CI matrix compiles and runs the change.
 **Additionally (see 12.3, V2): when a global decider claims an exception on a thread on
 which `sigguarded`/`stdc_raise` was *never* called, `sig_global_tss_state()` returns a
 NULL per-thread state (the vectored handler never runs `sig_global_tss_state_init`, and
@@ -873,7 +885,7 @@ unblock/block signals relative to the interrupted context. Platform-dependent.
 | 1.3 | ~~Critical~~ **FIXED** | `sigguarded`/`stdc_raise` NULL-deref before first `siginstall` on fallback-TLS platforms (fixed at `thrd_signal_handle_common.ipp.ipp:264-272`) | `thrd_signal_handle_common.ipp.ipp:264-268`, `tss_async_signal_safe.c.ipp:177` |
 | 1.4 | ~~Critical~~ **FIXED** | Windows `stdc_raise(0,...)` aborts (fixed at `thrd_signal_handle_windows.c.ipp:263-267`) | `thrd_signal_handle_windows.c.ipp:277-278` |
 | 1.5 | ~~High~~ **FIXED** | Windows `prepare_rsi` OOB `ExceptionInformation` read (fixed at `thrd_signal_handle_windows.c.ipp:188-199`) | `thrd_signal_handle_windows.c.ipp:190-191` |
-| 1.6 | High | Windows `tss->front` frame stack dangling/unmaintained | `thrd_signal_handle_windows.c.ipp:265-299,357-367` |
+| 1.6 | ~~High~~ **FIXED** | Windows `tss->front` frame stack dangling/unmaintained (fixed at `thrd_signal_handle_windows.c.ipp:310-314`) | `thrd_signal_handle_windows.c.ipp:265-299,357-367` |
 | 1.7 | High | Windows NULL-recovery + invoke_recovery -> infinite fault loop | `thrd_signal_handle_windows.c.ipp:210-213` |
 | 1.8 | High | Header-only build broken (build option + C path) | CMake + all `.ipp` |
 | 2.1 | High | tss deinit count/state race -> UAF | `tss_async_signal_safe.c.ipp:136-168` |
