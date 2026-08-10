@@ -379,7 +379,7 @@ done):
 `sigguarded(...)` after a full install->uninstall cycle must not crash; also run on Linux
 under `-DALWAYS_USE_FALLBACK_TLS=ON` (§2.1).
 
-### 5.2 `tss_async_signal_safe_thread_deinit`: count decrement under the lock (fixes analysis.md 2.1, X1/X2)
+### 5.2 `tss_async_signal_safe_thread_deinit`: count decrement under the lock (fixes analysis.md 2.1, X1/X2) **[DONE 2026-08-10]**
 
 **Why.** `tss_async_signal_safe.c.ipp:160-166`: the `atomic_fetch_sub(&state->count)` and
 `free(state)` happen *after* `UNLOCK`. Two threads sharing the same tss exiting
@@ -394,6 +394,18 @@ defer `free(mem)` via the atexit list.
 
 **Verification.** The existing `async_signal_safe_tls_test.c` plus a new two-thread-same-tss
 concurrent-exit stress (1000 iterations) under TSan (§3.1).
+
+**Done 2026-08-10:** `fetch_sub` + `free(state)` moved under `mem->lock`, the last deinit
+clears `mem->state` before freeing, `destroy` now `UNLOCK`s before `free(mem)`, and the
+destroy-after-join requirement is documented in `tss_async_signal_safe.h`. Also folded in:
+deinit no longer leaks the TID entry/count on `attr.destroy` failure (Y4) and `thread_init`
+erases the map entry on `deinit_state` OOM (W1). Verified on macOS arm64 (ASan/UBSan):
+the new regression test `test/tss_concurrent_exit_test.c` (registered as
+`tss_concurrent_exit_test`, §6.4) fails on the unfixed library with ASan
+`heap-use-after-free` at `tss_async_signal_safe.c.ipp:217` and passes with the fix,
+including a 1000-iteration two-thread concurrent-exit stress; the full `ctest` suite (13
+tests) passes. The TSan job (§3.1) remains the follow-up for the race-free claim under
+TSan.
 
 ### 5.3 `tss_async_signal_safe_thread_init`: re-check under the lock (fixes analysis.md 3.13, 3.14, 2.5)
 
@@ -561,7 +573,7 @@ Add to `test/` (all `add_code_test`, C11):
 | Test file | Exercise | Catches |
 |---|---|---|
 | `decider_cycle_test.c` | siginstall -> decider -> destroy -> uninstall -> siginstall -> decider -> raise (the AA1 orphan cycle) | AA1, Z3 |
-| `tss_concurrent_exit_test.c` | two threads sharing one `tss_async_signal_safe`, both `thread_init`, both exit; 1000 iterations | 2.1, X1/X2 |
+| `tss_concurrent_exit_test.c` **[DONE 2026-08-10]** | two threads sharing one `tss_async_signal_safe`, both `thread_init`, both exit; 1000 iterations + deterministic `create -> T1 inits+exits -> T2 inits -> destroy` reinit/destroy-after-last-exit regression | 2.1, X1/X2 |
 | `tss_null_handle_test.c` | `create/destroy/thread_init/get` on NULL and zeroed handles | 2.6 |
 | `lock_whitebox_test.c` | `#include "detail/impl/lock_unlock.h"`, lock/unlock under TSan | 3.1 discipline |
 

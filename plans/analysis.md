@@ -20,7 +20,7 @@ corrections from later passes are folded into the finding they affect.
 
 ## 2. High-severity issues (static analysis and verified)
 
-### 2.1 `tss_async_signal_safe` deinit race -> use-after-free of the `deinit_state`
+### 2.1 `tss_async_signal_safe` deinit race -> use-after-free of the `deinit_state` **[FIXED 2026-08-10]**
 
 `tss_async_signal_safe.c.ipp:136-168`. The thread-exit callback
 `tss_async_signal_safe_thread_deinit` decrements `state->count` and frees `state`
@@ -34,6 +34,21 @@ write. **Correction (C13):** the same `deinit_state` field is also subject to pu
 maintained when the last deinit frees it. Additionally, `tss_async_signal_safe_destroy`
 frees `mem` while other threads' atexit handlers may still hold `state->val == mem`. The
 intended usage (destroy only after all threads joined) is not documented.
+
+**Fixed in `tss_async_signal_safe.c.ipp` (deinit rewrite, `:139-180`):** the count
+decrement and the `free(state)` now both execute *under* `mem->lock`, so concurrent
+thread-exit deinits and `destroy` serialise and no deinit can free `state` while another
+thread is still decrementing it or reading `state->val`; the last deinit clears
+`mem->state` (guarded by `state == mem->state`) before freeing, fixing X1/X2 as well. The
+destroy-after-join requirement is now documented in `tss_async_signal_safe.h`; the
+`attr.destroy` callback value is captured under the lock before the unlocked callback
+call, and a non-zero callback return no longer leaks the TID entry or the count (Y4).
+**Verified:** macOS arm64, clang 22, ASan/UBSan. The new regression test
+`test/tss_concurrent_exit_test.c` (registered as `tss_concurrent_exit_test` in
+`test/CMakeLists.txt`) reproduces the ASan `heap-use-after-free` WRITE at
+`tss_async_signal_safe.c.ipp:217` on the unfixed library and now passes, as does its
+1000-iteration two-thread same-tss concurrent-exit stress; the full `ctest` suite (13
+tests) passes.
 
 ### 2.2 `siguninstall` / `signal_decider_destroy` vs. in-flight `stdc_raise` -> use-after-free of `sighandler_info`
 
@@ -85,7 +100,7 @@ Z8:** a second `destroy` on the same handle locks freed memory, and post-destroy
 validates neither `val` nor `attr` (`attr == NULL` -> `memcpy` crash, `attr->create ==
 NULL` crashes later in `thread_init`).
 
-### Y3 [code-level, both backends, Low] `tss_async_signal_safe_destroy` frees `mem` while still holding `mem->lock`
+### Y3 [code-level, both backends, Low] `tss_async_signal_safe_destroy` frees `mem` while still holding `mem->lock` **[FIXED 2026-08-10]**
 
 `tss_async_signal_safe.c.ipp:111-134` does `LOCK(mem->lock)` at line 116 and never unlocks
 before `free(mem)` at line 132. Harmless to the object's own lifetime (the lock word dies
@@ -94,6 +109,12 @@ with the object), but a user `attr.destroy` callback that re-enters the library 
 the concrete mechanism by which a concurrent thread-exit deinit (2.1) locks a freed
 object. Fix: `UNLOCK(mem->lock)` immediately before `free(mem)` (this still does not make
 destroy-vs-deinit safe; it only removes the gratuitous lock state).
+
+**Fixed:** `UNLOCK(mem->lock)` added immediately before `free(mem)` in
+`tss_async_signal_safe_destroy` (`tss_async_signal_safe.c.ipp:135`); the residual
+destroy-vs-live-deinit hazard is now ruled out by the destroy-after-join contract
+documented in `tss_async_signal_safe.h`. **Verified:** macOS arm64 ASan/UBSan; full
+`ctest` suite passes.
 
 ### 2.7 `sigguarded`/`sigfpe` NULL-argument handling aborts the process
 
@@ -143,7 +164,7 @@ On POSIX the same calls are harmless no-ops when no decider is installed. The he
 documents `stdc_raise` as usable for "OUR currently installed signal decider" for
 arbitrary signals.
 
-### 2.13 W1 [code-level, fallback TLS path] `tss_async_signal_safe_thread_init` leaves a dangling map entry when the `deinit_state` allocation fails (High — OOM corner)
+### 2.13 W1 [code-level, fallback TLS path] `tss_async_signal_safe_thread_init` leaves a dangling map entry when the `deinit_state` allocation fails (High — OOM corner) **[FIXED 2026-08-10]**
 
 `tss_async_signal_safe.c.ipp:201-213`: when `calloc` of `mem->state` fails, the failure
 path destroys `newitem` but **does not erase** the `[mytid] -> newitem` entry committed
@@ -153,6 +174,10 @@ entry, skips the create, and reports success — the thread is permanently bound
 storage, `count` is never incremented, and no atexit cleanup is registered. Fix: erase
 the map entry before destroying `newitem` (or move the `state` allocation before the
 `insert`).
+
+**Fixed:** the OOM path now erases the `[mytid]` entry before `UNLOCK`/destroying
+`newitem` (`tss_async_signal_safe.c.ipp:217-221`). **Verified:** macOS arm64 ASan/UBSan;
+full `ctest` suite passes.
 
 ### 2.14 W2 [confirmed, POSIX] deciders receive indeterminate/stale `error_code`, `addr`, `raw_info` for `stdc_raise(signo, NULL, NULL)` (High)
 
@@ -193,7 +218,7 @@ So the portable idiom `if(!stdc_raise(signo, ...)) { /* fall back */ }` is deadl
 Windows. Distinct from V4 (which covers `abort()` on unsupported signos); this is the
 "no decider" path for *supported* signos.
 
-### 2.17 X1 [confirmed, High] `tss_async_signal_safe_thread_init` performs a use-after-free on the `deinit_state` when called after all previously registered threads have exited
+### 2.17 X1 [confirmed, High] `tss_async_signal_safe_thread_init` performs a use-after-free on the `deinit_state` when called after all previously registered threads have exited **[FIXED 2026-08-10]**
 
 `tss_async_signal_safe.c.ipp:162-166` — the last thread's deinit runs `free(state)` on the
 shared `deinit_state`, but **nothing clears `mem->state`**. A later `thread_init` on a
@@ -207,7 +232,14 @@ never uses this object. Fix direction: the last deinit must clear `mem->state` (
 `mem->lock`) before `free(state)`, or `thread_init` must validate `mem->state` against a
 generation/refcount.
 
-### 2.18 X2 [confirmed, High] `tss_async_signal_safe_destroy` writes through the dangling `mem->state` when all registered threads exited before destroy
+**Fixed:** the last deinit now clears `mem->state` (under `mem->lock`, guarded by
+`state == mem->state`) before `free(state)`, so the next `thread_init` reallocates a fresh
+`deinit_state` (`tss_async_signal_safe.c.ipp:168-176`). **Verified:** the regression test
+`test/tss_concurrent_exit_test.c` (`test_reinit_and_destroy_after_all_exited`) produced
+the ASan `heap-use-after-free` WRITE at `:217` on the unfixed library and now passes
+(macOS arm64, ASan/UBSan).
+
+### 2.18 X2 [confirmed, High] `tss_async_signal_safe_destroy` writes through the dangling `mem->state` when all registered threads exited before destroy **[FIXED 2026-08-10]**
 
 Same root cause as X1, different trigger: when the last registered thread already exited
 (`state` freed at `:165`), a later `tss_async_signal_safe_destroy(val)` executes
@@ -215,6 +247,13 @@ Same root cause as X1, different trigger: when the last registered thread alread
 at `:119`). Note the documented destroy-after-join pattern ("destroy only after all
 threads left") is exactly the pattern that hits this. Both X1 and X2 are reachable
 through the public `tss_async_signal_safe_*` API alone.
+
+**Fixed:** the same X1 change — the last deinit clears `mem->state` before freeing
+(`tss_async_signal_safe.c.ipp:168-176`) — so a destroy that follows the last thread's
+exit finds `mem->state == NULL` and skips the write; the destroy-after-join requirement is
+documented in `tss_async_signal_safe.h`. **Verified:** the destroy-after-last-exit path is
+covered by `test/tss_concurrent_exit_test.c` (macOS arm64, ASan/UBSan), and the full
+`ctest` suite passes.
 
 ### 2.19 X3 [code-level, Windows, Medium-High] `sigguarded` on Windows never initialises the per-thread TSS (unlike POSIX)
 
@@ -366,7 +405,12 @@ with stale state. There is no TID-generation counter. **Extended by Y4:** when t
 and `state->count` not decremented (the `fetch_sub` is after the early return, so the
 count never reaches the free point for that thread) — nobody else erases the TID, the
 failed callback never re-runs, and the count stays permanently off relative to the live
-threads.
+threads. **Y4 [FIXED 2026-08-10]:** the deinit rewrite
+(`tss_async_signal_safe.c.ipp:139-180`) no longer returns early on a non-zero
+`attr.destroy` result: the TID entry is still erased and `state->count` still
+decremented, so the bookkeeping stays consistent (only the failed-to-destroy per-thread
+value leaks, which is the callback's fault). **Verified:** macOS arm64 ASan/UBSan; full
+`ctest` suite passes.
 
 ### 3.7 `sig_global_state_tss_state_init` failure inside `stdc_raise` hides the real error
 
@@ -1081,14 +1125,14 @@ invite reading `error_code`.
 | ID | Severity | Issue | Location |
 |----|----------|-------|----------|
 | V1 | Critical | Installed package: no headers installed; `find_package` fails (PACKAGE_INIT never expanded) | `CMakeLists.txt:50-70`, `cmake/ProjectConfig.cmake.in` |
-| 2.1 | High | tss deinit count/state race -> UAF | `tss_async_signal_safe.c.ipp:136-168` |
+| 2.1 | High | tss deinit count/state race -> UAF **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:136-168` |
 | 2.2 | High | `siguninstall` vs in-flight `stdc_raise` -> container UAF (also Windows, W4) | `thrd_signal_handle_posix.c.ipp:314-368` |
-| W1 | High | dangling map entry after `deinit_state` OOM; next get/init returns freed pointer | `tss_async_signal_safe.c.ipp:201-213` |
+| W1 | High | dangling map entry after `deinit_state` OOM; next get/init returns freed pointer **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:201-213` |
 | W2 | High | deciders get indeterminate/stale `error_code`/`addr`/`raw_info` for `stdc_raise(signo,NULL,NULL)` (confirmed) | `thrd_signal_handle_posix.c.ipp:186-199,327` |
 | W4 | High | 2.2 container UAF also in Windows vectored handler; filter removable mid-raise | `thrd_signal_handle_windows.c.ipp:329-368` |
 | W5 | High | Windows `stdc_raise` never returns false; unclaimed raises kill the process via WER | `thrd_signal_handle_windows.c.ipp:252-300` |
-| X1 | High | `thread_init` UAF on `deinit_state` after all registered threads exited (confirmed) | `tss_async_signal_safe.c.ipp:162-166,201-214` |
-| X2 | High | `destroy` UAF on `deinit_state` after all registered threads exited (confirmed) | `tss_async_signal_safe.c.ipp:117-121` |
+| X1 | High | `thread_init` UAF on `deinit_state` after all registered threads exited (confirmed) **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:162-166,201-214` |
+| X2 | High | `destroy` UAF on `deinit_state` after all registered threads exited (confirmed) **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:117-121` |
 | Y1 | High | `install_sighandler` lock leak when `install_sighandler_impl` fails (confirmed) | `thrd_signal_handle_common.ipp.ipp:305-311` |
 | Z3 | High | `sigguarded`/`stdc_raise` after full `siguninstall` = heap-UAF on destroyed TSS (confirmed; extends 2.4/V7) | `thrd_signal_handle_common.ipp.ipp:276-281`, `tss_async_signal_safe.c.ipp:177` |
 | V2 | High | Windows vectored handler NULL-derefs `tss->front` on fresh threads | `thrd_signal_handle_windows.c.ipp:357-361` |
@@ -1127,8 +1171,8 @@ invite reading `error_code`.
 | X9 | Low | Windows `asynchronous_debug_sigset` returns empty set, contradicts docs | `thrd_signal_handle_windows.c.ipp:97-104` |
 | X11 | Low | `sigfence` with >8 args -> cryptic error | `thrd_signal_handle.h:85-95` |
 | X12 | Low | `thrd_join` error check is wrong (`ret != -1`); `thrd_create` unchecked calloc | `test/test_common.h:43-59` |
-| Y3 | Low | `tss_async_signal_safe_destroy` frees `mem` with lock held | `tss_async_signal_safe.c.ipp:111-134` |
-| Y4 | Low | deinit `attr.destroy` failure leaves stale TID entry + count never decremented (extends 3.6) | `tss_async_signal_safe.c.ipp:150-158` |
+| Y3 | Low | `tss_async_signal_safe_destroy` frees `mem` with lock held **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:111-134` |
+| Y4 | Low | deinit `attr.destroy` failure leaves stale TID entry + count never decremented (extends 3.6) **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:150-158` |
 | Y5 | Low | no `pthread_atfork`; stale TID caches/map across `fork()` | `current_thread_id.c.ipp:50-56,78-84`, `tss_async_signal_safe.c.ipp:81-91` |
 | Y6 | Low | missing `NSIG` -> zero-length array + silently no-op `siginstall` | `thrd_signal_handle_common.ipp.ipp:58-62,381` |
 | Y9 | Low | forced `HAVE_ASYNC_SAFE_THREAD_LOCAL=1` on Apple compiles silently (refines 4.2) | `config.h:41-51,53-67` |

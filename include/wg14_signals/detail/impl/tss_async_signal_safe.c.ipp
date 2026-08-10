@@ -132,6 +132,7 @@ extern "C"
     }
     WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_cleanup)
     (&mem->thread_id_to_tls_map);
+    UNLOCK(mem->lock);
     free(mem);
     return 0;
   }
@@ -141,6 +142,7 @@ extern "C"
   {
     struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *mem =
     (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *) state->val;
+    int ret = 0;
     if(mem != WG14_SIGNALS_NULLPTR)
     {
       const uint64_t mytid = WG14_SIGNALS_PREFIX(my_current_thread_id)();
@@ -150,24 +152,32 @@ extern "C"
       &mem->thread_id_to_tls_map, mytid);
       if(!WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_is_end)(it))
       {
+        void *item = it.data->val;
         UNLOCK(mem->lock);
-        int ret = mem->attr.destroy(it.data->val);
-        if(ret != 0)
-        {
-          return ret;
-        }
+        ret = mem->attr.destroy(item);
         LOCK(mem->lock);
         WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_erase)
         (&mem->thread_id_to_tls_map, mytid);
       }
+      // The count decrement and the state free must both hold mem->lock, or
+      // two threads exiting concurrently could free state while the other
+      // thread is still decrementing it (or reading state->val), and a later
+      // thread_init/destroy would see a dangling mem->state. Only the last
+      // registered thread frees state, and it must clear mem->state first so
+      // that no later thread_init or destroy writes through the freed pointer.
+      if(1 ==
+         atomic_fetch_sub_explicit(
+         &state->count, 1, WG14_SIGNALS_ATOMIC_PREFIX memory_order_relaxed))
+      {
+        if(state == mem->state)
+        {
+          mem->state = WG14_SIGNALS_NULLPTR;
+        }
+        free(state);
+      }
       UNLOCK(mem->lock);
     }
-    if(1 == atomic_fetch_sub_explicit(
-            &state->count, 1, WG14_SIGNALS_ATOMIC_PREFIX memory_order_relaxed))
-    {
-      free(state);
-    }
-    return 0;
+    return ret;
   }
 
   int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(
@@ -207,6 +217,8 @@ extern "C"
         1, sizeof(struct WG14_SIGNALS_PREFIX(deinit_state)));
         if(mem->state == WG14_SIGNALS_NULLPTR)
         {
+          WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_erase)
+          (&mem->thread_id_to_tls_map, mytid);
           UNLOCK(mem->lock);
           mem->attr.destroy(newitem);
           errno = ENOMEM;

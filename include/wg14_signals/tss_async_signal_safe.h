@@ -44,6 +44,10 @@ extern "C"
   const struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr) * attr);
 
   //! \brief Destroy an async signal safe thread local instance
+  //!
+  //! All threads that initialised this instance must have exited (e.g. been
+  //! joined) before this is called: a thread's exit-time deinitialisation
+  //! handler may still access the instance otherwise.
   WG14_SIGNALS_EXTERN int WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(
   WG14_SIGNALS_PREFIX(tss_async_signal_safe) val);
 
