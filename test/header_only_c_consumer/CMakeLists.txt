@@ -9,6 +9,12 @@ add_executable(header_only_c_consumer main.c)
 target_include_directories(header_only_c_consumer PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/../../include")
 target_compile_features(header_only_c_consumer PRIVATE c_std_11)
+if(MSVC)
+  # C11 atomics (<stdatomic.h>) in the pulled-in .ipp implementations require
+  # this on MSVC (mirrors test/CMakeLists.txt; plans/ideas.md 2.2).
+  target_compile_options(header_only_c_consumer PRIVATE
+    /W4 /experimental:c11atomics)
+endif()
 
 if(WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT)
   target_compile_definitions(header_only_c_consumer PUBLIC

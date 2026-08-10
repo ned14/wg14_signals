@@ -1336,13 +1336,27 @@ iteration at line 564 and the slot reads) before the double-free — same class 
 
 #### W11 [C header-only, minor] `sigfence_force_escaped` is declared but never defined for C header-only consumers on non-GNU compilers
 
-`thrd_signal_handle.h:78-79` declares `sigfence_force_escaped` (as `inline` in
-header-only mode) and the fallback `SIGFENCE_IMPL_*` macros (`:135-153`) call it, but
-the definition lives only in `src/wg14_signals/sigfence_force_escaped.c` — no header
-pulls in `sigfence_force_escaped.c.ipp` in header-only mode. GNU-family compilers hide
-this (the inline-asm path is used), so only a non-GNU C header-only consumer (e.g.
-MSVC C mode, which takes the fallback path) that actually uses `sigfence(...)` fails
-to link. Extends 1.8/C3.
+`thrd_signal_handle.h:78-79` declares `sigfence_force_escaped` and the fallback
+`SIGFENCE_IMPL_*` macros (`:135-153`) call it, but the definition lives only in
+`src/wg14_signals/sigfence_force_escaped.c` — no header pulls in
+`sigfence_force_escaped.c.ipp` in header-only mode. GNU-family compilers hide this (the
+inline-asm path is used), so only a non-GNU C header-only consumer (e.g. MSVC C mode,
+which takes the fallback path) that actually uses `sigfence(...)` fails to link.
+Extends 1.8/C3.
+
+**Status: PARTIALLY FIXED (2026-08-10).** The declaration
+(`thrd_signal_handle.h:78-84`) now uses `WG14_SIGNALS_EXTERN_IMPL` instead of
+`WG14_SIGNALS_EXTERN`, so `sigfence_force_escaped` is a true extern function in
+every mode — including header-only, where `WG14_SIGNALS_EXTERN` becomes `static
+inline`. This fixes the Linux GCC CI failure
+(`-Wunused-function` with `-Werror`: a `static`-declared but never-defined
+`sigfence_force_escaped` in header-only C++ TUs and in the library's own
+header-only TUs), and guarantees the call to it can never be inlined away, which
+is its whole purpose (forcing the compiler to treat arguments as escaped). The
+remaining gap — supplying a definition for a non-GNU C header-only consumer that
+actually calls `sigfence(...)` — is still open; no current header-only consumer
+or test does so (the only `sigfence()` user, `test/thrd_sigfpe_test.c`, links the
+library).
 
 ### 13.3 Corrections and extensions to earlier passes
 

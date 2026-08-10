@@ -243,7 +243,7 @@ fallback map, the `thread_atexit` path, and the `sig_global_tss_state_*`
 functions (fixes 1.3/2.4/2.6 family) on the platform with the strongest
 sanitizers.
 
-### 2.2 MSVC C11-atomics helper function
+### 2.2 MSVC C11-atomics helper function [FIXED]
 
 **Why.** `CMakeLists.txt:45` (`/experimental:c11atomics` for MSVC) is applied
 only to the library target; `test/CMakeLists.txt:10` re-applies it only to the
@@ -260,6 +260,17 @@ function(wg14_signals_enable_c11_atomics target)
   endif()
 endfunction()
 ```
+
+**Status: FIXED (2026-08-10, partial).** The Windows CI caught the predicted
+regression: the single-TU C header-only consumer
+(`test/header_only_c_consumer/CMakeLists.txt`) failed to build on MSVC with
+`-W4 /experimental:c11atomics` missing, exactly as this idea warned. Fix:
+`test/header_only_c_consumer/CMakeLists.txt:12-17` now applies
+`/W4 /experimental:c11atomics` on MSVC, mirroring `test/CMakeLists.txt:16,47`
+and the `add_code_example` helper. Verified on macOS by re-running
+`test/header_only_build_test.cmake` (both 1.8 and C3 checks pass). The
+helper-function refactor remains a follow-up so future targets cannot miss the
+flag.
 
 ### 2.3 Feature-test macro discipline
 

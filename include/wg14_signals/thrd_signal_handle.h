@@ -75,8 +75,17 @@ extern "C"
 #endif
 
 #ifndef WG14_SIGNALS_DISABLE_SIGFENCE_MACRO
-  WG14_SIGNALS_EXTERN void WG14_SIGNALS_PREFIX(sigfence_force_escaped)(int,
-                                                                       ...);
+  // sigfence_force_escaped() MUST remain a true extern function (external
+  // linkage): its sole purpose is to force the compiler to consider the values
+  // passed to it as escaped. It must NEVER be declared WG14_SIGNALS_EXTERN,
+  // which becomes `static inline` in header-only mode -- a static inline
+  // function with an empty body can be inlined and eliminated entirely, so the
+  // compiler would no longer treat the arguments as escaped and the fence
+  // would do nothing. WG14_SIGNALS_EXTERN_IMPL is a plain `extern` for
+  // header-only and consumer translation units, and keeps the symbol exported
+  // (dllexport / default visibility) when the library itself is built.
+  WG14_SIGNALS_EXTERN_IMPL void
+  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(int, ...);
 #define SIGFENCE_GLUE(x, y) x y
 #define SIGFENCE_RETURN_ARG_COUNT(_1_, _2_, _3_, _4_, _5_, _6_, _7_, _8_,      \
                                   count, ...)                                  \

@@ -58,7 +58,10 @@ extern "C"
   extern "C"
 #endif
   int __cxa_thread_atexit(void (*func)(void *), void *obj, void *dso_symbol);
-  static void WG14_SIGNALS_PREFIX(thread_atexit_dso_symbol)(void) {}
+  // A data symbol, not a function: ISO C forbids converting a function pointer
+  // to an object pointer type, and the address is only used as a unique DSO
+  // identity token by the runtime.
+  static int WG14_SIGNALS_PREFIX(thread_atexit_dso_symbol);
 
   //! \brief Register a callback to run when the calling thread exits.
   WG14_SIGNALS_EXTERN int
@@ -67,8 +70,8 @@ extern "C"
     // The return value is not reliable on every platform that supplies the
     // symbol (e.g. macOS returns garbage while the registration works), so it
     // is ignored.
-    __cxa_thread_atexit(
-    func, obj, (void *) &WG14_SIGNALS_PREFIX(thread_atexit_dso_symbol));
+    __cxa_thread_atexit(func, obj,
+                        &WG14_SIGNALS_PREFIX(thread_atexit_dso_symbol));
     return 0;
   }
 #else
