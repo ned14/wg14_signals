@@ -260,6 +260,15 @@ visible in the generated `wg14_signalsExports.cmake` (`INTERFACE_LINK_LIBRARIES
 "$<$<PLATFORM_ID:FreeBSD>:stdthreads>"`).
 The FreeBSD VM leg itself runs only in CI (no local FreeBSD host available).
 
+**FreeBSD CI follow-up (2026-08-10):** the first FreeBSD leg run surfaced that FreeBSD's
+`<threads.h>` defines `thrd_success` as `4` (the C11 standard/glibc use `0`), so the
+tests' literal-`0` `thrd_create` checks failed on success; `tss_concurrent_exit_test.c`
+and `siguninstall_raise_test.c` now compare against `thrd_success`. Still open:
+`header_only_build_test`'s single-TU C header-only consumer returns 1 on FreeBSD
+(`current_thread_id()` yields 0 there; single-TU weak `_Thread_local` retention
+suspected) and is excluded from the FreeBSD ctest run until diagnosed — the consumer now
+prints the failing check for the next run.
+
 ### 3.3 FilC job + toolchain fix (fixes analysis.md AA2) **[DONE 2026-08-10]**
 
 **Why.** `cmake/filc-toolchain.cmake` is broken: hardcoded
@@ -305,6 +314,15 @@ instead of the `__asm__` forms. The `FilC` job was appended to `.github/workflow
 `ctest` suite (15 tests) passes both with the normal build and with
 `-DDISABLE_INLINE_ASM=1` (the code path Fil-C takes); the Fil-C job itself runs only in
 CI (no Fil-C toolchain on this machine).
+
+**Fil-C CI follow-up (2026-08-10):** the first Fil-C job run also failed on Fil-C's libc
+`siginfo_t` being its own complete type, unrelated to the `struct __siginfo` other POSIX
+libcs expose — `thrd_signal_handle.h` now has a `#elif defined(__FILC__)` branch aliasing
+`stdc_siginfo_siginfo_t` to `siginfo_t` (the type the signal handler receives), fixing
+every siginfo interaction in `thrd_signal_handle_posix.c.ipp` at once. **Verified:** a
+`-D__FILC__=1 -DDISABLE_INLINE_ASM=1` build of the whole tree (with a stub `<stdfil.h>`
+providing `zis_unsafe_signal_for_handlers()`) compiles and all 15 `ctest` tests pass on
+macOS arm64.
 
 ### 3.4 Fallback-TLS matrix dimension
 

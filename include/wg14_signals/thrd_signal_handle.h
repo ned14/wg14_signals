@@ -295,6 +295,12 @@ typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
   typedef struct _EXCEPTION_RECORD WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #elif __GLIBC__
 typedef siginfo_t WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
+#elif defined(__FILC__)
+// Fil-C's libc siginfo_t is its own complete type, unrelated to the
+// struct __siginfo that other POSIX libcs expose, so forward-declaring that
+// struct would make every siginfo interaction in the POSIX backend a
+// compile-time error. Alias directly to the type the signal handler receives.
+typedef siginfo_t WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #elif __ANDROID__
 typedef struct siginfo WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #else

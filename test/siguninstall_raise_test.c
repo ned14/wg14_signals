@@ -109,7 +109,9 @@ int main(void)
 
     thrd_t thr;
     int res = 0;
-    if(0 != thrd_create(&thr, raiser_thread, WG14_SIGNALS_NULLPTR))
+    // Compare against thrd_success: FreeBSD's <threads.h> defines thrd_success
+    // as 4 (not 0), so "0 != thrd_create(...)" would misreport success here.
+    if(thrd_success != thrd_create(&thr, raiser_thread, WG14_SIGNALS_NULLPTR))
     {
       CHECK(0);
       (void) WG14_SIGNALS_PREFIX(signal_decider_destroy)(decider);

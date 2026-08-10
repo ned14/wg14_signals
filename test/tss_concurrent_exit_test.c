@@ -77,11 +77,15 @@ static int test_reinit_and_destroy_after_all_exited(void)
   thrd_t t1, t2;
   int res = 0;
   CHECK(0 == TSS_CREATE(&tls, &attr));
-  CHECK(0 == thrd_create(&t1, thr_init_exit, WG14_SIGNALS_NULLPTR));
+  // Compare against thrd_success, not the literal 0: glibc defines thrd_success
+  // as 0 but FreeBSD's <threads.h> defines it as 4 (thrd_create returns it on
+  // success), so "0 == thrd_create(...)" fails on FreeBSD even when the thread
+  // was created.
+  CHECK(thrd_success == thrd_create(&t1, thr_init_exit, WG14_SIGNALS_NULLPTR));
   thrd_join(t1, &res);
   CHECK(res == 0);
   // T1's exit freed the deinit_state; T2's thread_init must reallocate it.
-  CHECK(0 == thrd_create(&t2, thr_init_exit, WG14_SIGNALS_NULLPTR));
+  CHECK(thrd_success == thrd_create(&t2, thr_init_exit, WG14_SIGNALS_NULLPTR));
   thrd_join(t2, &res);
   CHECK(res == 0);
   // Destroy after the last registered thread exited (X2).
@@ -104,12 +108,16 @@ static int test_concurrent_exit(void)
     thrd_t a, b;
     int res = 0;
     CHECK(0 == TSS_CREATE(&tls, &attr));
-    if(thrd_create(&a, thr_init_barrier_exit, WG14_SIGNALS_NULLPTR) != 0)
+    // Compare against thrd_success: on FreeBSD thrd_create returns thrd_success
+    // (= 4) rather than 0, so "!= 0" would misreport success as failure.
+    if(thrd_create(&a, thr_init_barrier_exit, WG14_SIGNALS_NULLPTR) !=
+       thrd_success)
     {
       CHECK(0);
       continue;
     }
-    if(thrd_create(&b, thr_init_barrier_exit, WG14_SIGNALS_NULLPTR) != 0)
+    if(thrd_create(&b, thr_init_barrier_exit, WG14_SIGNALS_NULLPTR) !=
+       thrd_success)
     {
       CHECK(0);
       atomic_store_explicit(&concurrent_exit_barrier, 2, memory_order_relaxed);

@@ -31,20 +31,33 @@ int main(void)
                                   WG14_SIGNALS_NULLPTR);
   if(0 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(&tls, &attr))
   {
+    fprintf(stderr, "header_only_c_consumer: tss_async_signal_safe_create "
+                    "failed\n");
     return 1;
   }
   if(0 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(tls))
   {
+    fprintf(stderr, "header_only_c_consumer: tss_async_signal_safe_thread_init "
+                    "failed\n");
     return 1;
   }
   if(WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(tls) ==
      WG14_SIGNALS_NULLPTR)
   {
+    fprintf(stderr, "header_only_c_consumer: tss_async_signal_safe_get "
+                    "returned NULL\n");
     return 1;
   }
   if(0 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(tls))
   {
+    fprintf(stderr, "header_only_c_consumer: tss_async_signal_safe_destroy "
+                    "failed\n");
     return 1;
   }
-  return (tid != 0) ? 0 : 1;
+  if(tid == 0)
+  {
+    fprintf(stderr, "header_only_c_consumer: current_thread_id() returned 0\n");
+    return 1;
+  }
+  return 0;
 }

@@ -831,6 +831,19 @@ a strict build are invisible.
   hash-table TLS path (`WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0` on Linux) is still
   only exercised on macOS (ideas.md 2.1/3.4).
 
+  **FreeBSD CI follow-up (2026-08-10):** the first FreeBSD leg run surfaced a real
+  portability defect in the tests: FreeBSD's `<threads.h>` defines `thrd_success` as `4`
+  (the C11 standard and glibc both use `0`), so the tests' `0 == thrd_create(...)` /
+  `0 != thrd_create(...)` checks failed on FreeBSD even when the thread was created. The
+  checks in `tss_concurrent_exit_test.c` and `siguninstall_raise_test.c` now compare
+  against `thrd_success` (portable: `0` on glibc/the test shim, `4` on FreeBSD).
+  **Still open:** `header_only_build_test`'s single-TU C header-only consumer fails on
+  FreeBSD — `current_thread_id()` returns 0 there, while the library build, the C++ and C
+  multi-TU header-only builds, and `header_only_c_multi_test` all return a non-zero tid;
+  the single-TU weak `_Thread_local` `current_thread_id_cached` retention is suspected.
+  The test is excluded from the FreeBSD ctest run pending diagnosis; the consumer now
+  prints which check failed to make the next run conclusive.
+
 ### 5.5 `ProjectConfig.cmake.in` references non-existent export names
 
 `cmake/ProjectConfig.cmake.in:6-11` conditionally includes
@@ -898,6 +911,17 @@ the portable volatile-sink fallback for the library itself — not just
 sha256-verified download, `setup.sh`) now exercises it (ideas.md 3.3). **Verified:** macOS
 arm64 — all 15 `ctest` tests pass both normally and with `-DDISABLE_INLINE_ASM=1` (the
 Fil-C code path); the Fil-C job itself runs only in CI.
+
+**Fil-C CI follow-up (2026-08-10):** the first Fil-C job run also surfaced that Fil-C's
+libc `siginfo_t` is its own complete type, unrelated to the `struct __siginfo` that other
+POSIX libcs expose — so the forward-declared `struct __siginfo` made every siginfo
+interaction in `thrd_signal_handle_posix.c.ipp` a compile error
+(`-Wincompatible-pointer-types`, incomplete-type member access). `thrd_signal_handle.h`
+now has a `#elif defined(__FILC__)` branch aliasing `stdc_siginfo_siginfo_t` to
+`siginfo_t` (the exact type the signal handler receives). **Verified:** a
+`-D__FILC__=1 -DDISABLE_INLINE_ASM=1` build of the whole tree (with a stub `<stdfil.h>`
+providing `zis_unsafe_signal_for_handlers()`) compiles and all 15 `ctest` tests pass on
+macOS arm64.
 
 ---
 
