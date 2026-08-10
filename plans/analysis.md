@@ -526,7 +526,11 @@ an unfenced probe at Release optimization with the real toolchain and inspects t
 assembly: the fenced probe must spill/reload its local (stack traffic) while the
 reference probe must stay register-only — so any optimizer that elides the fence (same-TU
 inlining, LTO/LTCG, ...) fails the test. The codegen probes are header-only consumers, so
-this also covers the header-only path.
+this also covers the header-only path. The probes compile with `-std=gnu11` (CMake's
+`c_std_11` default), not strict `-std=c11`: strict ISO C hides POSIX types (`sigset_t`,
+`ucontext_t`, `NSIG`, `struct sigaction`) under glibc, which broke the test on the Linux
+CI (2026-08-10); on MSVC the probe flags also carry `/std:c11`, because
+`<stdatomic.h>` (vcruntime_c11_stdatomic.h) `#error`s without it (Windows CI, 2026-08-10).
 
 ---
 

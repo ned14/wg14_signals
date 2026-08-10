@@ -59,11 +59,20 @@ file(WRITE "${_work}/unfenced.c"
 "}\n")
 
 if(COMPILER_ID STREQUAL "MSVC")
+  # /std:c11 is required: MSVC's <stdatomic.h> (vcruntime_c11_stdatomic.h)
+  # #errors unless __STDC_VERSION__ >= C11, and the header-only probe pulls in
+  # C11 atomics via thrd_signal_handle_common.ipp.ipp. All other MSVC targets
+  # get this flag from CMake's `c_std_11` feature.
   set(_asm_ext "asm")
-  set(_asm_flags "/FAsc /c /O2 /experimental:c11atomics")
+  set(_asm_flags "/FAsc /c /O2 /std:c11 /experimental:c11atomics")
 else()
+  # gnu11, not strict c11: the library and its consumers are built by CMake's
+  # `c_std_11` feature, which defaults to GNU extensions on. Strict `-std=c11`
+  # hides POSIX types (sigset_t, ucontext_t, NSIG, struct sigaction) under
+  # glibc, which breaks the probe exactly as it breaks real strict-C11
+  # consumers (see plans/ideas.md 2.3).
   set(_asm_ext "s")
-  set(_asm_flags "-std=c11 -O3 -S")
+  set(_asm_flags "-std=gnu11 -O3 -S")
 endif()
 
 # A throwaway project whose only job is to compile the two probes to assembly
