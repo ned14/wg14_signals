@@ -95,11 +95,14 @@ extern "C"
   name, WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(__VA_ARGS__)),                   \
   (__VA_ARGS__))
 
-#if defined(__GNUC__) || defined(__clang__)
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(DISABLE_INLINE_ASM)
 // On compilers with extended inline asm, we can tell the compiler that a
 // specific list of variables must be specifically written out and reloaded
 // around the fence. You may find https://godbolt.org/z/chh8ee6Mj useful to
-// review.
+// review. DISABLE_INLINE_ASM (defined by cmake/filc-toolchain.cmake for the
+// Fil-C memory-safe compiler) selects the portable volatile-sink fallback
+// below instead, because Fil-C cannot compile these asm forms (analysis.md
+// AA2).
 #define WG14_SIGNALS_SIGFENCE_IMPL_0() __asm__ volatile(";" : : : "memory")
 #define WG14_SIGNALS_SIGFENCE_IMPL_1(a)                                        \
   __asm__ volatile(";" : "+m"(a) : : "memory")
@@ -132,9 +135,10 @@ extern "C"
                    :                                                           \
                    : "memory")
 #else
-  // Compilers without extended inline asm (e.g. MSVC): force the listed local
-  // variables to be memory-resident, and their values reloaded afterwards, as
-  // the "+m" operands and "memory" clobber above do.
+  // Compilers without extended inline asm (e.g. MSVC), or with it disabled via
+  // -DDISABLE_INLINE_ASM (Fil-C): force the listed local variables to be
+  // memory-resident, and their values reloaded afterwards, as the "+m" operands
+  // and "memory" clobber above do.
   // WG14_SIGNALS_SIGFENCE_ESCAPE() (1) stores each variable's address into a
   // volatile sink so the address escapes to observable memory, and (2) performs
   // a volatile read of one byte of the object -- char may alias any object

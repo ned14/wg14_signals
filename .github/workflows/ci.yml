@@ -253,3 +253,42 @@ jobs:
           cmake -G Ninja .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_STANDARD=${{ matrix.standard }} -DCMAKE_TOOLCHAIN_FILE=$PWD/../cmake/sanitize-toolchain.cmake
           cmake --build . --parallel
           ctest --output-on-failure --timeout 300 -E benchmark
+
+  FilC:
+    name: Fil-C (C11)
+    runs-on: ubuntu-latest
+    env:
+      # Fil-C version pinned to a specific release; bump FILC_VERSION and the
+      # FILC_SHA256 below together. Fil-C releases only ship Linux x86_64 (and
+      # beta ARM64), so this job cannot run on macOS/Windows runners.
+      FILC_VERSION: 0.682
+      FILC_SHA256: cfa49af8090053dfa1be69656f0ca521f5e5b4e145652f37a33688b096764292
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Fil-C ${{ env.FILC_VERSION }}
+      shell: bash
+      run: |
+        curl -L --retry 3 --fail \
+          -o "$RUNNER_TEMP/filc.tar.xz" \
+          "https://github.com/pizlonator/fil-c/releases/download/v${FILC_VERSION}/filc-${FILC_VERSION}-linux-x86_64.tar.xz"
+        echo "${FILC_SHA256}  $RUNNER_TEMP/filc.tar.xz" | sha256sum -c -
+        mkdir -p "$HOME/filc"
+        tar -xf "$RUNNER_TEMP/filc.tar.xz" -C "$HOME/filc"
+        cd "$HOME/filc/filc-${FILC_VERSION}-linux-x86_64" && ./setup.sh
+        # FILC_ROOT is consumed by cmake/filc-toolchain.cmake.
+        echo "FILC_ROOT=$HOME/filc/filc-${FILC_VERSION}-linux-x86_64/build" >> "$GITHUB_ENV"
+
+    - name: Configure Fil-C
+      shell: bash
+      run: |
+        mkdir build && cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_STANDARD=11 -DCMAKE_TOOLCHAIN_FILE=$PWD/../cmake/filc-toolchain.cmake
+
+    - name: Build Fil-C
+      shell: bash
+      run: cd build && cmake --build . --parallel
+
+    - name: CMake tests Fil-C
+      shell: bash
+      run: cd build && ctest --output-on-failure --timeout 300 -E benchmark

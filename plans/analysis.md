@@ -873,7 +873,7 @@ the *chosen* `thread_atexit` source is conditional, at `:71-75`), so a C-only to
 cannot configure the project on any platform — even on `__cxa_thread_atexit()` platforms
 where the compiled library is all-C.
 
-### 5.10 AA2 [code-level, build-config, Low] the filc toolchain's `-DDISABLE_INLINE_ASM=1` is a no-op for the library; the toolchain also hardcodes machine-specific paths
+### 5.10 AA2 [code-level, build-config, Low] the filc toolchain's `-DDISABLE_INLINE_ASM=1` is a no-op for the library; the toolchain also hardcodes machine-specific paths **[FIXED 2026-08-10]**
 
 `cmake/filc-toolchain.cmake:3-4` passes `-DDISABLE_INLINE_ASM=1` for both C and C++.
 `DISABLE_INLINE_ASM` is referenced **only** by `test/ticks_clock.h:44` (the benchmark
@@ -887,6 +887,17 @@ library build fails. Additionally the toolchain hardcodes `/home/ned/Downloads/.
 compiler paths (not portable), and it is never exercised by CI. Fix direction: gate the
 GNU inline-asm block on `#ifndef DISABLE_INLINE_ASM` (falling back to the volatile-sink
 fallback) and drive the toolchain from a `FILC_ROOT` variable.
+
+**Fixed:** the GNU `WG14_SIGNALS_SIGFENCE_IMPL_*` inline-asm block in
+`thrd_signal_handle.h:98-133` is now gated on `(defined(__GNUC__) || defined(__clang__))
+&& !defined(DISABLE_INLINE_ASM)`, so the toolchain's `-DDISABLE_INLINE_ASM=1` selects
+the portable volatile-sink fallback for the library itself — not just
+`test/ticks_clock.h`. `cmake/filc-toolchain.cmake` was rewritten to be `FILC_ROOT`-driven
+(cache variable or env, `FATAL_ERROR` when unset) instead of hardcoded
+`/home/ned/Downloads/...` paths, and a `FilC` CI job (pinned `FILC_VERSION`/`FILC_SHA256`,
+sha256-verified download, `setup.sh`) now exercises it (ideas.md 3.3). **Verified:** macOS
+arm64 — all 15 `ctest` tests pass both normally and with `-DDISABLE_INLINE_ASM=1` (the
+Fil-C code path); the Fil-C job itself runs only in CI.
 
 ---
 
@@ -1325,7 +1336,7 @@ invite reading `error_code`.
 | Z9 | Low | `thread_init`'s unlocked `attr.create` breaks THREADSAFE claim for concurrent first-use | `tss_async_signal_safe.c.ipp:184-191` |
 | Z10 | Low | Windows nondebug set omits documented signals, includes `SIGKILL`/`SIGSTOP` (extends X9) | `thrd_signal_handle_windows.c.ipp:73-89` |
 | Z11 | Doc | README standalone `sigguarded` example non-functional on all platforms | `Readme.md:20-33` |
-| AA2 | Low | filc `-DDISABLE_INLINE_ASM=1` is a no-op for the library; toolchain paths hardcoded | `thrd_signal_handle.h:97-154`, `cmake/filc-toolchain.cmake` |
+| AA2 | Low | filc `-DDISABLE_INLINE_ASM=1` is a no-op for the library; toolchain paths hardcoded **[FIXED 2026-08-10]** | `thrd_signal_handle.h:97-154`, `cmake/filc-toolchain.cmake` |
 | AA3 | Low | `WG14_SIGNALS_DISABLE_SIGFENCE_MACRO` breaks the test build (confirmed) | `thrd_signal_handle.h:77`, `test/thrd_sigfpe_test.c:64` |
 | AA4 | Low | `siguninstall` (POSIX) discards post-`siginstall` app handler changes (Z5 sibling) | `thrd_signal_handle_posix.c.ipp:385-390` |
 | AA5 | Low | global decider `invoke_recovery`: POSIX claims-without-recovery vs Windows unwinds-to-frame | `thrd_signal_handle_posix.c.ipp:357-361`, `thrd_signal_handle_windows.c.ipp:354-366` |

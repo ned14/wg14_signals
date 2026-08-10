@@ -260,7 +260,7 @@ visible in the generated `wg14_signalsExports.cmake` (`INTERFACE_LINK_LIBRARIES
 "$<$<PLATFORM_ID:FreeBSD>:stdthreads>"`).
 The FreeBSD VM leg itself runs only in CI (no local FreeBSD host available).
 
-### 3.3 FilC job + toolchain fix (fixes analysis.md AA2)
+### 3.3 FilC job + toolchain fix (fixes analysis.md AA2) **[DONE 2026-08-10]**
 
 **Why.** `cmake/filc-toolchain.cmake` is broken: hardcoded
 `/home/ned/Downloads/filc-0.668.2-linux-x86_64/...` paths, and its
@@ -290,6 +290,21 @@ To make `DISABLE_INLINE_ASM` meaningful for the library itself, gate the GNU
 `WG14_SIGNALS_SIGFENCE_IMPL_*` inline-asm block in `thrd_signal_handle.h:97-131` on
 `#ifndef DISABLE_INLINE_ASM` (falling back to the volatile-sink fallback added in the
 2026-08-10 `sigfence` rework).
+
+**Done 2026-08-10:** `cmake/filc-toolchain.cmake` was rewritten as a port of the
+sibling's `FILC_ROOT`-driven toolchain (cache variable or `FILC_ROOT` env, `FATAL_ERROR`
+when unset, `-D__FILC__=1 -DDISABLE_INLINE_ASM=1` via `CMAKE_C/CXX_FLAGS_INIT`). The GNU
+`WG14_SIGNALS_SIGFENCE_IMPL_*` inline-asm block in `thrd_signal_handle.h:98-133` is now
+gated on `(defined(__GNUC__) || defined(__clang__)) && !defined(DISABLE_INLINE_ASM)`, so
+under Fil-C the portable volatile-sink fallback (2026-08-10 `sigfence` rework) is used
+instead of the `__asm__` forms. The `FilC` job was appended to `.github/workflows/ci.yml`
+(sha256-verified download + `setup.sh` of the pinned `FILC_VERSION=0.682` /
+`FILC_SHA256=cfa49af8...`, then configure/build/ctest with the toolchain); the sibling's
+`pthreads` matrix dimension is dropped (this repo's `ALWAYS_USE_FALLBACK_TLS` option,
+§2.1, does not exist yet), leaving a single C11 leg. **Verified:** macOS arm64 — the full
+`ctest` suite (15 tests) passes both with the normal build and with
+`-DDISABLE_INLINE_ASM=1` (the code path Fil-C takes); the Fil-C job itself runs only in
+CI (no Fil-C toolchain on this machine).
 
 ### 3.4 Fallback-TLS matrix dimension
 
@@ -769,7 +784,7 @@ Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattributes`).
 | 10 | Remaining regression tests (decider cycle, tss concurrent exit, tss NULL, lock whitebox) | `test/*` | AA1, Z3, 2.1, 2.6, 3.1 | Medium |
 | 11 | Compile-fail suite (`expect_compile_fail.cmake` + sigfence targets) | `test/` | 5.3, 2.8, X11 | Medium |
 | 12 | FreeBSD VM job + `stdthreads` link + `current_thread_id` unsupported-platform `#error` **[DONE 2026-08-10]** | `ci.yml`, `CMakeLists.txt:82`, `current_thread_id.c.ipp:70-72` | 5.4, 4.1 | Medium |
-| 13 | Fil-C toolchain fix (`FILC_ROOT`-driven) + gate `WG14_SIGNALS_SIGFENCE_IMPL_*` on `DISABLE_INLINE_ASM` | `cmake/filc-toolchain.cmake`, `thrd_signal_handle.h:97-131` | AA2 | Medium |
+| 13 | Fil-C toolchain fix (`FILC_ROOT`-driven) + gate `WG14_SIGNALS_SIGFENCE_IMPL_*` on `DISABLE_INLINE_ASM` **[DONE 2026-08-10]** | `cmake/filc-toolchain.cmake`, `thrd_signal_handle.h:97-131` | AA2 | Medium |
 | 14 | `sigfillset_*` constructor-attribute removal + init under lock | `thrd_signal_handle_posix.c.ipp:49-127` | 7.1, C11 rule 1 | Small |
 | 15 | Container refcount for `siguninstall` vs in-flight `stdc_raise` (also fixes AA1 orphan) | `:314-368`, `:348-361` | 2.2, W4, AA1 | Medium |
 | 16 | Feature-test macros + MSVC c11-atomics helper | `CMakeLists.txt` | 4.6, X9 | Small |
