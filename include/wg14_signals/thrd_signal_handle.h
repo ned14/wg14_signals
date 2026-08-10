@@ -75,32 +75,24 @@ extern "C"
 #endif
 
 #ifndef WG14_SIGNALS_DISABLE_SIGFENCE_MACRO
-  // sigfence_force_escaped() MUST remain a true extern function (external
-  // linkage): its sole purpose is to force the compiler to consider the values
-  // passed to it as escaped. It must NEVER be declared WG14_SIGNALS_EXTERN,
-  // which becomes `static inline` in header-only mode -- a static inline
-  // function with an empty body can be inlined and eliminated entirely, so the
-  // compiler would no longer treat the arguments as escaped and the fence
-  // would do nothing. WG14_SIGNALS_EXTERN_IMPL is a plain `extern` for
-  // header-only and consumer translation units, and keeps the symbol exported
-  // (dllexport / default visibility) when the library itself is built.
-  WG14_SIGNALS_EXTERN_IMPL void
-  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(int, ...);
-#define SIGFENCE_GLUE(x, y) x y
-#define SIGFENCE_RETURN_ARG_COUNT(_1_, _2_, _3_, _4_, _5_, _6_, _7_, _8_,      \
-                                  count, ...)                                  \
+#define WG14_SIGNALS_SIGFENCE_GLUE(x, y) x y
+#define WG14_SIGNALS_SIGFENCE_RETURN_ARG_COUNT(_1_, _2_, _3_, _4_, _5_, _6_,   \
+                                               _7_, _8_, count, ...)           \
   count
-#define SIGFENCE_EXPAND_ARGS(args) SIGFENCE_RETURN_ARG_COUNT args
-#define SIGFENCE_COUNT_ARGS_MAX8(...)                                          \
-  SIGFENCE_EXPAND_ARGS((__VA_ARGS__ __VA_OPT__(, ) 8, 7, 6, 5, 4, 3, 2, 1, 0))
-#define SIGFENCE_OVERLOAD_MACRO2(name, count) name##count
-#define SIGFENCE_OVERLOAD_MACRO1(name, count)                                  \
-  SIGFENCE_OVERLOAD_MACRO2(name, count)
-#define SIGFENCE_OVERLOAD_MACRO(name, count)                                   \
-  SIGFENCE_OVERLOAD_MACRO1(name, count)
-#define SIGFENCE_CALL_OVERLOAD(name, ...)                                      \
-  SIGFENCE_GLUE(                                                               \
-  SIGFENCE_OVERLOAD_MACRO(name, SIGFENCE_COUNT_ARGS_MAX8(__VA_ARGS__)),        \
+#define WG14_SIGNALS_SIGFENCE_EXPAND_ARGS(args)                                \
+  WG14_SIGNALS_SIGFENCE_RETURN_ARG_COUNT args
+#define WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(...)                             \
+  WG14_SIGNALS_SIGFENCE_EXPAND_ARGS(                                           \
+  (__VA_ARGS__ __VA_OPT__(, ) 8, 7, 6, 5, 4, 3, 2, 1, 0))
+#define WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO2(name, count) name##count
+#define WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO1(name, count)                     \
+  WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO2(name, count)
+#define WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO(name, count)                      \
+  WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO1(name, count)
+#define WG14_SIGNALS_SIGFENCE_CALL_OVERLOAD(name, ...)                         \
+  WG14_SIGNALS_SIGFENCE_GLUE(                                                  \
+  WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO(                                        \
+  name, WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(__VA_ARGS__)),                   \
   (__VA_ARGS__))
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -108,62 +100,151 @@ extern "C"
 // specific list of variables must be specifically written out and reloaded
 // around the fence. You may find https://godbolt.org/z/chh8ee6Mj useful to
 // review.
-#define SIGFENCE_IMPL_0() __asm__ volatile(";" : : : "memory")
-#define SIGFENCE_IMPL_1(a) __asm__ volatile(";" : "+m"(a) : : "memory")
-#define SIGFENCE_IMPL_2(a, b)                                                  \
+#define WG14_SIGNALS_SIGFENCE_IMPL_0() __asm__ volatile(";" : : : "memory")
+#define WG14_SIGNALS_SIGFENCE_IMPL_1(a)                                        \
+  __asm__ volatile(";" : "+m"(a) : : "memory")
+#define WG14_SIGNALS_SIGFENCE_IMPL_2(a, b)                                     \
   __asm__ volatile(";" : "+m"(a), "+m"(b) : : "memory")
-#define SIGFENCE_IMPL_3(a, b, c)                                               \
+#define WG14_SIGNALS_SIGFENCE_IMPL_3(a, b, c)                                  \
   __asm__ volatile(";" : "+m"(a), "+m"(b), "+m"(c) : : "memory")
-#define SIGFENCE_IMPL_4(a, b, c, d)                                            \
+#define WG14_SIGNALS_SIGFENCE_IMPL_4(a, b, c, d)                               \
   __asm__ volatile(";" : "+m"(a), "+m"(b), "+m"(c), "+m"(d) : : "memory")
-#define SIGFENCE_IMPL_5(a, b, c, d, e)                                         \
+#define WG14_SIGNALS_SIGFENCE_IMPL_5(a, b, c, d, e)                            \
   __asm__ volatile(";"                                                         \
                    : "+m"(a), "+m"(b), "+m"(c), "+m"(d), "+m"(e)               \
                    :                                                           \
                    : "memory")
-#define SIGFENCE_IMPL_6(a, b, c, d, e, f)                                      \
+#define WG14_SIGNALS_SIGFENCE_IMPL_6(a, b, c, d, e, f)                         \
   __asm__ volatile(";"                                                         \
                    : "+m"(a), "+m"(b), "+m"(c), "+m"(d), "+m"(e), "+m"(f)      \
                    :                                                           \
                    : "memory")
-#define SIGFENCE_IMPL_7(a, b, c, d, e, f, g)                                   \
+#define WG14_SIGNALS_SIGFENCE_IMPL_7(a, b, c, d, e, f, g)                      \
   __asm__ volatile(";"                                                         \
                    : "+m"(a), "+m"(b), "+m"(c), "+m"(d), "+m"(e), "+m"(f),     \
                      "+m"(g)                                                   \
                    :                                                           \
                    : "memory")
-#define SIGFENCE_IMPL_8(a, b, c, d, e, f, g, h)                                \
+#define WG14_SIGNALS_SIGFENCE_IMPL_8(a, b, c, d, e, f, g, h)                   \
   __asm__ volatile(";"                                                         \
                    : "+m"(a), "+m"(b), "+m"(c), "+m"(d), "+m"(e), "+m"(f),     \
                      "+m"(g), "+m"(h)                                          \
                    :                                                           \
                    : "memory")
 #else
-  // This is a much less efficient way of forcing the compiler to treat
-  // variables as having escaped, but it's portable.
-#define SIGFENCE_IMPL_0() WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0)
-#define SIGFENCE_IMPL_1(a) WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a))
-#define SIGFENCE_IMPL_2(a, b)                                                  \
-  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a), &(b))
-#define SIGFENCE_IMPL_3(a, b, c)                                               \
-  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a), &(b), &(c))
-#define SIGFENCE_IMPL_4(a, b, c, d)                                            \
-  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a), &(b), &(c), &(d))
-#define SIGFENCE_IMPL_5(a, b, c, d, e)                                         \
-  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a), &(b), &(c), &(d), &(e))
-#define SIGFENCE_IMPL_6(a, b, c, d, e, f)                                      \
-  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a), &(b), &(c), &(d), &(e), \
-                                              &(f))
-#define SIGFENCE_IMPL_7(a, b, c, d, e, f, g)                                   \
-  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a), &(b), &(c), &(d), &(e), \
-                                              &(f), &(g))
-#define SIGFENCE_IMPL_8(a, b, c, d, e, f, g, h)                                \
-  WG14_SIGNALS_PREFIX(sigfence_force_escaped)(0, &(a), &(b), &(c), &(d), &(e), \
-                                              &(f), &(g), &(h))
+  // Compilers without extended inline asm (e.g. MSVC): force the listed local
+  // variables to be memory-resident, and their values reloaded afterwards, as
+  // the "+m" operands and "memory" clobber above do.
+  // WG14_SIGNALS_SIGFENCE_ESCAPE() (1) stores each variable's address into a
+  // volatile sink so the address escapes to observable memory, and (2) performs
+  // a volatile read of one byte of the object -- char may alias any object
+  // (C11 6.5p7), and volatile accesses are observable behaviour (C11 5.1.2.3),
+  // so no optimizer, link-time code generation (/GL /LTCG) included, may
+  // eliminate or reorder them: the value is committed to memory before the
+  // fence and must be reloaded after it. No out-of-line function is needed, so
+  // the fence cannot be defeated by the optimizer inlining a helper away, and
+  // the sink is per-TU static, so header-only consumers need no library
+  // symbols.
+  static void *volatile WG14_SIGNALS_PREFIX(sigfence_sink)[9];
+#define WG14_SIGNALS_SIGFENCE_BARRIER()                                        \
+  ((void) (WG14_SIGNALS_PREFIX(sigfence_sink)[8] =                             \
+           WG14_SIGNALS_PREFIX(sigfence_sink)[8]))
+#define WG14_SIGNALS_SIGFENCE_ESCAPE(a, i)                                     \
+  do                                                                           \
+  {                                                                            \
+    WG14_SIGNALS_PREFIX(sigfence_sink)[(i)] = &(a);                            \
+    (void) *(volatile unsigned char *) &(a);                                   \
+  } while(0)
+#define WG14_SIGNALS_SIGFENCE_IMPL_0() WG14_SIGNALS_SIGFENCE_BARRIER()
+#define WG14_SIGNALS_SIGFENCE_IMPL_1(a)                                        \
+  do                                                                           \
+  {                                                                            \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(a, 0);                                        \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+  } while(0)
+#define WG14_SIGNALS_SIGFENCE_IMPL_2(a, b)                                     \
+  do                                                                           \
+  {                                                                            \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(a, 0);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(b, 1);                                        \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+  } while(0)
+#define WG14_SIGNALS_SIGFENCE_IMPL_3(a, b, c)                                  \
+  do                                                                           \
+  {                                                                            \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(a, 0);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(b, 1);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(c, 2);                                        \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+  } while(0)
+#define WG14_SIGNALS_SIGFENCE_IMPL_4(a, b, c, d)                               \
+  do                                                                           \
+  {                                                                            \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(a, 0);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(b, 1);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(c, 2);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(d, 3);                                        \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+  } while(0)
+#define WG14_SIGNALS_SIGFENCE_IMPL_5(a, b, c, d, e)                            \
+  do                                                                           \
+  {                                                                            \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(a, 0);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(b, 1);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(c, 2);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(d, 3);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(e, 4);                                        \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+  } while(0)
+#define WG14_SIGNALS_SIGFENCE_IMPL_6(a, b, c, d, e, f)                         \
+  do                                                                           \
+  {                                                                            \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(a, 0);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(b, 1);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(c, 2);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(d, 3);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(e, 4);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(f, 5);                                        \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+  } while(0)
+#define WG14_SIGNALS_SIGFENCE_IMPL_7(a, b, c, d, e, f, g)                      \
+  do                                                                           \
+  {                                                                            \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(a, 0);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(b, 1);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(c, 2);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(d, 3);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(e, 4);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(f, 5);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(g, 6);                                        \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+  } while(0)
+#define WG14_SIGNALS_SIGFENCE_IMPL_8(a, b, c, d, e, f, g, h)                   \
+  do                                                                           \
+  {                                                                            \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(a, 0);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(b, 1);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(c, 2);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(d, 3);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(e, 4);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(f, 5);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(g, 6);                                        \
+    WG14_SIGNALS_SIGFENCE_ESCAPE(h, 7);                                        \
+    WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
+  } while(0)
 #endif
 //! \brief A compiler-only memory barrier, including for local variables in the
-//! argument list.
-#define sigfence(...) SIGFENCE_CALL_OVERLOAD(SIGFENCE_IMPL_, __VA_ARGS__)
+//! argument list. Any variable in the argument list MUST be a lvalue.
+#define sigfence(...)                                                          \
+  WG14_SIGNALS_SIGFENCE_CALL_OVERLOAD(WG14_SIGNALS_SIGFENCE_IMPL_, __VA_ARGS__)
 #endif
 
 #ifdef _MSC_VER

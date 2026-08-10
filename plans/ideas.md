@@ -415,9 +415,11 @@ set(CMAKE_CXX_FLAGS "-D__FILC__=1 -DDISABLE_INLINE_ASM=1")
 and append the sibling's download/verify job (`ci.yml:279-320`): pin
 `FILC_VERSION` + `FILC_SHA256`, `curl` + `sha256sum -c`, `setup.sh`,
 `echo "FILC_ROOT=..." >> $GITHUB_ENV`. To make `DISABLE_INLINE_ASM` meaningful
-for the library itself, gate the GNU `SIGFENCE_IMPL_*` inline-asm block in
+for the library itself, gate the GNU `WG14_SIGNALS_SIGFENCE_IMPL_*` inline-asm block in
 `thrd_signal_handle.h:97-131` on `#ifndef DISABLE_INLINE_ASM` (falling back to
-the `sigfence_force_escaped` path) — that is the real AA2 fix.
+the volatile-sink fallback) — that is the real AA2 fix. (The old
+`sigfence_force_escaped` extern-call fallback was removed in favour of the
+per-TU `void *volatile` sink + volatile byte-read escape, analysis.md 2.9/W11.)
 
 ### 3.5 Fallback-TLS matrix dimension
 
@@ -480,7 +482,7 @@ in the headers are genuinely compiled from C++ TUs (AGENTS.md rule 4's purpose).
 Use it (with the sibling's literal, namespaced message text) wherever a
 compile-time guarantee belongs — e.g. a `sizeof(sigset_t) <= UINT32_MAX` check
 for the Windows `sigset_t` redefinition (`thrd_signal_handle.h:43-63`, see 4.4)
-and for the `SIGFENCE_COUNT_ARGS_MAX8` `__VA_OPT__` requirement
+and for the `WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8` `__VA_OPT__` requirement
 (`thrd_signal_handle.h:85-86`). These become the targets of the compile-fail
 suite (§6.7).
 
@@ -960,7 +962,7 @@ Targets (each a `.c` + `.cpp` pair):
 
 - `sigfence_too_many_args`: `sigfence(a,b,c,d,e,f,g,h,i)` (9 args) — must fail
   (the `__VA_OPT__` counter returns the 9th argument, producing an undefined
-  `SIGFENCE_IMPL_<expr>`); matches analysis.md X10.
+  `WG14_SIGNALS_SIGFENCE_IMPL_<expr>`); matches analysis.md X10.
 - `sigfence_rvalue`: `sigfence(1)` on GNU/clang — `+m` operand must be an
   lvalue (analysis.md 2.8); note this one is intentionally
   GNU/clang-only (`#if` guard in the source).
@@ -1070,7 +1072,7 @@ not exist. Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattrib
 | 14 | Compile-fail suite (`expect_compile_fail.cmake` + sigfence targets) | `test/` | 5.3, 2.8, X10 | Medium |
 | 15 | HeaderOnly CI job **[DONE]** | `.github/workflows/ci.yml` | 5.4, 1.8 | Small |
 | 16 | FreeBSD VM job + `stdthreads` link + portable `pthread_self()` fallback | `ci.yml`, `CMakeLists.txt:82`, `current_thread_id.c.ipp:70-72` | 5.4, 4.1 | Medium |
-| 17 | Fil-C toolchain fix (`FILC_ROOT`-driven) + gate `SIGFENCE_IMPL_*` on `DISABLE_INLINE_ASM` | `cmake/filc-toolchain.cmake`, `thrd_signal_handle.h:97-131` | AA2 | Medium |
+| 17 | Fil-C toolchain fix (`FILC_ROOT`-driven) + gate `WG14_SIGNALS_SIGFENCE_IMPL_*` on `DISABLE_INLINE_ASM` | `cmake/filc-toolchain.cmake`, `thrd_signal_handle.h:97-131` | AA2 | Medium |
 | 18 | `sigfillset_*` constructor-attribute removal + init under lock | `thrd_signal_handle_posix.c.ipp:49-127` | 7.1, C11 rule 1 | Small |
 | 19 | Container refcount for `siguninstall` vs in-flight `stdc_raise` | `:314-368`, `:348-361` | 2.2 | Medium |
 | 20 | Feature-test macros + MSVC c11-atomics helper | `CMakeLists.txt` | 4.6, X9 | Small |

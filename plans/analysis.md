@@ -382,7 +382,7 @@ library; the 3-TU C consumer `test/header_only_c_multi_test` links and runs (Y10
 3-TU C++ `header_only_test` links and runs (Y8). Regression coverage is wired in as
 `test/header_only_build_test.cmake` (`header_only_build_test`) plus
 `header_only_c_multi_test`. Still open: Y9 (forced `HAVE_ASYNC_SAFE_THREAD_LOCAL=1` on
-Apple) and W11 (non-GNU C header-only `sigfence_force_escaped` undefined).
+Apple).
 
 ---
 
@@ -495,17 +495,38 @@ top-level arguments.)
 
 ### 2.8 `sigfence` on GNU compilers requires lvalues; non-lvalues fail to compile
 
-`SIGFENCE_IMPL_1(a)` expands to `__asm__ volatile(";" : "+m"(a) : : "memory")`. The
+`WG14_SIGNALS_SIGFENCE_IMPL_1(a)` expands to `__asm__ volatile(";" : "+m"(a) : : "memory")`. The
 `+m` operand must be an lvalue: `sigfence(42)` or `sigfence(x + 1)` is a hard compile
 error. The doc says the argument list is "for local variables", which is accurate, but
 nothing prevents (and nothing diagnoses) rvalue usage.
 
-### 2.9 `sigfence` fallback ("escaped") relies on the function being externally visible; broken under LTO
+### 2.9 `sigfence` fallback ("escaped") relies on the function being externally visible; broken under LTO [FIXED]
 
 `sigfence_force_escaped` (`sigfence_force_escaped.c.ipp:30-38`) never reads its variadic
 arguments; the "escape" effect relies on the compiler not being able to see the
 function body. Under `-flto` the body is visible and the spill/reload can be elided,
 silently weakening the fence.
+
+**Status: FIXED (2026-08-10).** `sigfence_force_escaped` was removed entirely and the
+non-GNU fallback `WG14_SIGNALS_SIGFENCE_IMPL_*` macros (`thrd_signal_handle.h:130-236`) now force
+each listed variable's address into a `void *volatile` per-TU sink and volatile-read one
+byte of the object (char may alias any object, C11 6.5p7). Volatile accesses are
+observable behaviour (C11 5.1.2.3), so no optimizer — link-time code generation
+(`/GL`/`/LTCG`) included — may eliminate or reorder them; the value is committed to
+memory before the fence and reloaded after. This removes the W11 header-only
+undefined-symbol gap and the library source/CMake entry. Verified with `-O2` assembly
+(spill before, reload after) and the full test suite; header-only builds need no library
+symbol.
+
+**Regression coverage (2026-08-10).** Two tests guard the fence guarantee:
+`test/sigfence_fence_test` exercises every `sigfence()` argument-count overload and, on
+the volatile-sink fallback path, verifies the escape directly (the fenced local's
+address is published into the sink). `test/sigfence_codegen_test` compiles a fenced and
+an unfenced probe at Release optimization with the real toolchain and inspects the
+assembly: the fenced probe must spill/reload its local (stack traffic) while the
+reference probe must stay register-only — so any optimizer that elides the fence (same-TU
+inlining, LTO/LTCG, ...) fails the test. The codegen probes are header-only consumers, so
+this also covers the header-only path.
 
 ---
 
@@ -731,7 +752,7 @@ Not a correctness bug but a silent performance/behaviour split between the two m
 
 ### 4.10 `__VA_OPT__` dependency
 
-`SIGFENCE_COUNT_ARGS_MAX8` (`thrd_signal_handle.h:86`) requires `__VA_OPT__` (C23 /
+`WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8` (`thrd_signal_handle.h:86`) requires `__VA_OPT__` (C23 /
 C++20, or the GCC>=8 / Clang>=12 extension). Verified: GCC and Clang accept it silently
 in C11 mode with `-Wpedantic` (no warning), so this works on current toolchains, but it
 is a latent portability break for older compilers or strict MSVC C modes.
@@ -1334,29 +1355,20 @@ A second `signal_decider_destroy` on the same pointer reads freed memory (the si
 iteration at line 564 and the slot reads) before the double-free — same class as the
 `siguninstall` double-free noted in M1, but for the decider handle. No guard exists.
 
-#### W11 [C header-only, minor] `sigfence_force_escaped` is declared but never defined for C header-only consumers on non-GNU compilers
+#### W11 [C header-only, minor] `sigfence_force_escaped` was declared but never defined for C header-only consumers on non-GNU compilers [FIXED]
 
-`thrd_signal_handle.h:78-79` declares `sigfence_force_escaped` and the fallback
-`SIGFENCE_IMPL_*` macros (`:135-153`) call it, but the definition lives only in
-`src/wg14_signals/sigfence_force_escaped.c` — no header pulls in
-`sigfence_force_escaped.c.ipp` in header-only mode. GNU-family compilers hide this (the
+`thrd_signal_handle.h:78-79` declared `sigfence_force_escaped` and the fallback
+`WG14_SIGNALS_SIGFENCE_IMPL_*` macros (`:135-153`) called it, but the definition lived only in
+`src/wg14_signals/sigfence_force_escaped.c` — no header pulled in
+`sigfence_force_escaped.c.ipp` in header-only mode. GNU-family compilers hid this (the
 inline-asm path is used), so only a non-GNU C header-only consumer (e.g. MSVC C mode,
-which takes the fallback path) that actually uses `sigfence(...)` fails to link.
+which takes the fallback path) that actually uses `sigfence(...)` failed to link.
 Extends 1.8/C3.
 
-**Status: PARTIALLY FIXED (2026-08-10).** The declaration
-(`thrd_signal_handle.h:78-84`) now uses `WG14_SIGNALS_EXTERN_IMPL` instead of
-`WG14_SIGNALS_EXTERN`, so `sigfence_force_escaped` is a true extern function in
-every mode — including header-only, where `WG14_SIGNALS_EXTERN` becomes `static
-inline`. This fixes the Linux GCC CI failure
-(`-Wunused-function` with `-Werror`: a `static`-declared but never-defined
-`sigfence_force_escaped` in header-only C++ TUs and in the library's own
-header-only TUs), and guarantees the call to it can never be inlined away, which
-is its whole purpose (forcing the compiler to treat arguments as escaped). The
-remaining gap — supplying a definition for a non-GNU C header-only consumer that
-actually calls `sigfence(...)` — is still open; no current header-only consumer
-or test does so (the only `sigfence()` user, `test/thrd_sigfpe_test.c`, links the
-library).
+**Status: FIXED (2026-08-10).** See 2.9. `sigfence_force_escaped` is gone: the non-GNU
+fallback now forces the escape purely with per-TU `void *volatile` sink stores and
+volatile byte reads inside the `WG14_SIGNALS_SIGFENCE_IMPL_*` macros, so header-only consumers need
+no library symbol at all, on any compiler. `thrd_signal_handle.h:130-236`.
 
 ### 13.3 Corrections and extensions to earlier passes
 
@@ -1395,7 +1407,7 @@ library).
 | W8 | Low | `stdc_raise` mutates caller's `EXCEPTION_RECORD` in place | `thrd_signal_handle_windows.c.ipp:282-293` |
 | W9 | Low | longjmp skips C++ destructors in guarded frames (UB; 4611 disabled) | `thrd_signal_handle_posix.c.ipp:308`, `thrd_signal_handle_windows.c.ipp:363` |
 | W10 | Low | `signal_decider_destroy` double-destroy = unguarded UAF | `thrd_signal_handle_common.ipp.ipp:612` |
-| W11 | Low | C header-only + non-GNU: `sigfence_force_escaped` declared, never defined | `thrd_signal_handle.h:78-79,135-153` |
+| ~~W11~~ Low | ~~C header-only + non-GNU: `sigfence_force_escaped` declared, never defined~~ **FIXED** (2026-08-10; removed with 2.9 — volatile-sink fallback) | ~~`thrd_signal_handle.h:78-79,135-153`~~ `thrd_signal_handle.h:130-236` |
 
 ### 13.5 Verification artifacts
 
@@ -1579,8 +1591,8 @@ is `typedef siginfo_t` guarded by `#ifndef __GLIBC__`-style detection, or
 
 #### X11 [code-level, Low] `sigfence` with more than 8 arguments produces a confusing hard error
 
-`SIGFENCE_COUNT_ARGS_MAX8` (`thrd_signal_handle.h:85-95`) returns the 9th argument as
-the count; `sigfence(a,b,c,d,e,f,g,h,i)` expands `SIGFENCE_IMPL_i` — an undefined
+`WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8` (`thrd_signal_handle.h:85-95`) returns the 9th argument as
+the count; `sigfence(a,b,c,d,e,f,g,h,i)` expands `WG14_SIGNALS_SIGFENCE_IMPL_i` — an undefined
 identifier — yielding a cryptic preprocessor/compile error rather than a diagnostic
 about the 8-argument limit. (The 0-arg form `sigfence()` works; verified.)
 
@@ -1932,7 +1944,7 @@ ASan/UBSan sanitized static library rebuilt from the current tree.
 | 1.8 `-DHEADER_ONLY_BUILD=ON` | REPRODUCED: `redefinition of 'get_current_thread_id'/'internal_current_thread_id_cached_set'` + `-Wstatic-in-inline` |
 | V1 installed package | REPRODUCED: `cmake --install` ships no headers; `find_package(wg14_signals REQUIRED)` hard-errors on bare `check_required_components` |
 | 2.8 `sigfence(<rvalue>)` | REPRODUCED: `error: invalid lvalue in asm output` |
-| X11 `sigfence` with 9 args | REPRODUCED: `call to undeclared function 'SIGFENCE_IMPL_i'` |
+| X11 `sigfence` with 9 args | REPRODUCED: `call to undeclared function 'WG14_SIGNALS_SIGFENCE_IMPL_i'` |
 | 0-arg `sigfence()` | compiles and runs |
 | C11 custom `WG14_SIGNALS_PREFIX` | CONFIRMED: library builds with a function-like prefix (`#define WG14_SIGNALS_PREFIX(x) foo_##x`, 172 `foo_` symbols exported); note the object-like `-DWG14_SIGNALS_PREFIX=foo_` spelling does NOT work (macro is not function-like) |
 | **NEW Z1** verstable `signo_to_sighandler_map_t` (the `NSIG >= 1024` branch) | REPRODUCED standalone: SIGSEGV (exit 139) on the first `_get` against a zero-initialized map — `metadata` is NULL because `signo_to_sighandler_map_t_init` is never called anywhere in the library |
@@ -2161,7 +2173,7 @@ CMake 4.3.2) against the ASan/UBSan sanitized static library rebuilt from the cu
 | Baseline rebuild (RelWithDebInfo, C11, static, sanitized) + `ctest -E benchmark` | 4/4 PASS |
 | **NEW AA1** decider orphan crash (`siguninstall` → `siginstall` → `signal_decider_destroy`) | REPRODUCED: UBSan null-member-access + ASan SEGV (WRITE to address 0x0) at `thrd_signal_handle_common.ipp.ipp:590` (`LIST_REMOVE` expansion inside `signal_decider_destroy`), exit 134 |
 | **NEW AA3** build of `thrd_sigfpe_test.c` with `WG14_SIGNALS_DISABLE_SIGFENCE_MACRO` defined | REPRODUCED: compile error at `test/thrd_sigfpe_test.c:64` — `sigfence` undeclared (the test calls it unconditionally) |
-| **NEW AA2** library compile with `-DDISABLE_INLINE_ASM=1` | Compiles unchanged and still emits the GNU inline-asm `SIGFENCE_IMPL_*` path — the macro is honoured only by `test/ticks_clock.h`, never by the library |
+| **NEW AA2** library compile with `-DDISABLE_INLINE_ASM=1` | Compiles unchanged and still emits the GNU inline-asm `WG14_SIGNALS_SIGFENCE_IMPL_*` path — the macro is honoured only by `test/ticks_clock.h`, never by the library |
 | Prior pass claims 1.1-1.8, V1-V8, W1-W11, X1-X12, Y1-Y10, Z1-Z11 | Unchanged by the `config.h` delta (code paths untouched); already-reproduced items not re-run |
 
 ### 17.2 New findings
@@ -2211,7 +2223,7 @@ before `LIST_REMOVE`.
 
 `cmake/filc-toolchain.cmake:3-4` passes `-DDISABLE_INLINE_ASM=1` for both C and C++.
 `DISABLE_INLINE_ASM` is referenced **only** by `test/ticks_clock.h:44` (the benchmark
-clock); the library itself never tests it. The library's `SIGFENCE_IMPL_*` selection in
+clock); the library itself never tests it. The library's `WG14_SIGNALS_SIGFENCE_IMPL_*` selection in
 `thrd_signal_handle.h:97-154` keys off `__GNUC__ || __clang__` only — filc is clang-based, so
 `__clang__` is defined and the GNU inline-asm path is compiled regardless of the flag. The
 toolchain's apparent intent (disable inline asm under filc) is not achieved; if filc's
@@ -2221,8 +2233,8 @@ and this toolchain is never exercised by CI.
 
 #### AA3 [verified, build-config, Low] `WG14_SIGNALS_DISABLE_SIGFENCE_MACRO` breaks the test suite
 
-`thrd_signal_handle.h:77` gates the whole `sigfence` macro (and the
-`sigfence_force_escaped` declaration) behind `#ifndef WG14_SIGNALS_DISABLE_SIGFENCE_MACRO`,
+`thrd_signal_handle.h:77` gates the whole `sigfence` macro behind
+`#ifndef WG14_SIGNALS_DISABLE_SIGFENCE_MACRO`,
 but `test/thrd_sigfpe_test.c:64` calls `sigfence(result)` unconditionally. Defining the
 macro (a legitimate, if undocumented, config knob) makes the test fail to compile
 (verified: `call to undeclared function 'sigfence'`). There is no CI configuration that

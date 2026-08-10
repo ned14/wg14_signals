@@ -11,6 +11,23 @@ add_code_test(stdc_raise_zero_test SOURCES "stdc_raise_zero_test.c" FEATURES c_s
 add_code_test(recovery_null_loop_test SOURCES "recovery_null_loop_test.c" FEATURES c_std_11)
 set_tests_properties(recovery_null_loop_test PROPERTIES TIMEOUT 60)
 
+add_code_test(sigfence_fence_test SOURCES "sigfence_fence_test.c" FEATURES c_std_11)
+
+# Codegen regression test for sigfence() (plans/analysis.md 2.9, W11): the
+# fence must force the fenced locals through memory at Release optimization.
+# Compiles two probes with the real toolchain and inspects the assembly, so
+# this needs a C compiler but no runner.
+add_test(NAME sigfence_codegen_test
+         COMMAND ${CMAKE_COMMAND}
+                 -DSRC_DIR=${PROJECT_SOURCE_DIR}
+                 -DBINARY_DIR=${PROJECT_BINARY_DIR}
+                 -DCOMPILER_ID=${CMAKE_C_COMPILER_ID}
+                 -DGENERATOR=${CMAKE_GENERATOR}
+                 -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
+                 -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
+                 -P "${CMAKE_CURRENT_SOURCE_DIR}/sigfence_codegen_test.cmake")
+set_tests_properties(sigfence_codegen_test PROPERTIES TIMEOUT 300)
+
 add_executable(header_only_test "header_only_test1.cpp" "header_only_test2.cpp" "header_only_test.cpp")
 if(MSVC)
   target_compile_options(header_only_test PRIVATE /W4 /experimental:c11atomics)
