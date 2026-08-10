@@ -222,8 +222,9 @@ interceptor, and the spawned thread crashes immediately (verified in the sibling
 **Done 2026-08-10:** the `TSan` job was appended to `.github/workflows/ci.yml` (6 legs:
 Ubuntu gcc/clang x C11/C23, macOS clang x C11/C23, `fail-fast: false`), exactly as
 sketched — Debug, `-DCMAKE_TOOLCHAIN_FILE=$PWD/../cmake/tsan-toolchain.cmake`,
-`TSAN_OPTIONS=halt_on_error=1 log_path=stderr symbolize=1 history_size=7`, and the
-`sysctl vm.mmap_rnd_bits=28` workaround on Linux. `cmake/tsan-toolchain.cmake` was
+`TSAN_OPTIONS=halt_on_error=1 log_path=stderr symbolize=1 history_size=7
+report_signal_unsafe=0`, and the `sysctl vm.mmap_rnd_bits=28` workaround on Linux.
+`cmake/tsan-toolchain.cmake` was
 created as a copy of the sibling's (`-fsanitize=thread` on C/CXX + both linker flags).
 `test/test_common.h` now carries the §6.2 TSAN-aware `<threads.h>` selection
 (`WG14_SIGNALS_TEST_TSAN` probe via nested `__has_feature(thread_sanitizer)` /
@@ -235,6 +236,19 @@ ASan/UBSan build is unaffected; the macOS legs exercise the fallback TLS path (2
 race), the Linux legs the native TLS path. `sigfence_codegen_test` and
 `header_only_build_test` configure their sub-projects without the sanitizer toolchain,
 so their codegen assertions are unaffected.
+
+**TSan CI follow-up (2026-08-10):** on the Linux (GCC libtsan) legs, `thrd_sigfpe_test`
+and `recovery_null_loop_test` failed with TSan "signal-unsafe call inside of a signal"
+warnings (`malloc` in `signal_decider_create`, `free` in `sighandler_info_release`).
+These are false positives: `sigguarded()` recovers by `siglongjmp`-ing out of the signal
+handler, and TSan keeps the thread flagged "inside a signal" across that longjmp, so any
+`malloc`/`free` the test runs afterwards (e.g. `signal_decider_create`,
+`siguninstall`) is misreported. The flagged code runs outside the handler, and the
+library's handler path is malloc/free-free given `siginstall()` pre-initialisation (the
+raise's `lifetime_refcount` increment guarantees `sighandler_info_release()` cannot free
+inside the handler). The TSan job now sets `report_signal_unsafe=0` (a flag supported by
+both GCC and LLVM TSan), which fully gates that report type via `ShouldReport()` while
+leaving data-race detection (`halt_on_error=1`) untouched.
 
 ### 3.2 FreeBSD VM job (fixes analysis.md 5.4, 4.1) **[DONE 2026-08-10]**
 

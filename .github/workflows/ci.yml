@@ -190,7 +190,18 @@ jobs:
       # on stderr so ctest --output-on-failure shows it, force symbolization of
       # the stack traces, and grow per-thread history to the maximum so every
       # race report includes the full stack trace of each participating thread.
-      TSAN_OPTIONS: halt_on_error=1 log_path=stderr symbolize=1 history_size=7
+      #
+      # report_signal_unsafe=0: the library's sigguarded() recovers from a
+      # signal via siglongjmp out of the handler, and TSan keeps the thread
+      # marked "inside a signal" across that longjmp. Any malloc/free the test
+      # runs after recovery (e.g. signal_decider_create / siguninstall) is then
+      # misreported as a signal-unsafe call, failing thrd_sigfpe_test and
+      # recovery_null_loop_test. The reports are false positives: the code runs
+      # outside the handler, and the library's handler path itself is
+      # malloc/free-free given siginstall() pre-initialisation (the raise's
+      # lifetime_refcount increment guarantees sighandler_info_release() never
+      # frees inside the handler). Data-race reports are unaffected.
+      TSAN_OPTIONS: halt_on_error=1 log_path=stderr symbolize=1 history_size=7 report_signal_unsafe=0
     steps:
     - uses: actions/checkout@v4
 

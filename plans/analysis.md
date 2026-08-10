@@ -814,13 +814,24 @@ a strict build are invisible.
   would benefit from TSAN. **[FIXED 2026-08-10]** — a dedicated `TSan` job (Ubuntu
   gcc/clang and macOS clang, C11 and C23) was added to `.github/workflows/ci.yml`, driven
   by `cmake/tsan-toolchain.cmake` (`-fsanitize=thread` on C/CXX and the linker) with
-  `TSAN_OPTIONS=halt_on_error=1 log_path=stderr symbolize=1 history_size=7`. Because
+  `TSAN_OPTIONS=halt_on_error=1 log_path=stderr symbolize=1 history_size=7
+  report_signal_unsafe=0`. Because
   glibc's `thrd_create()` calls `pthread_create()` inside libc and bypasses TSan's
   interceptor, `test/test_common.h` now selects the pthread-based `thrd_*` shim under
   glibc+TSan (ideas.md 6.2). Verified on macOS arm64 (clang 17): all 15 `ctest` tests
   pass under TSan in C11 and C23 builds. This supplies the race-free verification of the
   2.1/2.2 fixes (the macOS legs exercise the fallback TLS path); 3.1 (spinlock not
   async-signal-safe) is a handler-re-entrancy hazard TSan cannot detect and remains open.
+  **TSan CI follow-up (2026-08-10):** on the Linux GCC legs, `thrd_sigfpe_test` and
+  `recovery_null_loop_test` hit TSan "signal-unsafe call inside of a signal" warnings.
+  These are false positives from `sigguarded()`'s `siglongjmp`-out-of-handler recovery:
+  TSan keeps the thread flagged "inside a signal" across the longjmp, so `malloc`/`free`
+  the tests run afterwards (in `signal_decider_create` / `siguninstall`, both outside
+  the handler) are misreported. The library's handler path is malloc/free-free given
+  `siginstall()` pre-initialisation (the raise's `lifetime_refcount` increment prevents
+  `sighandler_info_release()` from freeing inside the handler). The job now sets
+  `report_signal_unsafe=0` (GCC and LLVM TSan flag that gates exactly this report type);
+  data-race detection is unaffected.
 - No CI leg runs a fourth OS; the FreeBSD-only code paths — the
   `pthread_getthreadid_np()` branch in `current_thread_id.c.ipp` and the `libstdthreads`
   link for the C11 `thrd_*` tests — are never compiled or run. **[FIXED 2026-08-10]** — a
