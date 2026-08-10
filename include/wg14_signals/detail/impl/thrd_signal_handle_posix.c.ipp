@@ -330,14 +330,19 @@ static void __attribute__((noreturn)) default_abort(void)
       UNLOCK(state->lock);
       return false;
     }
-    struct sigaction sa = signo_to_sighandler_map_t_value(it)->old_handler;
+    struct WG14_SIGNALS_PREFIX(sighandler_info) *item =
+    signo_to_sighandler_map_t_value(it);
+    struct sigaction sa = item->old_handler;
     struct WG14_SIGNALS_PREFIX(stdc_siginfo) rsi;
     WG14_SIGNALS_PREFIX(prepare_rsi)(&rsi, signo, info, raw_context);
-    if(signo_to_sighandler_map_t_value(it)->global_handler.front !=
-       WG14_SIGNALS_NULLPTR)
+    // Take a reference on the container for the duration of the raise so a
+    // concurrent siguninstall cannot free it while we are unlocked inside a
+    // decider call (analysis.md 2.2).
+    item->lifetime_refcount++;
+    if(item->global_handler.front != WG14_SIGNALS_NULLPTR)
     {
       struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *current =
-      signo_to_sighandler_map_t_value(it)->global_handler.front;
+      item->global_handler.front;
       do
       {
         rsi.value = current->value;
@@ -352,10 +357,8 @@ static void __attribute__((noreturn)) default_abort(void)
           struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *to_free_later =
           current;
           current = current->next;
-          LIST_REMOVE(signo_to_sighandler_map_t_value(it)->global_handler,
-                      to_free_later);
-          LIST_INSERT_BACK(signo_to_sighandler_map_t_value(it)->deferred_frees,
-                           to_free_later);
+          LIST_REMOVE(item->global_handler, to_free_later);
+          LIST_INSERT_BACK(item->deferred_frees, to_free_later);
         }
         else
         {
@@ -363,6 +366,7 @@ static void __attribute__((noreturn)) default_abort(void)
         }
         if(res)
         {
+          WG14_SIGNALS_PREFIX(sighandler_info_release)(item);
           UNLOCK(state->lock);
           return true;
         }
@@ -370,6 +374,7 @@ static void __attribute__((noreturn)) default_abort(void)
     }
     // None of our deciders want this, so call previously installed signal
     // handler
+    WG14_SIGNALS_PREFIX(sighandler_info_release)(item);
     UNLOCK(state->lock);
     WG14_SIGNALS_PREFIX(invoke_sigaction)(&sa, signo, info, raw_context);
     return true;

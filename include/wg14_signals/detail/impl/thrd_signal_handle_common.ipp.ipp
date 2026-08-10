@@ -150,7 +150,14 @@ extern "C"
 
   struct WG14_SIGNALS_PREFIX(sighandler_info)
   {
-    int count;
+    // Number of active siginstall() holders of this handler: the container is
+    // removed from the map when this reaches zero.
+    int install_count;
+    // Number of references keeping the container alive: the map holds one,
+    // and each in-flight raise takes its own so that a concurrent siguninstall
+    // cannot free the container while the raise is unlocked inside a decider
+    // call (analysis.md 2.2/W4).
+    int lifetime_refcount;
 #ifndef _WIN32
     struct sigaction old_handler;
 #endif
@@ -163,6 +170,25 @@ extern "C"
       struct WG14_SIGNALS_PREFIX(global_signal_decider_t) * front, *back;
     } deferred_frees;
   };
+
+  // Drop one reference on a sighandler_info container; when the last reference
+  // goes away, retire any deciders already moved to deferred_frees and free the
+  // container. The caller must hold state->lock.
+  static void WG14_SIGNALS_PREFIX(sighandler_info_release)(
+  struct WG14_SIGNALS_PREFIX(sighandler_info) * item)
+  {
+    if(0 == --item->lifetime_refcount)
+    {
+      while(item->deferred_frees.front != WG14_SIGNALS_NULLPTR)
+      {
+        struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *i =
+        item->deferred_frees.front;
+        LIST_REMOVE(item->deferred_frees, i);
+        free(i);
+      }
+      free(item);
+    }
+  }
 
   struct WG14_SIGNALS_PREFIX(sig_global_state_t)
   {
@@ -312,6 +338,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
         UNLOCK(state->lock);
         return false;
       }
+      newitem->lifetime_refcount = 1;
       if(!WG14_SIGNALS_PREFIX(install_sighandler_impl)(newitem, signo))
       {
         int errcode = errno;
@@ -322,7 +349,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
       it = WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_insert)(
       &state->signo_to_sighandler_map, signo, newitem);
     }
-    signo_to_sighandler_map_t_value(it)->count++;
+    signo_to_sighandler_map_t_value(it)->install_count++;
     if(0 == state->sighandlers_count++)
     {
       if(-1 == WG14_SIGNALS_PREFIX(sig_global_tss_state_create)())
@@ -356,13 +383,17 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
         free(i);
       }
       const bool need_to_destroy_tss = (0 == --state->sighandlers_count);
-      if(0 == --signo_to_sighandler_map_t_value(it)->count)
+      if(0 == --signo_to_sighandler_map_t_value(it)->install_count)
       {
-        (void) WG14_SIGNALS_PREFIX(uninstall_sighandler_impl)(
-        signo_to_sighandler_map_t_value(it), signo);
-        free(signo_to_sighandler_map_t_value(it));
+        struct WG14_SIGNALS_PREFIX(sighandler_info) *item =
+        signo_to_sighandler_map_t_value(it);
+        (void) WG14_SIGNALS_PREFIX(uninstall_sighandler_impl)(item, signo);
         WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_erase_itr)
         (&state->signo_to_sighandler_map, it);
+        // Drop the map's reference on the container; an in-flight raise holds
+        // its own reference and frees the container when it releases
+        // (analysis.md 2.2/W4).
+        WG14_SIGNALS_PREFIX(sighandler_info_release)(item);
       }
       if(need_to_destroy_tss)
       {

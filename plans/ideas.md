@@ -574,6 +574,7 @@ Add to `test/` (all `add_code_test`, C11):
 |---|---|---|
 | `decider_cycle_test.c` | siginstall -> decider -> destroy -> uninstall -> siginstall -> decider -> raise (the AA1 orphan cycle) | AA1, Z3 |
 | `tss_concurrent_exit_test.c` **[DONE 2026-08-10]** | two threads sharing one `tss_async_signal_safe`, both `thread_init`, both exit; 1000 iterations + deterministic `create -> T1 inits+exits -> T2 inits -> destroy` reinit/destroy-after-last-exit regression | 2.1, X1/X2 |
+| `siguninstall_raise_test.c` **[DONE 2026-08-10]** | raise parked inside a global decider while `signal_decider_destroy` + `siguninstall` run concurrently; 100 cycles | 2.2, W4 |
 | `tss_null_handle_test.c` | `create/destroy/thread_init/get` on NULL and zeroed handles | 2.6 |
 | `lock_whitebox_test.c` | `#include "detail/impl/lock_unlock.h"`, lock/unlock under TSan | 3.1 discipline |
 

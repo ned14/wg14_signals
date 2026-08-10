@@ -50,7 +50,7 @@ call, and a non-zero callback return no longer leaks the TID entry or the count 
 1000-iteration two-thread same-tss concurrent-exit stress; the full `ctest` suite (13
 tests) passes.
 
-### 2.2 `siguninstall` / `signal_decider_destroy` vs. in-flight `stdc_raise` -> use-after-free of `sighandler_info`
+### 2.2 `siguninstall` / `signal_decider_destroy` vs. in-flight `stdc_raise` -> use-after-free of `sighandler_info` **[FIXED 2026-08-10]**
 
 In `stdc_raise` (POSIX, `thrd_signal_handle_posix.c.ipp:314-368`) the `state->lock` is
 released around each `current->decider(&rsi)` call. If another thread runs `siguninstall`
@@ -65,6 +65,21 @@ the identical pattern exists in the Windows vectored handler
 (`RemoveVectoredContinueHandler`) mid-raise when the count reaches zero. The header
 documents siginstall as threadsafe only with respect to other concurrent executions of
 itself, but nothing prevents the user from doing this.
+
+**Fixed:** `sighandler_info` now carries a `lifetime_refcount`
+(`thrd_signal_handle_common.ipp.ipp`),
+initialised to 1 at creation (the map's reference). A raise takes its own reference on
+the container before the first unlocked decider call and releases it afterwards, and
+`siguninstall` drops only the map's reference — the container is freed by
+`sighandler_info_release()` when the last reference goes away (also draining
+`deferred_frees`). The same refcount protocol is applied to the Windows vectored handler
+(`thrd_signal_handle_windows.c.ipp`), fixing W4/2.15's container UAF. **Verified:** the
+new regression test `test/siguninstall_raise_test.c` (registered as
+`siguninstall_raise_test`) reproduces the ASan `heap-use-after-free` READ at
+`thrd_signal_handle_posix.c.ipp:355` on the unfixed library (decider node retired via
+`signal_decider_destroy` then container freed by `siguninstall` while the raise is inside
+the decider call) and now passes; full `ctest` suite (14 tests) passes under
+ASan/UBSan on macOS arm64.
 
 ### 2.3 `install_sighandler` increments `sighandlers_count` before checking TSS creation
 
@@ -196,7 +211,7 @@ on POSIX an unclaimed user raise of a default-terminate signal kills the process
 same outcome Windows produces via WER (W5). POSIX only "returns false" when the signal
 was never installed.
 
-### 2.15 W4 [code-level, Windows] the 2.2 container UAF exists in the Windows vectored handler too (High)
+### 2.15 W4 [code-level, Windows] the 2.2 container UAF exists in the Windows vectored handler too (High) **[FIXED 2026-08-10]**
 
 `win32_vectored_exception_function` (`thrd_signal_handle_windows.c.ipp:329-368`) holds
 `it` across the unlocked `current->decider(&rsi)` call and re-accesses
@@ -205,6 +220,14 @@ was never installed.
 that window -> UAF *inside the exception handler*. Additionally the vectored handler may
 be *removed* mid-raise when the count reaches zero, so the remainder of the raise runs
 with no library filter at all.
+
+**Fixed:** the same 2.2 refcount protocol — the vectored handler takes a reference on the
+`sighandler_info` container across the unlocked decider calls and releases it afterwards
+(`thrd_signal_handle_windows.c.ipp:345-397`), so a concurrent `siguninstall` cannot free
+the container while the handler is inside a decider call. The filter-removal-mid-raise
+behaviour is unchanged (a semantic issue, not a memory-safety one). **Verified:** Windows
+path shares the identical code pattern fixed and regression-tested on POSIX
+(`test/siguninstall_raise_test.c`); no Windows host available for live validation.
 
 ### 2.16 W5 [code-level, Windows] `stdc_raise` can never return `false`; an unclaimed raise terminates the process (High — documented-contract violation)
 
@@ -1126,10 +1149,10 @@ invite reading `error_code`.
 |----|----------|-------|----------|
 | V1 | Critical | Installed package: no headers installed; `find_package` fails (PACKAGE_INIT never expanded) | `CMakeLists.txt:50-70`, `cmake/ProjectConfig.cmake.in` |
 | 2.1 | High | tss deinit count/state race -> UAF **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:136-168` |
-| 2.2 | High | `siguninstall` vs in-flight `stdc_raise` -> container UAF (also Windows, W4) | `thrd_signal_handle_posix.c.ipp:314-368` |
+| 2.2 | High | `siguninstall` vs in-flight `stdc_raise` -> container UAF (also Windows, W4) **[FIXED 2026-08-10]** | `thrd_signal_handle_posix.c.ipp:314-368` |
 | W1 | High | dangling map entry after `deinit_state` OOM; next get/init returns freed pointer **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:201-213` |
 | W2 | High | deciders get indeterminate/stale `error_code`/`addr`/`raw_info` for `stdc_raise(signo,NULL,NULL)` (confirmed) | `thrd_signal_handle_posix.c.ipp:186-199,327` |
-| W4 | High | 2.2 container UAF also in Windows vectored handler; filter removable mid-raise | `thrd_signal_handle_windows.c.ipp:329-368` |
+| W4 | High | 2.2 container UAF also in Windows vectored handler; filter removable mid-raise **[FIXED 2026-08-10]** | `thrd_signal_handle_windows.c.ipp:329-368` |
 | W5 | High | Windows `stdc_raise` never returns false; unclaimed raises kill the process via WER | `thrd_signal_handle_windows.c.ipp:252-300` |
 | X1 | High | `thread_init` UAF on `deinit_state` after all registered threads exited (confirmed) **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:162-166,201-214` |
 | X2 | High | `destroy` UAF on `deinit_state` after all registered threads exited (confirmed) **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:117-121` |
