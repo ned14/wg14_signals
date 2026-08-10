@@ -15,11 +15,10 @@
 // sigguarded) then thread_init'd the freed handle -> ASan heap-use-after-free.
 // The slot must be reset to NULL so the next entry recreates the TSS.
 
-#if defined(_WIN32)
-#define INSTALLED_SIGNAL SIGTERM
-#else
-#define INSTALLED_SIGNAL SIGUSR2
-#endif
+// SIGILL is SEH-mapped on Windows (EXCEPTION_ILLEGAL_INSTRUCTION) and a
+// standard POSIX signal, so a stdc_raise() falls through to the benign handler
+// installed below on both platforms.
+#define INSTALLED_SIGNAL SIGILL
 
 static void benign_handler(int signo)
 {
