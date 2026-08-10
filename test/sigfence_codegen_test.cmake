@@ -39,9 +39,12 @@ set(_work "${BINARY_DIR}/sigfence_codegen_test")
 file(REMOVE_RECURSE "${_work}")
 file(MAKE_DIRECTORY "${_work}")
 
-# The probe is a header-only consumer so this also covers the header-only path.
+# The probes deliberately do NOT enable header-only mode: the sigfence() macros
+# are independent of it, and in header-only mode the include chain also pulls in
+# static __attribute__((constructor)) functions (synchronous_sigset etc.) that
+# legitimately use the stack -- which would trip the whole-file stack-traffic
+# assertions below (Linux CI, 2026-08-10).
 file(WRITE "${_work}/fenced.c"
-"#define WG14_SIGNALS_ENABLE_HEADER_ONLY 1\n"
 "#include \"wg14_signals/thrd_signal_handle.h\"\n"
 "int sigfence_probe(int input)\n"
 "{\n"
@@ -50,7 +53,6 @@ file(WRITE "${_work}/fenced.c"
 "  return a + 1;\n"
 "}\n")
 file(WRITE "${_work}/unfenced.c"
-"#define WG14_SIGNALS_ENABLE_HEADER_ONLY 1\n"
 "#include \"wg14_signals/thrd_signal_handle.h\"\n"
 "int sigfence_probe_unfenced(int input)\n"
 "{\n"
@@ -59,12 +61,14 @@ file(WRITE "${_work}/unfenced.c"
 "}\n")
 
 if(COMPILER_ID STREQUAL "MSVC")
-  # /std:c11 is required: MSVC's <stdatomic.h> (vcruntime_c11_stdatomic.h)
-  # #errors unless __STDC_VERSION__ >= C11, and the header-only probe pulls in
-  # C11 atomics via thrd_signal_handle_common.ipp.ipp. All other MSVC targets
-  # get this flag from CMake's `c_std_11` feature.
+  # /std:c11 and /experimental:c11atomics match the library's own MSVC build
+  # (CMake's `c_std_11` feature + /experimental:c11atomics). /Fa names the
+  # listing path explicitly: without it cl writes the .asm wherever it pleases
+  # (next to the source), not where this script reads it back (Windows CI,
+  # 2026-08-10).
   set(_asm_ext "asm")
   set(_asm_flags "/FAsc /c /O2 /std:c11 /experimental:c11atomics")
+  set(_asm_out_flag "/Fa")
 else()
   # gnu11, not strict c11: the library and its consumers are built by CMake's
   # `c_std_11` feature, which defaults to GNU extensions on. Strict `-std=c11`
@@ -73,32 +77,37 @@ else()
   # consumers (see plans/ideas.md 2.3).
   set(_asm_ext "s")
   set(_asm_flags "-std=gnu11 -O3 -S")
+  set(_asm_out_flag "-o")
 endif()
 
 # A throwaway project whose only job is to compile the two probes to assembly
 # via the real toolchain (so the MSVC environment is set up correctly on
-# Windows). The listing lands in the build directory because the custom
-# commands run with WORKING_DIRECTORY set. No DEPENDS on the probe files: the
-# outer script recreates this whole directory on every run, so the outputs
+# Windows). The listing output path is named explicitly ({_asm_out_flag}),
+# so the .s/.asm always lands where this script reads it back, independent of
+# the compiler's working-directory conventions. No DEPENDS on the probe files:
+# the outer script recreates this whole directory on every run, so the outputs
 # never persist and the commands always run.
 file(WRITE "${_work}/CMakeLists.txt"
 "cmake_minimum_required(VERSION 3.15)\n"
 "project(sigfence_codegen_probe LANGUAGES C)\n"
 "\n"
 "add_custom_command(\n"
-"  OUTPUT fenced.${_asm_ext}\n"
+"  OUTPUT \"\${CMAKE_CURRENT_BINARY_DIR}/fenced.${_asm_ext}\"\n"
 "  COMMAND \"\${CMAKE_C_COMPILER}\" ${_asm_flags}\n"
+"          ${_asm_out_flag}\"\${CMAKE_CURRENT_BINARY_DIR}/fenced.${_asm_ext}\"\n"
 "          -I \"\${WG14_SIGFENCE_INCLUDE_DIR}\"\n"
 "          \"\${CMAKE_CURRENT_SOURCE_DIR}/fenced.c\"\n"
 "  WORKING_DIRECTORY \"\${CMAKE_CURRENT_BINARY_DIR}\")\n"
 "add_custom_command(\n"
-"  OUTPUT unfenced.${_asm_ext}\n"
+"  OUTPUT \"\${CMAKE_CURRENT_BINARY_DIR}/unfenced.${_asm_ext}\"\n"
 "  COMMAND \"\${CMAKE_C_COMPILER}\" ${_asm_flags}\n"
+"          ${_asm_out_flag}\"\${CMAKE_CURRENT_BINARY_DIR}/unfenced.${_asm_ext}\"\n"
 "          -I \"\${WG14_SIGFENCE_INCLUDE_DIR}\"\n"
 "          \"\${CMAKE_CURRENT_SOURCE_DIR}/unfenced.c\"\n"
 "  WORKING_DIRECTORY \"\${CMAKE_CURRENT_BINARY_DIR}\")\n"
 "add_custom_target(probe_asm ALL\n"
-"  DEPENDS fenced.${_asm_ext} unfenced.${_asm_ext})\n"
+"  DEPENDS \"\${CMAKE_CURRENT_BINARY_DIR}/fenced.${_asm_ext}\"\n"
+"          \"\${CMAKE_CURRENT_BINARY_DIR}/unfenced.${_asm_ext}\")\n"
 )
 
 set(_build "${_work}/build")

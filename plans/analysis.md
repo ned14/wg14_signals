@@ -525,12 +525,17 @@ address is published into the sink). `test/sigfence_codegen_test` compiles a fen
 an unfenced probe at Release optimization with the real toolchain and inspects the
 assembly: the fenced probe must spill/reload its local (stack traffic) while the
 reference probe must stay register-only — so any optimizer that elides the fence (same-TU
-inlining, LTO/LTCG, ...) fails the test. The codegen probes are header-only consumers, so
-this also covers the header-only path. The probes compile with `-std=gnu11` (CMake's
-`c_std_11` default), not strict `-std=c11`: strict ISO C hides POSIX types (`sigset_t`,
+inlining, LTO/LTCG, ...) fails the test. The probes deliberately do not enable
+header-only mode: `sigfence()` is independent of it, and the header-only include chain
+emits static `__attribute__((constructor))` helpers (synchronous_sigset etc.) that
+legitimately use the stack, which would trip the whole-file stack-traffic assertions
+(Linux CI, 2026-08-10). The probes compile with `-std=gnu11` (CMake's `c_std_11`
+default), not strict `-std=c11`: strict ISO C hides POSIX types (`sigset_t`,
 `ucontext_t`, `NSIG`, `struct sigaction`) under glibc, which broke the test on the Linux
-CI (2026-08-10); on MSVC the probe flags also carry `/std:c11`, because
-`<stdatomic.h>` (vcruntime_c11_stdatomic.h) `#error`s without it (Windows CI, 2026-08-10).
+CI (2026-08-10); on MSVC the probe flags also carry `/std:c11` and
+`/experimental:c11atomics` to match the library's own MSVC build, and the listing
+path is named explicitly (`/Fa`/`-o`): `cl /FAsc` otherwise drops the `.asm` next to
+the source rather than where the script reads it back (Windows CI, 2026-08-10).
 
 ---
 
