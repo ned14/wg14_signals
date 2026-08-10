@@ -170,7 +170,7 @@ and at the top of `thrd_signal_handle_windows.c.ipp`:
 #endif
 ```
 
-### 2.4 FreeBSD `stdthreads` link (prerequisite for §3.2)
+### 2.4 FreeBSD `stdthreads` link (prerequisite for §3.2) **[DONE 2026-08-10]**
 
 **Concrete change.** In `CMakeLists.txt` `add_code_example` (near `:82`):
 
@@ -179,6 +179,14 @@ target_link_libraries(${target} PRIVATE $<$<PLATFORM_ID:FreeBSD>:stdthreads>)
 ```
 
 The C11 `thrd_*` tests need it on FreeBSD (`../wg14_atomic_waits/CMakeLists.txt:135`).
+
+**Done 2026-08-10:** the link is `target_link_libraries(${PROJECT_NAME} PUBLIC
+$<$<PLATFORM_ID:FreeBSD>:stdthreads>)` on the main library in `CMakeLists.txt`, so every
+consumer (and the installed package export) gets `libstdthreads` transitively; the
+per-target links are removed. The one exception is the `header_only_test` target in
+`test/CMakeLists.txt` — it creates threads via `thrd_create`/`thrd_join` in
+`header_only_test.cpp` but deliberately does **not** link the library, so it cannot
+inherit the PUBLIC link and keeps its own explicit `stdthreads` link.
 
 ### 2.5 Test `-Werror` (fixes analysis.md 5.3)
 
@@ -228,13 +236,29 @@ race), the Linux legs the native TLS path. `sigfence_codegen_test` and
 `header_only_build_test` configure their sub-projects without the sanitizer toolchain,
 so their codegen assertions are unaffected.
 
-### 3.2 FreeBSD VM job (fixes analysis.md 5.4, 4.1)
+### 3.2 FreeBSD VM job (fixes analysis.md 5.4, 4.1) **[DONE 2026-08-10]**
 
 Append the sibling's FreeBSD job (`ci.yml:104-144`): `vmactions/freebsd-vm@v1` (real
 FreeBSD 15 kernel, `cache-after-prepare: true`), `prepare: pkg install -y cmake ninja`,
 Ninja generator, sanitize toolchain, Release, C11/C23. **Directly relevant**:
 `current_thread_id.c.ipp:71` calls `pthread_getthreadid_np()` — the only place that branch
 is compiled is FreeBSD. Pair it with the §2.4 `stdthreads` link.
+
+**Done 2026-08-10:** the `FreeBSD` job was appended to `.github/workflows/ci.yml` — real
+FreeBSD 15 kernel under QEMU via `vmactions/freebsd-vm@v1` (`envs: 'NAME'`, `usesh: true`,
+`cache-after-prepare: true`, `prepare: pkg install -y cmake ninja`), Ninja generator,
+`sanitize-toolchain.cmake`, Release, C11/C23. The sibling's matrix `pthreads` dimension
+maps to the not-yet-implemented §2.1 `ALWAYS_USE_FALLBACK_TLS` option, so the matrix is
+C11/C23 only. The prerequisite pieces landed with it: the §2.4 `stdthreads` link (PUBLIC
+on the main library, plus an explicit link on `header_only_test`, which creates threads
+via `thrd_create`/`thrd_join` but does not link the library), and the §5.6
+`current_thread_id` unsupported-platform `#error` guard so the leg compiles.
+**Verified:** macOS arm64 ASan/UBSan — full `ctest` suite (15 tests) passes; the
+unsupported-platform `#error` was verified with a forced generic-POSIX `-fsyntax-only`
+compile (`-U__APPLE__ -U__linux__ -U__FreeBSD__ -U_WIN32`); the PUBLIC stdthreads link is
+visible in the generated `wg14_signalsExports.cmake` (`INTERFACE_LINK_LIBRARIES
+"$<$<PLATFORM_ID:FreeBSD>:stdthreads>"`).
+The FreeBSD VM leg itself runs only in CI (no local FreeBSD host available).
 
 ### 3.3 FilC job + toolchain fix (fixes analysis.md AA2)
 
@@ -492,7 +516,7 @@ handler had it, it's preserved in `old_handler` and restored on uninstall anyway
 only ever applied to SIGCHLD). Document the `SA_NODEFER` re-entrancy trade-off in the
 header (already partially documented at `thrd_signal_handle.h:408-412`).
 
-### 5.6 `current_thread_id` portable fallback (fixes analysis.md 4.1)
+### 5.6 `current_thread_id` portable fallback (fixes analysis.md 4.1) **[DONE 2026-08-10]**
 
 **Why.** `current_thread_id.c.ipp:70-72`: the final `#else` calls
 `pthread_getthreadid_np()`, which exists only on FreeBSD; every other non-Linux non-Apple
@@ -501,7 +525,20 @@ POSIX platform fails to compile.
 **Concrete change.** Replace `:71` with the portable
 `(WG14_SIGNALS_PREFIX(thread_id_t)) pthread_self();` (keeping the FreeBSD branch for the
 native call). Also `#ifdef` the FreeBSD `#include <pthread_np.h>` (`:36-38`) — it
-currently compiles in unconditionally.
+currently compiles in unconditionally. **Maintainer decision (2026-08-10):** do **not**
+use the `pthread_self()` fallback — it is not async-signal-safe and `current_thread_id()`
+is documented ASYNC-SIGNAL-SAFE; an unsupported platform must be a compile-time `#error`
+so it is explicitly ported.
+
+**Done 2026-08-10:** `current_thread_id.c.ipp` now has an explicit
+`#elif defined(__FreeBSD__)` branch keeping `pthread_getthreadid_np()`, and the generic
+`#else` is a hard `#error` ("current_thread_id(): unsupported platform; add an explicit
+branch to `get_current_thread_id()` for this platform") instead of a `pthread_self()`
+fallback; the `<pthread_np.h>` include was already `#ifdef __FreeBSD__`-guarded.
+**Verified:** a forced generic-POSIX compile on macOS (`clang -fsyntax-only -U__APPLE__
+-U__linux__ -U__FreeBSD__ -U_WIN32` on `src/wg14_signals/current_thread_id.c`) fails with
+exactly that diagnostic, and the full `ctest` suite (15 tests) passes under ASan/UBSan on
+macOS arm64.
 
 ### 5.7 `sigfillset_*` sets: drop `__attribute__((constructor))`, force init under the lock (fixes analysis.md 7.1, C11 compliance)
 
@@ -731,7 +768,7 @@ Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattributes`).
 | 9 | `install_sighandler` flags: drop `SA_NOCLDWAIT`, add `SA_RESTART` | `thrd_signal_handle_posix.c.ipp:371-383` | 3.3 | Small |
 | 10 | Remaining regression tests (decider cycle, tss concurrent exit, tss NULL, lock whitebox) | `test/*` | AA1, Z3, 2.1, 2.6, 3.1 | Medium |
 | 11 | Compile-fail suite (`expect_compile_fail.cmake` + sigfence targets) | `test/` | 5.3, 2.8, X11 | Medium |
-| 12 | FreeBSD VM job + `stdthreads` link + portable `pthread_self()` fallback | `ci.yml`, `CMakeLists.txt:82`, `current_thread_id.c.ipp:70-72` | 5.4, 4.1 | Medium |
+| 12 | FreeBSD VM job + `stdthreads` link + `current_thread_id` unsupported-platform `#error` **[DONE 2026-08-10]** | `ci.yml`, `CMakeLists.txt:82`, `current_thread_id.c.ipp:70-72` | 5.4, 4.1 | Medium |
 | 13 | Fil-C toolchain fix (`FILC_ROOT`-driven) + gate `WG14_SIGNALS_SIGFENCE_IMPL_*` on `DISABLE_INLINE_ASM` | `cmake/filc-toolchain.cmake`, `thrd_signal_handle.h:97-131` | AA2 | Medium |
 | 14 | `sigfillset_*` constructor-attribute removal + init under lock | `thrd_signal_handle_posix.c.ipp:49-127` | 7.1, C11 rule 1 | Small |
 | 15 | Container refcount for `siguninstall` vs in-flight `stdc_raise` (also fixes AA1 orphan) | `:314-368`, `:348-361` | 2.2, W4, AA1 | Medium |

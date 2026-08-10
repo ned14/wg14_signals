@@ -623,12 +623,26 @@ serialise the create callback under the lock (at the cost of re-entrancy, cf. 3.
 
 ## 4. Portability and configuration concerns
 
-### 4.1 Default `get_current_thread_id` fallback is FreeBSD-only
+### 4.1 Default `get_current_thread_id` fallback is FreeBSD-only **[FIXED 2026-08-10]**
 
 `current_thread_id.c.ipp:70-72`: the final `#else` branch calls
 `pthread_getthreadid_np()`, which exists only on FreeBSD (the FreeBSD block also pulls in
 `<pthread_np.h>` at line 36-38). On any other POSIX platform the code fails to compile.
-The portable fallback should be `(thread_id_t)pthread_self()`.
+The portable fallback should be `(thread_id_t)pthread_self()`. **Maintainer decision
+(2026-08-10):** the portable `pthread_self()` fallback is *not* used — `pthread_self()`
+is not on the POSIX async-signal-safe list and `current_thread_id()` is documented
+ASYNC-SIGNAL-SAFE, so an unsupported platform is instead a compile-time `#error`.
+
+**Fixed:** `current_thread_id.c.ipp` now has an explicit `#elif defined(__FreeBSD__)`
+branch that keeps `pthread_getthreadid_np()`, and the generic `#else` is a hard `#error`
+("current_thread_id(): unsupported platform; add an explicit branch to
+`get_current_thread_id()` for this platform") so a new platform must be explicitly ported
+rather than silently falling back to an async-signal-unsafe call (the `<pthread_np.h>`
+include was already `#ifdef __FreeBSD__`-guarded). **Verified:** a forced generic-POSIX
+compile on macOS (`clang -fsyntax-only -U__APPLE__ -U__linux__ -U__FreeBSD__ -U_WIN32` on
+`src/wg14_signals/current_thread_id.c`) fails with exactly that diagnostic; full `ctest`
+suite (15 tests) passes under ASan/UBSan on macOS arm64. The FreeBSD leg of CI (ideas.md
+3.2) remains the only place the `pthread_getthreadid_np()` branch is compiled.
 
 ### 4.2 `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL` auto-detection is too optimistic
 
@@ -807,6 +821,15 @@ a strict build are invisible.
   pass under TSan in C11 and C23 builds. This supplies the race-free verification of the
   2.1/2.2 fixes (the macOS legs exercise the fallback TLS path); 3.1 (spinlock not
   async-signal-safe) is a handler-re-entrancy hazard TSan cannot detect and remains open.
+- No CI leg runs a fourth OS; the FreeBSD-only code paths — the
+  `pthread_getthreadid_np()` branch in `current_thread_id.c.ipp` and the `libstdthreads`
+  link for the C11 `thrd_*` tests — are never compiled or run. **[FIXED 2026-08-10]** — a
+  `FreeBSD` job (real FreeBSD 15 kernel under QEMU via `vmactions/freebsd-vm@v1`, C11/C23,
+  Ninja generator, `sanitize-toolchain.cmake`, Release) was added to
+  `.github/workflows/ci.yml`, with the §2.4 `stdthreads` link and the `current_thread_id`
+  unsupported-platform `#error` (4.1) as prerequisites (ideas.md 3.2). The fallback
+  hash-table TLS path (`WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0` on Linux) is still
+  only exercised on macOS (ideas.md 2.1/3.4).
 
 ### 5.5 `ProjectConfig.cmake.in` references non-existent export names
 
@@ -1264,7 +1287,7 @@ invite reading `error_code`.
 | 2.6 | Med | `tss_async_signal_safe_*` NULL handle crash (also Z8, X8) | `tss_async_signal_safe.c.ipp:93-243` |
 | 3.1 | Med | Spinlock not async-signal-safe | `lock_unlock.h` |
 | 3.3 | Med | `SA_NOCLDWAIT`/`SA_NODEFER`/no `SA_RESTART` semantics | `thrd_signal_handle_posix.c.ipp:371-383` |
-| 4.1 | Med | FreeBSD-only fallback for `get_current_thread_id` | `current_thread_id.c.ipp:70-72` |
+| 4.1 | Med | FreeBSD-only fallback for `get_current_thread_id` **[FIXED 2026-08-10]** | `current_thread_id.c.ipp:70-72` |
 | 8.1 | Low | Post-longjmp access to modified non-volatile locals | `thrd_signal_handle_posix.c.ipp:252-258` |
 | V5 | Med | Windows global deciders run twice per exception (once under a debugger) | `thrd_signal_handle_windows.c.ipp:408-427` |
 | V6 | Med | setjmp-buffer race: frame published before setjmp completes | `thrd_signal_handle_posix.c.ipp:251-252`, `thrd_signal_handle_windows.c.ipp:270-271` |

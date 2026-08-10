@@ -216,3 +216,40 @@ jobs:
     - name: CMake tests TSan
       shell: bash
       run: cd build && ctest --output-on-failure --timeout 300 -E benchmark
+
+  FreeBSD:
+    name: FreeBSD (C${{ matrix.standard }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        standard: [11, 23]
+    env:
+      NAME: FreeBSD-C${{ matrix.standard }}
+    steps:
+    - uses: actions/checkout@v4
+
+    # Real FreeBSD kernel under QEMU on the standard Ubuntu runner (github's
+    # own runners are Ubuntu/macOS/Windows only). The workspace is synced into
+    # the VM and the prepare/run scripts execute inside it as root. clang ships
+    # in the FreeBSD base system (with ASan/UBSan runtimes), so only cmake and
+    # ninja are installed; cache-after-prepare reuses the prepared image on
+    # later runs so pkg install runs once. release "15" tracks the newest 15.x
+    # point release. This leg compiles the FreeBSD-only pthread_getthreadid_np
+    # branch of current_thread_id.c.ipp and the libstdthreads C11-threads link
+    # (plans/ideas.md 3.2, 2.4). The fallback hash-table TLS path is still
+    # exercised only by the macOS legs (analysis.md 5.4).
+    - name: FreeBSD VM
+      uses: vmactions/freebsd-vm@v1
+      with:
+        envs: 'NAME'
+        usesh: true
+        cache-after-prepare: true
+        prepare: |
+          pkg install -y cmake ninja
+        run: |
+          set -e
+          mkdir build && cd build
+          cmake -G Ninja .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_STANDARD=${{ matrix.standard }} -DCMAKE_TOOLCHAIN_FILE=$PWD/../cmake/sanitize-toolchain.cmake
+          cmake --build . --parallel
+          ctest --output-on-failure --timeout 300 -E benchmark

@@ -42,6 +42,10 @@ else()
 endif()
 target_include_directories(header_only_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../include")
 target_compile_features(header_only_test PRIVATE c_std_11 cxx_std_11)
+# This target creates threads (thrd_create/thrd_join in header_only_test.cpp),
+# so on FreeBSD it must link libstdthreads itself: it deliberately does NOT
+# link the library, so it does not inherit the library's PUBLIC stdthreads link.
+target_link_libraries(header_only_test PRIVATE $<$<PLATFORM_ID:FreeBSD>:stdthreads>)
 set_target_properties(header_only_test PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )

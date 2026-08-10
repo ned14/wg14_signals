@@ -91,6 +91,12 @@ if(WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT)
     target_link_libraries(${PROJECT_NAME} PUBLIC ${WG14_SIGNALS_CXA_THREAD_ATEXIT_LIB})
   endif()
 endif()
+# FreeBSD keeps its C11 <threads.h> implementation (thrd_*, mtx_*, ...) in a
+# separate base library, libstdthreads, rather than in libc or libpthread.
+# Link it PUBLIC so consumers of the library (and its header-only inline
+# implementations) get it transitively; only targets that deliberately do not
+# link the library (test/header_only_test) need their own link.
+target_link_libraries(${PROJECT_NAME} PUBLIC $<$<PLATFORM_ID:FreeBSD>:stdthreads>)
 target_compile_features(${PROJECT_NAME} PRIVATE c_std_11 cxx_std_11)
 target_compile_definitions(${PROJECT_NAME} PRIVATE WG14_SIGNALS_SOURCE)
 if(LIBC_HAS__SETJMP)

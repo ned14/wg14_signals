@@ -81,8 +81,11 @@ extern "C"
   thread_port_t tid = mach_thread_self();
   mach_port_deallocate(mach_task_self(), tid);
   return (WG14_SIGNALS_PREFIX(thread_id_t)) tid;
-#else
+#elif defined(__FreeBSD__)
   return (WG14_SIGNALS_PREFIX(thread_id_t)) pthread_getthreadid_np();
+#else
+#error "current_thread_id(): unsupported platform; add an explicit branch to "       \
+  "get_current_thread_id() for this platform"
 #endif
   }
 
