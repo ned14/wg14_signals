@@ -43,6 +43,14 @@ thread is still decrementing it or reading `state->val`; the last deinit clears
 destroy-after-join requirement is now documented in `tss_async_signal_safe.h`; the
 `attr.destroy` callback value is captured under the lock before the unlocked callback
 call, and a non-zero callback return no longer leaks the TID entry or the count (Y4).
+**Follow-up fix (Linux LSan CI):** moving the count decrement + `free(state)` inside the
+`mem != NULL` block made a thread whose instance was destroyed while it was still
+registered (the tests do exactly this) skip both, leaking the 16-byte `deinit_state`.
+The `mem == NULL` branch now still drops the thread's reference (decrement `state->count`,
+free on zero) — `destroy` clears `state->val` but never frees `state`; the last
+still-registered thread's deinit does. Verified against the exact CI failure: under Linux
+ASan/LSan (arm64 Ubuntu container) `async_signal_safe_tls_test` and `header_only_test`
+reproduce the reported 16-byte leak on the unfixed code and are clean with the fix.
 **Verified:** macOS arm64, clang 22, ASan/UBSan. The new regression test
 `test/tss_concurrent_exit_test.c` (registered as `tss_concurrent_exit_test` in
 `test/CMakeLists.txt`) reproduces the ASan `heap-use-after-free` WRITE at

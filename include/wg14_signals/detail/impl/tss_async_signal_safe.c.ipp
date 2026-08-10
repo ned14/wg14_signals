@@ -177,6 +177,20 @@ extern "C"
       }
       UNLOCK(mem->lock);
     }
+    else
+    {
+      // The instance was destroyed while this thread was still registered:
+      // destroy() dropped its own pointer and cleared state->val but did not
+      // free the deinit_state, so the reference this thread took at
+      // thread_init() is still outstanding. Drop it now; the last registered
+      // thread frees state.
+      if(1 ==
+         atomic_fetch_sub_explicit(
+         &state->count, 1, WG14_SIGNALS_ATOMIC_PREFIX memory_order_relaxed))
+      {
+        free(state);
+      }
+    }
     return ret;
   }
 
