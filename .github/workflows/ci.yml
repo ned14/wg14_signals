@@ -157,3 +157,62 @@ jobs:
       if: runner.os == 'Windows'
       shell: bash
       run: cd build && ctest -C Debug --output-on-failure --timeout 300 -E benchmark
+
+  TSan:
+    name: TSan (${{ matrix.os }}, ${{ matrix.compiler }}, C${{ matrix.standard }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - os: ubuntu-latest
+          compiler: gcc
+          standard: 11
+        - os: ubuntu-latest
+          compiler: gcc
+          standard: 23
+        - os: ubuntu-latest
+          compiler: clang
+          standard: 11
+        - os: ubuntu-latest
+          compiler: clang
+          standard: 23
+        - os: macos-latest
+          compiler: clang
+          standard: 11
+        - os: macos-latest
+          compiler: clang
+          standard: 23
+    env:
+      CC: ${{ matrix.compiler }}
+      # TSan reports races but continues by default; halt on the first report
+      # so a data race fails the test (and therefore the job). Keep the report
+      # on stderr so ctest --output-on-failure shows it, force symbolization of
+      # the stack traces, and grow per-thread history to the maximum so every
+      # race report includes the full stack trace of each participating thread.
+      TSAN_OPTIONS: halt_on_error=1 log_path=stderr symbolize=1 history_size=7
+    steps:
+    - uses: actions/checkout@v4
+
+    # Ubuntu 24.04 runners use a high ASLR entropy (mmap_rnd_bits=32) which
+    # makes TSan abort at startup with "unexpected memory mapping"; lowering it
+    # to 28 is the standard workaround. Ignore failures in case the knob is
+    # unavailable. macOS is unaffected.
+    - name: Allow TSan to start (lower ASLR entropy, Linux only)
+      if: runner.os == 'Linux'
+      run: sudo sysctl vm.mmap_rnd_bits=28 || true
+
+    - name: Configure TSan
+      shell: bash
+      run: |
+        mkdir build && cd build
+        export CXX=${CC/cc/}++
+        cmake .. -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_STANDARD=${{ matrix.standard }} -DCMAKE_TOOLCHAIN_FILE=$PWD/../cmake/tsan-toolchain.cmake
+
+    - name: Build TSan
+      shell: bash
+      run: cd build && cmake --build . --parallel
+
+    - name: CMake tests TSan
+      shell: bash
+      run: cd build && ctest --output-on-failure --timeout 300 -E benchmark

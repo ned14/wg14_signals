@@ -200,7 +200,7 @@ about.
 adapted to this repo (branch `main`, no `ALWAYS_USE_PTHREADS` dimension, tests use
 `thrd_*`).
 
-### 3.1 TSan job (fixes analysis.md 5.4 "no TSan"; targets 2.1, 2.2, 3.1)
+### 3.1 TSan job (fixes analysis.md 5.4 "no TSan"; targets 2.1, 2.2, 3.1) **[DONE 2026-08-10]**
 
 Append the sibling's TSan job (`ci.yml:220-277`): Ubuntu gcc+clang x C11/C23 and macOS
 clang x C11/C23 (6 legs), `-DCMAKE_TOOLCHAIN_FILE=$PWD/../cmake/tsan-toolchain.cmake`,
@@ -210,6 +210,23 @@ with `TSAN_OPTIONS: halt_on_error=1 log_path=stderr symbolize=1 history_size=7` 
 linker flags). **Before this job can pass, port §6.2** (TSAN-aware `<threads.h>` fallback):
 glibc's `thrd_create()` calls `pthread_create()` inside libc, bypassing TSan's
 interceptor, and the spawned thread crashes immediately (verified in the sibling suite).
+
+**Done 2026-08-10:** the `TSan` job was appended to `.github/workflows/ci.yml` (6 legs:
+Ubuntu gcc/clang x C11/C23, macOS clang x C11/C23, `fail-fast: false`), exactly as
+sketched — Debug, `-DCMAKE_TOOLCHAIN_FILE=$PWD/../cmake/tsan-toolchain.cmake`,
+`TSAN_OPTIONS=halt_on_error=1 log_path=stderr symbolize=1 history_size=7`, and the
+`sysctl vm.mmap_rnd_bits=28` workaround on Linux. `cmake/tsan-toolchain.cmake` was
+created as a copy of the sibling's (`-fsanitize=thread` on C/CXX + both linker flags).
+`test/test_common.h` now carries the §6.2 TSAN-aware `<threads.h>` selection
+(`WG14_SIGNALS_TEST_TSAN` probe via nested `__has_feature(thread_sanitizer)` /
+`__SANITIZE_THREAD__`, and the pthread-based `thrd_*` shim — including
+`thrd_sleep`/`nanosleep` — whenever glibc is combined with TSan, so thread creation
+goes through the interposable `pthread_create()`). **Verified:** all 15 `ctest` tests
+pass under TSan on macOS arm64 (clang 17) in both C11 and C23 builds, and the
+ASan/UBSan build is unaffected; the macOS legs exercise the fallback TLS path (2.1's
+race), the Linux legs the native TLS path. `sigfence_codegen_test` and
+`header_only_build_test` configure their sub-projects without the sanitizer toolchain,
+so their codegen assertions are unaffected.
 
 ### 3.2 FreeBSD VM job (fixes analysis.md 5.4, 4.1)
 
@@ -407,8 +424,9 @@ the new regression test `test/tss_concurrent_exit_test.c` (registered as
 `tss_concurrent_exit_test`, §6.4) fails on the unfixed library with ASan
 `heap-use-after-free` at `tss_async_signal_safe.c.ipp:217` and passes with the fix,
 including a 1000-iteration two-thread concurrent-exit stress; the full `ctest` suite (13
-tests) passes. The TSan job (§3.1) remains the follow-up for the race-free claim under
-TSan.
+tests) passes. The TSan job (§3.1) now provides the race-free verification: the full
+`ctest` suite (15 tests) passes under `-fsanitize=thread` on the macOS leg (fallback
+path) in C11 and C23.
 
 ### 5.3 `tss_async_signal_safe_thread_init`: re-check under the lock (fixes analysis.md 3.13, 3.14, 2.5)
 
@@ -557,13 +575,19 @@ the "ASYNC-SIGNAL-SAFE" claim.
 `while(atomic_load(...) == 2) {}` handshakes in `thrd_signal_handle_test.c:118-120` and
 `thrd_sigfpe_test.c` to use it. (AGENTS.md rule 5.)
 
-### 6.2 TSAN-aware `<threads.h>` selection
+### 6.2 TSAN-aware `<threads.h>` selection **[DONE 2026-08-10]**
 
 **Concrete change.** Replace `test_common.h:18-61` with the sibling's `test_common.h:21-95`:
 keep the real `<threads.h>` except when `__GLIBC__ && TSAN`, in which case use the
 pthread-based `thrd_*` shim with the nested `__has_feature`/`__SANITIZE_THREAD__` probe.
 Required before the TSan CI job (§3.1) can pass — glibc's `thrd_create` bypasses TSan's
 `pthread_create` interceptor and the spawned thread crashes immediately.
+
+**Done 2026-08-10:** `test/test_common.h` now carries the TSAN-aware selection exactly as
+sketched (the `WG14_SIGNALS_TEST_TSAN` probe plus the pthread `thrd_*` shim with
+`thrd_sleep`/`nanosleep`, used whenever `__GLIBC__ && TSan`); on macOS (no `<threads.h>`)
+the shim was already the active path. **Verified:** macOS arm64, clang 17 — the full
+`ctest` suite (15 tests) passes under `-fsanitize=thread` in both C11 and C23 builds.
 
 ### 6.3 `SECTION(...)` progress markers
 
@@ -700,7 +724,7 @@ Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattributes`).
 | 2 | Install-consumer ctest | `test/install_consumer/` | V1 regression-proofing | Medium |
 | 3 | Fallback-path setup: dead-code fix + NULL-safe tss API **[2.4/Z3 DONE 2026-08-10]** | `:264-281`, `tss_async_signal_safe.c.ipp:93-243` | 2.4, 2.6, Z3 | Small |
 | 4 | Windows NULL-tss guard (V2); `install_sighandler` count-before-create (2.3) **[2.3 DONE 2026-08-10]** | `thrd_signal_handle_windows.c.ipp:357-367`, `thrd_signal_handle_common.ipp.ipp:316-323` | V2, 2.3 | Small |
-| 5 | TSan CI job + `tsan-toolchain.cmake` + TSAN-aware `test_common.h` | `.github/workflows/ci.yml`, `test/test_common.h` | 5.4, 2.1, 2.2, 3.1 | Medium |
+| 5 | TSan CI job + `tsan-toolchain.cmake` + TSAN-aware `test_common.h` **[DONE 2026-08-10]** | `.github/workflows/ci.yml`, `test/test_common.h` | 5.4, 2.1, 2.2, 3.1 | Medium |
 | 6 | Per-test `TIMEOUT 60` | `CMakeLists.txt:88-91` | test hygiene | Trivial |
 | 7 | AGENTS.md rules 4 & 5 | `AGENTS.md` | Y7, flaky tests | Trivial |
 | 8 | `tss_async_signal_safe`: lock-free `get` via cached TLS value; deinit count under lock; init re-check | `tss_async_signal_safe.c.ipp:136-243` | 3.1, 2.1, 3.13, 3.14, 2.5 | Medium |

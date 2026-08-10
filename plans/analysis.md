@@ -797,7 +797,16 @@ a strict build are invisible.
 - No CI runs the benchmark targets at all (`-E benchmark`), so the performance claims in
   the README are not verified.
 - No CI tests C11 atomics with an actual stress/TSan build; the spinlock code paths (3.1)
-  would benefit from TSAN.
+  would benefit from TSAN. **[FIXED 2026-08-10]** — a dedicated `TSan` job (Ubuntu
+  gcc/clang and macOS clang, C11 and C23) was added to `.github/workflows/ci.yml`, driven
+  by `cmake/tsan-toolchain.cmake` (`-fsanitize=thread` on C/CXX and the linker) with
+  `TSAN_OPTIONS=halt_on_error=1 log_path=stderr symbolize=1 history_size=7`. Because
+  glibc's `thrd_create()` calls `pthread_create()` inside libc and bypasses TSan's
+  interceptor, `test/test_common.h` now selects the pthread-based `thrd_*` shim under
+  glibc+TSan (ideas.md 6.2). Verified on macOS arm64 (clang 17): all 15 `ctest` tests
+  pass under TSan in C11 and C23 builds. This supplies the race-free verification of the
+  2.1/2.2 fixes (the macOS legs exercise the fallback TLS path); 3.1 (spinlock not
+  async-signal-safe) is a handler-re-entrancy hazard TSan cannot detect and remains open.
 
 ### 5.5 `ProjectConfig.cmake.in` references non-existent export names
 

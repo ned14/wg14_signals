@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #define STRINGISE2(x) #x
 #define STRINGISE(x) STRINGISE2(x)
@@ -15,12 +16,35 @@
     ret++;                                                                     \
   }
 
-#if __has_include(<threads.h>)
+// TSAN detection: GCC defines __SANITIZE_THREAD__; Clang exposes
+// __has_feature(thread_sanitizer). The __has_feature probe is nested so that
+// compilers without __has_feature support (which would report a preprocessor
+// parse error if it appeared inside an #if expression) skip it entirely.
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define WG14_SIGNALS_TEST_TSAN 1
+#endif
+#endif
+#if !defined(WG14_SIGNALS_TEST_TSAN) && defined(__SANITIZE_THREAD__)
+#define WG14_SIGNALS_TEST_TSAN 1
+#endif
+
+// Prefer the real C11 <threads.h> API when available. Exception: glibc's
+// thrd_create() calls pthread_create() from inside libc, which bypasses TSan's
+// pthread_create interceptor. The spawned thread is then never registered with
+// TSan and crashes the moment it runs instrumented code (SEGV at thr+0x18
+// inside __tsan_func_entry). On glibc under TSan only, use the pthread-based
+// fallback below so thread creation goes through the interposable
+// pthread_create() symbol in this TU, which TSan does intercept. Other libcs
+// (macOS, musl, FreeBSD, ...) do not have this problem.
+#if __has_include(<threads.h>) && \
+    !(defined(__GLIBC__) && defined(WG14_SIGNALS_TEST_TSAN))
 #include <threads.h>
 #else
-// Only Mac OS doesn't support <threads.h> nowadays
 
 #include <pthread.h>
+
+#define thrd_success 0
 
 typedef int (*thrd_start_t)(void *);
 typedef struct thrd_s
@@ -58,4 +82,15 @@ static inline int thrd_join(thrd_t thr, int *res)
   free(thr);
   return ret;
 }
+
+static inline int thrd_sleep(const struct timespec *duration,
+                             struct timespec *remaining)
+{
+  return nanosleep(duration, remaining);
+}
+
+#endif
+
+#ifdef WG14_SIGNALS_TEST_TSAN
+#undef WG14_SIGNALS_TEST_TSAN
 #endif
