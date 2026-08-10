@@ -370,7 +370,8 @@ Windows leg of the fix is compiled and run by the Windows CI matrix.
    hidden, non-exported symbol). The variable is deliberately NOT
    `WG14_SIGNALS_EXTERN_IMPL`/dllexported: variables cannot be dllexported.
 4. New C `thread_atexit` implementation (`detail/impl/thread_atexit.c.ipp`, pthread-key
-   destructors on POSIX, FLS callbacks on Windows) included from `thread_atexit.h` for C
+   destructors on POSIX, and the MSVC `IMAGE_TLS_DIRECTORY` TLS callback array
+   (`.CRT$XLB`) on Windows) included from `thread_atexit.h` for C
    header-only consumers; `thread_atexit.cpp.ipp` got an include guard and its definition
    now matches the header declaration.
 

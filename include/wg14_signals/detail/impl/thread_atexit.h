@@ -43,7 +43,8 @@ extern "C"
 // No __cxa_thread_atexit(): prefer the C++ implementation.
 #include "thread_atexit.cpp.ipp"
 #else
-// No __cxa_thread_atexit() and no C++: use the C pthread-key/FLS fallback.
+// No __cxa_thread_atexit() and no C++: use the C pthread-key (POSIX) /
+// MSVC IMAGE_TLS_DIRECTORY fallback.
 #include "thread_atexit.c.ipp"
 #endif
 #endif

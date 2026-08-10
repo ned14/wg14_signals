@@ -145,7 +145,7 @@ header-only mode; include guards added to `current_thread_id.c.ipp`,
 `thrd_signal_handle_posix.c.ipp`, `thrd_signal_handle_windows.c.ipp` and
 `thread_atexit.cpp.ipp`; `internal_current_thread_id_cached_set` definition linkage fixed
 and the TLS variable made weak/selectany; a C `thread_atexit` (`thread_atexit.c.ipp`,
-pthread-key/FLS) added. Verified: `-DHEADER_ONLY_BUILD=ON` builds and passes all 10
+pthread-key/MSVC-TLS-directory) added. Verified: `-DHEADER_ONLY_BUILD=ON` builds and passes all 10
 tests; `header_only_c_consumer` (single-TU C, -O0) and `header_only_c_multi_test` (3-TU
 C) build/link/run; the 3-TU C++ `header_only_test` links. Regression tests:
 `header_only_build_test.cmake` and `header_only_c_multi_test`.
@@ -168,7 +168,18 @@ with no C++ runtime dependency there. The C++ implementation (`thread_atexit.cpp
 `thread_atexit.cpp.ipp`, thread_local vector) is retained and selected — in preference to
 the C one — on platforms without `__cxa_thread_atexit()` (e.g. Windows), where C++
 consumers and the library use it while C header-only consumers fall back to the
-pthread-key/FLS implementation. Only one implementation is ever compiled.
+pthread-key/MSVC-TLS-directory implementation. Only one implementation is ever compiled.
+
+**MSVC `IMAGE_TLS_DIRECTORY` fallback (2026-08-10):** the FLS-based Windows fallback in
+`thread_atexit.c.ipp` was replaced by an implementation that drains the registered
+callbacks at thread exit through the PE TLS callback array: the callback is folded into
+`.CRT$XLB` (`#pragma section` + `__declspec(allocate)`, the same mechanism the CRT uses
+for `__declspec(thread)` destructors), with the per-thread list held in a
+`__declspec(thread)` variable. It is gated on `_MSC_VER`, so both MSVC and clang-cl use
+it while ordinary GNU-mode clang and MinGW (which do not define `_MSC_VER`) are excluded;
+MinGW supplies `__cxa_thread_atexit()` via winpthreads, so it takes the
+`__cxa_thread_atexit()` branch. The CMake probe no longer tries the ELF-toolchain
+candidate libraries (`supc++`/`c++abi`/`stdc++`) on Windows.
 
 ### 1.4 Per-test `TIMEOUT` (test hygiene)
 

@@ -28,8 +28,11 @@ check_c_source_compiles("#include <setjmp.h>\nint main(void) { jmp_buf buf; retu
 # without dragging in the libstdc++/libc++ standard-library runtime, so a C
 # consumer links it with no C++ runtime dependency. libc++abi is the clang
 # equivalent (dynamic); libstdc++ also works but pulls the full C++ runtime.
-# macOS/musl-free C runtimes that supply the wrapper directly are picked up by
-# the no-extra-library probe below.
+# macOS and FreeBSD C runtimes that supply the wrapper directly are picked up
+# by the no-extra-library probe below. On Windows the MSVC CRT provides no
+# __cxa_thread_atexit() at all (thread_atexit() uses the IMAGE_TLS_DIRECTORY
+# mechanism there), and the candidate libraries are ELF-toolchain libraries,
+# so they are only probed on non-Windows.
 set(_cxa_probe_src "
 extern int __cxa_thread_atexit(void (*func)(void *), void *obj, void *dso_symbol);
 static void run(void *o) { (void) o; }
@@ -38,7 +41,7 @@ int main(void) { return __cxa_thread_atexit(run, (void *) 0, (void *) &dso_symbo
 ")
 set(CMAKE_REQUIRED_LIBRARIES "")
 check_c_source_compiles("${_cxa_probe_src}" WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT)
-if(NOT WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT)
+if(NOT WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT AND NOT WIN32)
   foreach(_candidate supc++ c++abi stdc++)
     set(CMAKE_REQUIRED_LIBRARIES "${_candidate}")
     unset(_wg14_signals_cxa_result CACHE)
@@ -58,7 +61,7 @@ if(WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT)
     message(STATUS "__cxa_thread_atexit() found, supplied by the C runtime")
   endif()
 else()
-  message(STATUS "__cxa_thread_atexit() not found; thread_atexit() uses the C++/pthread-key/FLS fallback")
+  message(STATUS "__cxa_thread_atexit() not found; thread_atexit() uses the C++/pthread-key/MSVC-TLS-directory fallback")
 endif()
 
 # thread_atexit(): the C implementation (using __cxa_thread_atexit()) is used
