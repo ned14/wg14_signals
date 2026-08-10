@@ -16,14 +16,8 @@
 // The slot must be reset to NULL so the next entry recreates the TSS.
 
 // SIGILL is SEH-mapped on Windows (EXCEPTION_ILLEGAL_INSTRUCTION) and a
-// standard POSIX signal, so a stdc_raise() falls through to the benign handler
-// installed below on both platforms.
+// standard POSIX signal, so the raise is seen by the library on both platforms.
 #define INSTALLED_SIGNAL SIGILL
-
-static void benign_handler(int signo)
-{
-  (void) signo;
-}
 
 static union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
 reentry_guarded(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
@@ -42,14 +36,19 @@ reentry_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
   return WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery);
 }
 
+// The raise-while-installed step is claimed by a global decider: on Windows an
+// unclaimed stdc_raise terminates the process (analysis.md W5), so a bare raise
+// with no frame or decider cannot be used (cf. thrd_sigfpe_test.c test 2).
+static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+raise_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
+{
+  (void) rsi;
+  return WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery);
+}
+
 int main(void)
 {
   int ret = 0;
-  if(SIG_ERR == signal(INSTALLED_SIGNAL, benign_handler))
-  {
-    fprintf(stderr, "signal() failed: %s\n", strerror(errno));
-    return 1;
-  }
   for(int cycle = 0; cycle < 10; cycle++)
   {
     sigset_t installed;
@@ -64,8 +63,16 @@ int main(void)
     }
     // Use the library while installed, registering this thread in the TSS on
     // the fallback path.
-    CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(
-    INSTALLED_SIGNAL, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR));
+    union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value = {0};
+    void *decider = WG14_SIGNALS_PREFIX(signal_decider_create)(
+    &installed, false, raise_decider, value);
+    CHECK(decider != WG14_SIGNALS_NULLPTR);
+    if(decider != WG14_SIGNALS_NULLPTR)
+    {
+      CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(
+      INSTALLED_SIGNAL, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR));
+      CHECK(0 == WG14_SIGNALS_PREFIX(signal_decider_destroy)(decider));
+    }
     // Full uninstall destroys the TSS on the fallback path.
     CHECK(0 == WG14_SIGNALS_PREFIX(siguninstall)(handlers));
     // Re-entry after a full uninstall must recreate the TSS, not dereference
@@ -77,7 +84,6 @@ int main(void)
     sigset_t guarded;
     sigemptyset(&guarded);
     sigaddset(&guarded, SIGSEGV);
-    union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value = {0};
     (void) WG14_SIGNALS_PREFIX(sigguarded)(
     &guarded, reentry_guarded, reentry_recovery, reentry_decider, value);
   }

@@ -132,9 +132,12 @@ the unfixed fallback path it reproduces the ASan `heap-use-after-free` READ at
 `tss_async_signal_safe.c.ipp:190` (`sig_global_tss_state_init` -> `thread_init` on the freed
 handle) and now passes; full `ctest` suite (15 tests) passes under ASan/UBSan on macOS
 arm64. The test is cross-platform: `INSTALLED_SIGNAL` is `SIGILL`, which is SEH-mapped on
-Windows (`EXCEPTION_ILLEGAL_INSTRUCTION`) and a standard POSIX signal, so the raise-while-
-installed step runs on both platforms (SIGTERM/SIGUSR2 were rejected: SIGTERM is not
-SEH-mapped and `win32_exception_code_from_signal` aborts on it).
+Windows (`EXCEPTION_ILLEGAL_INSTRUCTION`) and a standard POSIX signal. The raise-while-
+installed step is claimed by a global decider because on Windows an *unclaimed*
+`stdc_raise` terminates the process (W5; a bare `signal()` handler is not enough — the
+CRT never converts the software-raised exception, cf. `thrd_sigfpe_test.c` test 2).
+SIGTERM/SIGUSR2 were rejected: SIGTERM is not SEH-mapped and
+`win32_exception_code_from_signal` aborts on it.
 
 ### 2.5 `tss_async_signal_safe_thread_init` returns success when `create` yields NULL
 
