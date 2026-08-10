@@ -355,12 +355,15 @@ to do — add the wrong-platform `#error` to the POSIX file:
 
 ### 5.1 `sig_global_tss_state_*` on the fallback path (fixes analysis.md 2.4, 2.6)
 
-**Parts 2-3 remain open** (part 1, the self-creating `sig_global_tss_state_init`, is
-done):
+**Part 2 done 2026-08-10; part 3 remains open** (part 1, the self-creating
+`sig_global_tss_state_init`, is done):
 
 2. Execute the dead reset in `sig_global_tss_state_destroy`
    (`thrd_signal_handle_common.ipp.ipp:276-281`) so `*sig_tss_state_raw() = NULL` actually
    runs after uninstall — fixing the post-uninstall UAF (analysis.md 2.4, Z3):
+   **[DONE 2026-08-10]** implemented exactly as sketched (return value captured first, then
+   the slot reset); verified by the new `post_uninstall_reentry_test.c`, which reproduces
+   the ASan UAF on the unfixed code and passes now.
 
    ```c
    static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
@@ -579,6 +582,7 @@ Add to `test/` (all `add_code_test`, C11):
 | `decider_cycle_test.c` | siginstall -> decider -> destroy -> uninstall -> siginstall -> decider -> raise (the AA1 orphan cycle) | AA1, Z3 |
 | `tss_concurrent_exit_test.c` **[DONE 2026-08-10]** | two threads sharing one `tss_async_signal_safe`, both `thread_init`, both exit; 1000 iterations + deterministic `create -> T1 inits+exits -> T2 inits -> destroy` reinit/destroy-after-last-exit regression | 2.1, X1/X2 |
 | `siguninstall_raise_test.c` **[DONE 2026-08-10]** | raise parked inside a global decider while `signal_decider_destroy` + `siguninstall` run concurrently; 100 cycles | 2.2, W4 |
+| `post_uninstall_reentry_test.c` **[DONE 2026-08-10]** | install -> use -> full uninstall -> `stdc_raise(0)` + `sigguarded` re-entry; 10 cycles | 2.4, Z3 |
 | `tss_null_handle_test.c` | `create/destroy/thread_init/get` on NULL and zeroed handles | 2.6 |
 | `lock_whitebox_test.c` | `#include "detail/impl/lock_unlock.h"`, lock/unlock under TSan | 3.1 discipline |
 
@@ -694,7 +698,7 @@ Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattributes`).
 |---|--------|----------|--------------------|--------|
 | 1 | Packaging: `configure_package_config_file` + version file + `install(DIRECTORY include/...)` | `CMakeLists.txt:10,58-70` | V1 | Small |
 | 2 | Install-consumer ctest | `test/install_consumer/` | V1 regression-proofing | Medium |
-| 3 | Fallback-path setup: dead-code fix + NULL-safe tss API | `:264-281`, `tss_async_signal_safe.c.ipp:93-243` | 2.4, 2.6, Z3 | Small |
+| 3 | Fallback-path setup: dead-code fix + NULL-safe tss API **[2.4/Z3 DONE 2026-08-10]** | `:264-281`, `tss_async_signal_safe.c.ipp:93-243` | 2.4, 2.6, Z3 | Small |
 | 4 | Windows NULL-tss guard (V2); `install_sighandler` count-before-create (2.3) **[2.3 DONE 2026-08-10]** | `thrd_signal_handle_windows.c.ipp:357-367`, `thrd_signal_handle_common.ipp.ipp:316-323` | V2, 2.3 | Small |
 | 5 | TSan CI job + `tsan-toolchain.cmake` + TSAN-aware `test_common.h` | `.github/workflows/ci.yml`, `test/test_common.h` | 5.4, 2.1, 2.2, 3.1 | Medium |
 | 6 | Per-test `TIMEOUT 60` | `CMakeLists.txt:88-91` | test hygiene | Trivial |

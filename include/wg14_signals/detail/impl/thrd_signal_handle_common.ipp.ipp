@@ -311,9 +311,14 @@ WG14_SIGNALS_PREFIX(sig_global_tss_state)(void)
 }
 static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
 {
-  return WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(
+  // The reset of the static TSS slot was previously dead code after a return,
+  // leaving *sig_tss_state_raw() dangling at the freed tss_async_signal_safe;
+  // any later sigguarded()/stdc_raise() then thread_init'd the freed handle
+  // (analysis.md 2.4/Z3). Reset the slot so the next entry recreates the TSS.
+  const int ret = WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(
   *WG14_SIGNALS_PREFIX(sig_tss_state_raw)());
   *WG14_SIGNALS_PREFIX(sig_tss_state_raw)() = WG14_SIGNALS_NULLPTR;
+  return ret;
 }
 #endif
 
@@ -322,7 +327,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
   struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo);
   static bool WG14_SIGNALS_PREFIX(uninstall_sighandler_impl)(
   struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo);
-  
+
   static bool WG14_SIGNALS_PREFIX(install_sighandler)(const int signo)
   {
     struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =

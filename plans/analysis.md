@@ -105,13 +105,25 @@ path and the full `ctest` suite (14 tests) passes under ASan/UBSan, including th
 install/uninstall cycles in `thrd_signal_handle_test`, `decider_mixed_set_test`,
 `siguninstall_raise_test` and `standalone_setup_test`.
 
-### 2.4 `sig_global_tss_state_destroy` contains dead code
+### 2.4 `sig_global_tss_state_destroy` contains dead code **[FIXED 2026-08-10]**
 
 `thrd_signal_handle_common.ipp.ipp:276-281`: the intended reset of the static TSS slot to
 NULL sits after a `return` and never runs. After a full uninstall, `*sig_tss_state_raw()`
 dangles (freed TSS). **Correction (C18):** the sequential post-uninstall UAF this causes
 (Z3, verified) and the concurrent-uninstall hazard (V7) are two sides of the same missing
 reset.
+
+**Fixed in the fallback `sig_global_tss_state_destroy` (`thrd_signal_handle_common.ipp.ipp`):** the
+`*sig_tss_state_raw() = NULL` reset now executes after the destroy (the return value is
+captured first), so a subsequent `sig_global_tss_state_init` recreates the TSS instead of
+`thread_init`-ing the freed handle — this fixes the purely sequential Z3 (2.22); V7's
+concurrent-uninstall framing remains open (3.16). **Verified:** the new regression test
+`test/post_uninstall_reentry_test.c` (registered as `post_uninstall_reentry_test`) performs
+10 install -> use -> full-uninstall -> `stdc_raise(0, ...)` + `sigguarded(...)` cycles; on
+the unfixed fallback path it reproduces the ASan `heap-use-after-free` READ at
+`tss_async_signal_safe.c.ipp:190` (`sig_global_tss_state_init` -> `thread_init` on the freed
+handle) and now passes; full `ctest` suite (15 tests) passes under ASan/UBSan on macOS
+arm64.
 
 ### 2.5 `tss_async_signal_safe_thread_init` returns success when `create` yields NULL
 
@@ -327,7 +339,7 @@ standalone (SIGSEGV). Every map-touching operation crashes on such a platform. M
 libcs never reach NSIG >= 1024, so no CI leg exercises this branch. Fix: call
 `signo_to_sighandler_map_t_init` once.
 
-### 2.22 Z3 [confirmed, High, fallback-TLS platforms] every `sigguarded`/`stdc_raise` after a full `siguninstall` is a heap-use-after-free on the destroyed TSS handle (extends 2.4 / V7)
+### 2.22 Z3 [confirmed, High, fallback-TLS platforms] every `sigguarded`/`stdc_raise` after a full `siguninstall` is a heap-use-after-free on the destroyed TSS handle (extends 2.4 / V7) **[FIXED 2026-08-10]**
 
 `thrd_signal_handle_common.ipp.ipp:276-281`: `sig_global_tss_state_destroy`'s intended
 reset of `*sig_tss_state_raw()` to NULL is dead code. After the final `siguninstall` on
@@ -340,6 +352,12 @@ library after a second `siginstall` also hits the dangling handle (only a fresh
 documented-usage failure; V7's concurrent framing and 2.4's dead-code framing are two
 sides of the same missing reset (C18). Fix: reset the slot to NULL on destroy, and guard
 `thread_init` against a NULL handle.
+
+**Fixed:** the slot reset is now executed (2.4 fix), so every documented sequential
+re-entry after a full `siguninstall` recreates the TSS — both ASan-verified triggers
+(`stdc_raise(0, ...)` and `sigguarded(...)`) pass in the new `post_uninstall_reentry_test`.
+The `thread_init` NULL-handle guard is tracked separately (2.5/2.6); V7's concurrent
+uninstall remains open (3.16).
 
 ### 2.23 AA1 [confirmed, Medium-High] `signal_decider_destroy` crashes after a `siguninstall` -> `siginstall` cycle orphans the decider node (sequential, no concurrency)
 
@@ -1210,7 +1228,7 @@ invite reading `error_code`.
 | X1 | High | `thread_init` UAF on `deinit_state` after all registered threads exited (confirmed) **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:162-166,201-214` |
 | X2 | High | `destroy` UAF on `deinit_state` after all registered threads exited (confirmed) **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:117-121` |
 | Y1 | High | `install_sighandler` lock leak when `install_sighandler_impl` fails (confirmed) | `thrd_signal_handle_common.ipp.ipp:305-311` |
-| Z3 | High | `sigguarded`/`stdc_raise` after full `siguninstall` = heap-UAF on destroyed TSS (confirmed; extends 2.4/V7) | `thrd_signal_handle_common.ipp.ipp:276-281`, `tss_async_signal_safe.c.ipp:177` |
+| Z3 | High | `sigguarded`/`stdc_raise` after full `siguninstall` = heap-UAF on destroyed TSS (confirmed; extends 2.4/V7) **[FIXED 2026-08-10]** | `thrd_signal_handle_common.ipp.ipp:276-281`, `tss_async_signal_safe.c.ipp:177` |
 | V2 | High | Windows vectored handler NULL-derefs `tss->front` on fresh threads | `thrd_signal_handle_windows.c.ipp:357-361` |
 | V3 | High | Windows `sigismember(guarded, 0)` UB; C++ exceptions swallowed by `sigguarded` | `thrd_signal_handle_windows.c.ipp:200`, `thrd_signal_handle.h:52-63` |
 | V4 | High | Windows `stdc_raise` aborts for all unsupported signos | `thrd_signal_handle_windows.c.ipp:112-134` |
@@ -1218,7 +1236,7 @@ invite reading `error_code`.
 | X3 | Med-High | Windows `sigguarded` never inits per-thread TSS -> NULL-deref in vectored handler on fresh threads | `thrd_signal_handle_windows.c.ipp:219-249` |
 | AA1 | Med-High | `signal_decider_destroy` NULL-deref/UAF after `siguninstall`->`siginstall` orphans the decider node (confirmed) | `thrd_signal_handle_common.ipp.ipp:328-364,443-614` |
 | 2.3 | Med | `sighandlers_count` increment before TSS-create check **[FIXED 2026-08-10]** | `thrd_signal_handle_common.ipp.ipp:316-323` |
-| 2.4 | Med | Dead code after `return` in `sig_global_tss_state_destroy` | `thrd_signal_handle_common.ipp.ipp:276-281` |
+| 2.4 | Med | Dead code after `return` in `sig_global_tss_state_destroy` **[FIXED 2026-08-10]** | `thrd_signal_handle_common.ipp.ipp:276-281` |
 | 2.5 | Med | `thread_init` returns success for NULL item | `tss_async_signal_safe.c.ipp:186-190` |
 | 2.6 | Med | `tss_async_signal_safe_*` NULL handle crash (also Z8, X8) | `tss_async_signal_safe.c.ipp:93-243` |
 | 3.1 | Med | Spinlock not async-signal-safe | `lock_unlock.h` |

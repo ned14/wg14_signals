@@ -10,6 +10,8 @@ add_code_test(decider_mixed_set_test SOURCES "decider_mixed_set_test.c" FEATURES
 set_tests_properties(decider_mixed_set_test PROPERTIES TIMEOUT 60)
 add_code_test(siguninstall_raise_test SOURCES "siguninstall_raise_test.c" FEATURES c_std_11)
 set_tests_properties(siguninstall_raise_test PROPERTIES TIMEOUT 300)
+add_code_test(post_uninstall_reentry_test SOURCES "post_uninstall_reentry_test.c" FEATURES c_std_11)
+set_tests_properties(post_uninstall_reentry_test PROPERTIES TIMEOUT 300)
 add_code_test(standalone_setup_test SOURCES "standalone_setup_test.c" FEATURES c_std_11)
 add_code_test(stdc_raise_zero_test SOURCES "stdc_raise_zero_test.c" FEATURES c_std_11)
 add_code_test(recovery_null_loop_test SOURCES "recovery_null_loop_test.c" FEATURES c_std_11)
