@@ -511,11 +511,15 @@ the "ASYNC-SIGNAL-SAFE" claim.
   return EXCEPTION_CONTINUE_EXECUTION;
   ```
 
-- **`install_sighandler` count-before-create (2.3)** — `thrd_signal_handle_common.ipp.ipp:316-323`
+- **`install_sighandler` count-before-create (2.3)** **[DONE 2026-08-10]** —
+  `thrd_signal_handle_common.ipp.ipp:316-323`
   increments `sighandlers_count` before the `sig_global_tss_state_create()` check; on
   failure a handler stays installed that can never be uninstalled and the count desyncs.
   Reorder so the increment happens only after the create succeeds, rolling back the map
-  entry otherwise.
+  entry otherwise. **Done 2026-08-10:** the TSS-create failure path now rolls the install
+  back under the lock (`install_sighandler`, `:355-375`): `sighandlers_count` restored,
+  `install_count` decremented and, at zero, the handler uninstalled, the map entry erased
+  and the container released.
 
 ### 5.9 `siguninstall`/`signal_decider_destroy` locking hygiene
 
@@ -691,7 +695,7 @@ Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattributes`).
 | 1 | Packaging: `configure_package_config_file` + version file + `install(DIRECTORY include/...)` | `CMakeLists.txt:10,58-70` | V1 | Small |
 | 2 | Install-consumer ctest | `test/install_consumer/` | V1 regression-proofing | Medium |
 | 3 | Fallback-path setup: dead-code fix + NULL-safe tss API | `:264-281`, `tss_async_signal_safe.c.ipp:93-243` | 2.4, 2.6, Z3 | Small |
-| 4 | Windows NULL-tss guard (V2); `install_sighandler` count-before-create (2.3) | `thrd_signal_handle_windows.c.ipp:357-367`, `thrd_signal_handle_common.ipp.ipp:316-323` | V2, 2.3 | Small |
+| 4 | Windows NULL-tss guard (V2); `install_sighandler` count-before-create (2.3) **[2.3 DONE 2026-08-10]** | `thrd_signal_handle_windows.c.ipp:357-367`, `thrd_signal_handle_common.ipp.ipp:316-323` | V2, 2.3 | Small |
 | 5 | TSan CI job + `tsan-toolchain.cmake` + TSAN-aware `test_common.h` | `.github/workflows/ci.yml`, `test/test_common.h` | 5.4, 2.1, 2.2, 3.1 | Medium |
 | 6 | Per-test `TIMEOUT 60` | `CMakeLists.txt:88-91` | test hygiene | Trivial |
 | 7 | AGENTS.md rules 4 & 5 | `AGENTS.md` | Y7, flaky tests | Trivial |

@@ -73,7 +73,9 @@ the container before the first unlocked decider call and releases it afterwards,
 `siguninstall` drops only the map's reference — the container is freed by
 `sighandler_info_release()` when the last reference goes away (also draining
 `deferred_frees`). The same refcount protocol is applied to the Windows vectored handler
-(`thrd_signal_handle_windows.c.ipp`), fixing W4/2.15's container UAF. **Verified:** the
+(`thrd_signal_handle_windows.c.ipp`), fixing W4/2.15's container UAF. (See 8.6 for the
+caveat this protocol inherits: a decider that never returns leaks the references it
+took.) **Verified:** the
 new regression test `test/siguninstall_raise_test.c` (registered as
 `siguninstall_raise_test`) reproduces the ASan `heap-use-after-free` READ at
 `thrd_signal_handle_posix.c.ipp:355` on the unfixed library (decider node retired via
@@ -81,7 +83,7 @@ new regression test `test/siguninstall_raise_test.c` (registered as
 the decider call) and now passes; full `ctest` suite (14 tests) passes under
 ASan/UBSan on macOS arm64.
 
-### 2.3 `install_sighandler` increments `sighandlers_count` before checking TSS creation
+### 2.3 `install_sighandler` increments `sighandlers_count` before checking TSS creation **[FIXED 2026-08-10]**
 
 `thrd_signal_handle_common.ipp.ipp:315-323`: if `sig_global_tss_state_create()` fails
 (fallback path: `calloc` failure), the function returns false but `sighandlers_count` was
@@ -89,6 +91,19 @@ already incremented and the map entry already installed. The caller (`siginstall
 failure as fatal and returns NULL, leaving a handler installed that can never be
 uninstalled (no handle); a subsequent `siguninstall` would call
 `sig_global_tss_state_destroy()` on a TSS that was never created (see also 2.6).
+
+**Fixed in `install_sighandler` (`thrd_signal_handle_common.ipp.ipp:355-375`):** on
+`sig_global_tss_state_create()` failure the install is rolled back under the lock before
+returning false: `sighandlers_count` is restored, the just-incremented `install_count` is
+decremented, and if it reaches zero the handler is uninstalled
+(`uninstall_sighandler_impl`, which on Windows also removes the just-added vectored
+handler), the map entry erased and the container released. The forward declaration of
+`uninstall_sighandler_impl` was moved before `install_sighandler` to allow the rollback.
+**Verified:** no deterministic test is feasible for this OOM corner (the failure requires
+the fallback-TSS `calloc` to fail); the change is confined to the first-install failure
+path and the full `ctest` suite (14 tests) passes under ASan/UBSan, including the
+install/uninstall cycles in `thrd_signal_handle_test`, `decider_mixed_set_test`,
+`siguninstall_raise_test` and `standalone_setup_test`.
 
 ### 2.4 `sig_global_tss_state_destroy` contains dead code
 
@@ -972,6 +987,44 @@ The library is documented as C++-usable, and MSVC explicitly disables warning 46
 (`thrd_signal_handle_windows.c.ipp:46`) for it. A C++ `sigguarded` caller with RAII objects
 in scope of a raised signal gets skipped destructors silently.
 
+### 8.6 Global deciders may never return (e.g. `siglongjmp` elsewhere) -> leaked node/container reference counts [code-level, both backends, Medium]
+
+A decider function is only restricted to async-signal-safe calls
+(`thrd_signal_handle.h:522-524`); `siglongjmp` and `_exit` are on the POSIX
+async-signal-safe list, and nothing in the docs forbids a decider from transferring
+control away and never returning. The library's own frame-recovery decision already
+transfers control non-locally (`sig_decision_invoke_recovery` longjmps to the guarded
+frame's `jmp_buf`). In the *global* decider path, however, each invocation increments the
+decider node's `refcount` and the container's `lifetime_refcount` before the unlocked
+decider call (`thrd_signal_handle_posix.c.ipp:341,349`; Windows vectored handler
+`thrd_signal_handle_windows.c.ipp:352,360`), and the matching decrements
+(`--current->refcount`, `sighandler_info_release`) only run *after* the decider returns.
+A decider that never returns (e.g. `siglongjmp` to a caller-owned buffer, or a
+non-terminating loop) therefore abandons the raise with both references held forever:
+
+1. The node `refcount` stays elevated, so the node stays linked in
+   `global_handler` and `signal_decider_destroy` can never retire it (its `--refcount`
+   never reaches zero; the handle slot is merely nulled) — a leak that grows
+   unboundedly if the user keeps creating deciders after each abandoned raise.
+2. The container `lifetime_refcount` stays >= 1, so `siguninstall` dropping the map's
+   reference never brings it to zero and `sighandler_info_release` never frees the
+   container — the container and every node on its `global_handler`/`deferred_frees`
+   lists leak permanently (the `state->lock` is *not* held across the decider call, so
+   there is no spinlock leak, only memory).
+
+`_exit()` inside a decider is harmless (process teardown reclaims all memory). A
+never-returning *frame* decider is the Y2/Y2b family (`tss->front` left pointing at a
+dead frame, 8.3). Severity Medium: no UAF/crash, but unbounded leak per abandoned raise.
+
+**Future handling.** The implementation must eventually cope with non-returning deciders.
+Options, in increasing robustness: (a) document that deciders must return and treat a
+never-returning decider as unsupported; (b) make the reference release the *thread's*
+responsibility — record the abandoned container/node in per-thread raise state and drain
+it on the next library entry or at thread exit (via the existing `thread_atexit` hook),
+bounding the leak to one outstanding abandoned raise per thread; (c) hold the release on a
+per-thread "in-flight raise" guard pushed before each unlocked decider call and popped on
+return, with the same drain-on-entry/exit.
+
 ---
 
 ## 9. Minor issues and observations
@@ -1164,7 +1217,7 @@ invite reading `error_code`.
 | Z1 | Med-High | verstable `signo_to_sighandler_map_t` never initialised -> NULL-metadata crash (NSIG >= 1024) | `thrd_signal_handle_common.ipp.ipp:58-135,174-179` |
 | X3 | Med-High | Windows `sigguarded` never inits per-thread TSS -> NULL-deref in vectored handler on fresh threads | `thrd_signal_handle_windows.c.ipp:219-249` |
 | AA1 | Med-High | `signal_decider_destroy` NULL-deref/UAF after `siguninstall`->`siginstall` orphans the decider node (confirmed) | `thrd_signal_handle_common.ipp.ipp:328-364,443-614` |
-| 2.3 | Med | `sighandlers_count` increment before TSS-create check | `thrd_signal_handle_common.ipp.ipp:316-323` |
+| 2.3 | Med | `sighandlers_count` increment before TSS-create check **[FIXED 2026-08-10]** | `thrd_signal_handle_common.ipp.ipp:316-323` |
 | 2.4 | Med | Dead code after `return` in `sig_global_tss_state_destroy` | `thrd_signal_handle_common.ipp.ipp:276-281` |
 | 2.5 | Med | `thread_init` returns success for NULL item | `tss_async_signal_safe.c.ipp:186-190` |
 | 2.6 | Med | `tss_async_signal_safe_*` NULL handle crash (also Z8, X8) | `tss_async_signal_safe.c.ipp:93-243` |
@@ -1179,6 +1232,7 @@ invite reading `error_code`.
 | W6 | Med | `PROJECT_IS_TOP_LEVEL` needs CMake >= 3.21 vs `minimum_required(3.15)` — tests silently skipped | `CMakeLists.txt:1,72` |
 | X4 | Med | Windows `EXCEPTION_STACK_OVERFLOW` unmapped (POSIX handles it as SIGSEGV) | `thrd_signal_handle_windows.c.ipp:135-164` |
 | Y2 | Med | user `longjmp` out of `guarded()` -> dangling `tss->front` -> stack UAF in `stdc_raise` (confirmed) | `thrd_signal_handle_posix.c.ipp:251-266,292` |
+| 8.6 | Med | never-returning global decider (e.g. `siglongjmp`) leaks node + container refcounts forever | `thrd_signal_handle_posix.c.ipp:341,349`, `thrd_signal_handle_windows.c.ipp:352,360` |
 | Z2 | Low-Med | `stdc_raise(signo,NULL,NULL)` hands NULL `siginfo_t*`/`ucontext_t*` to pre-existing SA_SIGINFO handler (confirmed) | `thrd_signal_handle_posix.c.ipp:314-368` |
 | X10 | Med-Low | musl builds fail to compile (`struct __siginfo` fallback) | `thrd_signal_handle.h:207` |
 | W7 | Low | MSVC library build lacks `/WX` | `CMakeLists.txt:44-48` |

@@ -320,6 +320,9 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
 
   static bool WG14_SIGNALS_PREFIX(install_sighandler_impl)(
   struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo);
+  static bool WG14_SIGNALS_PREFIX(uninstall_sighandler_impl)(
+  struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo);
+  
   static bool WG14_SIGNALS_PREFIX(install_sighandler)(const int signo)
   {
     struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
@@ -354,6 +357,20 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
     {
       if(-1 == WG14_SIGNALS_PREFIX(sig_global_tss_state_create)())
       {
+        // Roll back the install just committed: a handler left installed with
+        // no TSS could never be uninstalled (siginstall has no handle to hand
+        // back), and sighandlers_count must not count a TSS that was never
+        // created (analysis.md 2.3).
+        state->sighandlers_count--;
+        if(0 == --signo_to_sighandler_map_t_value(it)->install_count)
+        {
+          struct WG14_SIGNALS_PREFIX(sighandler_info) *item =
+          signo_to_sighandler_map_t_value(it);
+          (void) WG14_SIGNALS_PREFIX(uninstall_sighandler_impl)(item, signo);
+          WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_erase_itr)
+          (&state->signo_to_sighandler_map, it);
+          WG14_SIGNALS_PREFIX(sighandler_info_release)(item);
+        }
         UNLOCK(state->lock);
         return false;
       }
@@ -362,8 +379,6 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
     return true;
   }
 
-  static bool WG14_SIGNALS_PREFIX(uninstall_sighandler_impl)(
-  struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo);
   static bool WG14_SIGNALS_PREFIX(uninstall_sighandler)(const int signo)
   {
     struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
