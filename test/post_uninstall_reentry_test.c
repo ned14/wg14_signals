@@ -15,7 +15,11 @@
 // sigguarded) then thread_init'd the freed handle -> ASan heap-use-after-free.
 // The slot must be reset to NULL so the next entry recreates the TSS.
 
+#if defined(_WIN32)
+#define INSTALLED_SIGNAL SIGTERM
+#else
 #define INSTALLED_SIGNAL SIGUSR2
+#endif
 
 static void benign_handler(int signo)
 {
