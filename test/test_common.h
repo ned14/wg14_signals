@@ -37,8 +37,18 @@
 // fallback below so thread creation goes through the interposable
 // pthread_create() symbol in this TU, which TSan does intercept. Other libcs
 // (macOS, musl, FreeBSD, ...) do not have this problem.
+//
+// Fil-C exception: Fil-C's musl-based libc declares thrd_t as `unsigned long`
+// in C++ (upstream musl <threads.h> quirk; it is a real pointer type in C), so
+// a thrd_create()'d handle loaded back in C++ and passed to thrd_join() arrives
+// in libc without its pointer capability and traps under Fil-C (analysis.md
+// 5.10). Take the pthread-based fallback in C++ under Fil-C as well: the shim's
+// thrd_t is a real pointer type in C++, and pthread_t is a real pointer type
+// even under musl, so the handle round-trips. In C under Fil-C, musl's thrd_t
+// is a real pointer and the real <threads.h> works fine.
 #if __has_include(<threads.h>) && \
-    !(defined(__GLIBC__) && defined(WG14_SIGNALS_TEST_TSAN))
+    !(defined(__GLIBC__) && defined(WG14_SIGNALS_TEST_TSAN)) && \
+    !(defined(__FILC__) && defined(__cplusplus))
 #include <threads.h>
 #else
 

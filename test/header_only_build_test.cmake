@@ -7,6 +7,17 @@
 #
 # Run as: cmake -DSRC_DIR=<repo> -DBINARY_DIR=<build> -DGENERATOR=<gen>
 #              [-DGENERATOR_PLATFORM=..] [-DGENERATOR_TOOLSET=..] -P <this file>
+#
+# Also NOT RUN under Fil-C (excluded from the Fil-C ctest run, ci.yml): the
+# sub-builds below configure with the system compiler (they never receive the
+# Fil-C toolchain), so on the Fil-C leg step 1 passes but the single-TU C
+# consumer build/link fails because it inherits the parent configure's
+# __cxa_thread_atexit supplying library, which the system linker cannot always
+# satisfy. The test therefore does not exercise Fil-C on that leg and is
+# excluded pending diagnosis, like the FreeBSD leg (analysis.md 5.10); the C
+# header-only functionality is still covered on Fil-C by
+# header_only_c_multi_test, the C++ header_only_test and the step-1
+# HEADER_ONLY_BUILD=ON build.
 
 if(NOT DEFINED SRC_DIR OR NOT DEFINED BINARY_DIR)
   message(FATAL_ERROR "SRC_DIR and BINARY_DIR must be passed")

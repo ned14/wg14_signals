@@ -17,7 +17,18 @@
 
 // SIGILL is SEH-mapped on Windows (EXCEPTION_ILLEGAL_INSTRUCTION) and a
 // standard POSIX signal, so the raise is seen by the library on both platforms.
+// Fil-C's runtime forbids user handlers for SIGILL
+// (zis_unsafe_signal_for_handlers, analysis.md 5.10), so use SIGUSR2 there --
+// stdc_raise() invokes the decider in-process, so the same Windows-visible
+// raise path is exercised elsewhere. SIGUSR2 is used rather than SIGUSR1 to
+// keep this test distinct from the SIGUSR1-based Fil-C tests
+// (thrd_signal_handle_test, benchmark_thrd_signal_handle_test), and matches
+// siguninstall_raise_test's SIGUSR2 (which passes on the Fil-C leg).
+#ifdef __FILC__
+#define INSTALLED_SIGNAL SIGUSR2
+#else
 #define INSTALLED_SIGNAL SIGILL
+#endif
 
 static union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
 reentry_guarded(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)

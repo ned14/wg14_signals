@@ -308,4 +308,20 @@ jobs:
 
     - name: CMake tests Fil-C
       shell: bash
-      run: cd build && ctest --output-on-failure --timeout 300 -E benchmark
+      # Fil-C's runtime reserves SIGILL/SIGTRAP/SIGBUS/SIGSEGV/SIGFPE for its own
+      # memory-safety mechanism: sigaction() on those signals returns ENOSYS, so
+      # the library cannot install handlers for them and the tests that raise
+      # them cannot work there. thrd_signal_sigfpe_handle_test is inherently a
+      # SIGFPE test; recovery_null_loop_test never even sees a SIGSEGV -- Fil-C
+      # panics on the null-pointer store before any signal is delivered.
+      # post_uninstall_reentry_test uses SIGUSR2 under Fil-C instead (like
+      # thrd_signal_handle_test and benchmark_thrd_signal_handle_test), so it
+      # still runs here. header_only_build_test's sub-builds run with the system
+      # compiler (they do not propagate the Fil-C toolchain) and pick up the
+      # parent configure's __cxa_thread_atexit supplying library, which the
+      # system linker cannot always satisfy; it is excluded pending diagnosis,
+      # like the FreeBSD leg (analysis.md 5.10). The C++ header-only path is
+      # still covered here by header_only_test (test_common.h swaps in its
+      # pthread-backed C11-threads shim for C++ under Fil-C), by
+      # header_only_c_multi_test and by the step-1 HEADER_ONLY_BUILD=ON build.
+      run: cd build && ctest --output-on-failure --timeout 300 -E "benchmark|thrd_signal_sigfpe_handle_test|recovery_null_loop_test|header_only_build_test"

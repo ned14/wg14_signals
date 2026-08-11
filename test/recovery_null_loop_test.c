@@ -1,3 +1,9 @@
+/* NOT RUN under Fil-C (excluded from the Fil-C ctest run, ci.yml): this test
+   recovers from a genuine SIGSEGV raised by a store through a null pointer.
+   Fil-C's memory-safety pass intercepts the null-capability access itself
+   ("cannot write pointer with null object" panic) before any fault signal is
+   delivered, so the library's SIGSEGV handler is never invoked and recovery is
+   impossible on Fil-C -- a read would trap just the same (analysis.md 5.10). */
 #define _CRT_SECURE_NO_WARNINGS 1
 
 #include "test_common.h"

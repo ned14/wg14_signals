@@ -1,3 +1,9 @@
+/* NOT RUN under Fil-C (excluded from the Fil-C ctest run, ci.yml): this test
+   recovers from a genuine SIGFPE raised by an integer divide-by-zero. Fil-C's
+   runtime reserves SIGILL/SIGTRAP/SIGBUS/SIGSEGV/SIGFPE for its own
+   memory-safety mechanism: sigaction() on them returns ENOSYS, so the library
+   cannot install a handler for SIGFPE and the fault kills the process
+   (analysis.md 5.10). */
 #define _CRT_SECURE_NO_WARNINGS 1
 
 #include "test_common.h"

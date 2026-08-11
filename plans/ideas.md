@@ -338,6 +338,27 @@ every siginfo interaction in `thrd_signal_handle_posix.c.ipp` at once. **Verifie
 providing `zis_unsafe_signal_for_handlers()`) compiles and all 15 `ctest` tests pass on
 macOS arm64.
 
+**Fil-C CI follow-up 2 (2026-08-11):** the real Fil-C runtime exposed that Fil-C
+reserves `SIGILL/SIGTRAP/SIGBUS/SIGSEGV/SIGFPE` for its memory-safety mechanism
+(`sigaction()` on them returns `ENOSYS`), so the library cannot install handlers for
+them and `thrd_signal_sigfpe_handle_test` and `recovery_null_loop_test` cannot run there
+(the latter never sees a SIGSEGV — Fil-C panics on the null-pointer store).
+`post_uninstall_reentry_test` now uses `SIGUSR2` under `__FILC__` (same pattern as
+`thrd_signal_handle_test.c`/`benchmark_thrd_signal_handle_test.c`, which use
+`SIGUSR1`), since `stdc_raise()`
+invokes the decider in-process. Upstream musl's C++ `thrd_t`=`unsigned long` quirk broke
+`header_only_test`'s `thrd_join` under Fil-C (capability lost at the C++/C boundary);
+`test/test_common.h` now swaps in its existing pthread-backed C11-threads shim in C++
+under `__FILC__` (the shim's `thrd_t` and `pthread_t` are real pointer types in C++,
+so the handle round-trips), leaving `header_only_test.cpp` unchanged. `header_only_build_test`'s sub-builds use the system compiler and
+inherit the parent's `__cxa_thread_atexit` library choice, which the system linker
+cannot always satisfy — excluded from the Fil-C ctest run pending diagnosis, like the
+FreeBSD leg. The Fil-C job's ctest now runs with `-E
+"benchmark|thrd_signal_sigfpe_handle_test|recovery_null_loop_test|header_only_build_test"`.
+**Verified:** macOS arm64 — all 15 `ctest` tests pass normally and with
+`-D__FILC__=1 -DDISABLE_INLINE_ASM=1` (header_only_test exercises the shim path there);
+the Fil-C job itself runs only in CI (no Fil-C toolchain on this machine).
+
 ### 3.4 Fallback-TLS matrix dimension
 
 After §2.1, add `-DALWAYS_USE_FALLBACK_TLS=OFF/ON` to the Linux and macOS matrix — the
