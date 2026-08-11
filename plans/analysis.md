@@ -1321,14 +1321,25 @@ installed. The debug set is the sibling defect (X9): `asynchronous_debug_sigset`
 signals are within this set: SIGQUIT, SIGTRAP, SIGXCPU, SIGXFSZ" — a Windows consumer gets
 a guard set that never matches anything.
 
-### 9.11 Z11 [documentation, Low-Medium] the README's standalone `sigguarded` example is non-functional on every platform
+### 9.11 Z11 [documentation, Low-Medium] the README's standalone `sigguarded` example is non-functional on every platform **[FIXED 2026-08-11]**
 
-`Readme.md:20-33` shows `sigguarded(...)` with no preceding `siginstall`. On POSIX the
+`Readme.md:20-33` showed `sigguarded(...)` with no preceding `siginstall`. On POSIX the
 frame stack is only consulted by the library's own `raw_signal_handler` (installed only by
 `siginstall`) or by user `stdc_raise`; a genuine fault for an uninstalled signal runs the
 kernel default (terminate) and never reaches the guard. On Windows, `sigguarded` alone
-leaves the per-thread TSS uninitialised (X3). The README example should call
-`siginstall`.
+leaves the per-thread TSS uninitialised (X3).
+
+**Fixed 2026-08-11:** the README was rewritten to match the current implementation (ideas.md
+7.3): the example now calls `siginstall(NULL)` first and `siguninstall(handlers)` at the
+end, the feature list covers the full API surface (`stdc_raise`, global deciders, the
+`sigfillset_*` helpers, `sigfence()`, `tss_async_signal_safe`, `current_thread_id`), the
+"Supported targets" section lists the actual CI matrix from `.github/workflows/ci.yml`
+(Linux, macOS, Windows, Header-only, TSan, FreeBSD VM, Fil-C), a CMake options table was
+added, and the "Known bugs" section (which previously listed only the `pcpp` future work)
+now records the genuine limitations. **Verified:** the example now matches the header's
+`sigguarded()` documentation and the working test usage pattern; markdown structure and
+CI table were cross-checked against `thrd_signal_handle.h`, `config.h`, `CMakeLists.txt`
+and `.github/workflows/ci.yml`.
 
 ### 9.12 AA5 [code-level, both backends, Low] a *global* decider returning `sig_decision_invoke_recovery` has divergent, undocumented semantics
 
@@ -1442,7 +1453,7 @@ invite reading `error_code`.
 | Z8 | Low | `tss_async_signal_safe` NULL/double destroy + post-destroy `get`/`thread_init` unguarded | `tss_async_signal_safe.c.ipp:111-134,226-243` |
 | Z9 | Low | `thread_init`'s unlocked `attr.create` breaks THREADSAFE claim for concurrent first-use | `tss_async_signal_safe.c.ipp:184-191` |
 | Z10 | Low | Windows nondebug set omits documented signals, includes `SIGKILL`/`SIGSTOP` (extends X9) | `thrd_signal_handle_windows.c.ipp:73-89` |
-| Z11 | Doc | README standalone `sigguarded` example non-functional on all platforms | `Readme.md:20-33` |
+| Z11 | Doc | README standalone `sigguarded` example non-functional on all platforms **[FIXED 2026-08-11]** | `Readme.md:20-33` |
 | AA2 | Low | filc `-DDISABLE_INLINE_ASM=1` is a no-op for the library; toolchain paths hardcoded **[FIXED 2026-08-10]** | `thrd_signal_handle.h:97-154`, `cmake/filc-toolchain.cmake` |
 | AA2b | Low | Fil-C runtime forbids user handlers for `SIGILL/SIGTRAP/SIGBUS/SIGSEGV/SIGFPE`; `thrd_signal_sigfpe_handle_test`/`recovery_null_loop_test` excluded from the Fil-C job; `post_uninstall_reentry_test` uses `SIGUSR2` under `__FILC__`; C++ `thrd_t`=`unsigned long` under musl breaks `header_only_test` (test_common.h swaps in its pthread-backed shim in C++ under `__FILC__`); `header_only_build_test` sub-builds use the system compiler **[FIXED 2026-08-11]** | `ci.yml` FilC job, `test/post_uninstall_reentry_test.c`, `test/test_common.h` |
 | AA3 | Low | `WG14_SIGNALS_DISABLE_SIGFENCE_MACRO` breaks the test build (confirmed) | `thrd_signal_handle.h:77`, `test/thrd_sigfpe_test.c:64` |

@@ -794,12 +794,22 @@ CI-change) with the test design in §6.4-6.7, plus an explicit "do not naively c
 these" section for deliberately-untested behaviours (e.g. Windows SEH real-fault paths,
 the SIGFPE trap behaviour noted in analysis.md 6.4).
 
-### 7.3 Readme structure
+### 7.3 Readme structure **[DONE 2026-08-11]**
 
 Add the sibling's CMake-options table and a "Supported targets / CI" list that matches the
 actual `.github/workflows/ci.yml` (the sibling's `Readme.md:110-192`). Also remove the
 stale "Known bugs" gap noted in analysis.md §9 (`Readme.md:139` lists only the pcpp future
 work).
+
+**Done 2026-08-11:** the README now has a CMake options table (`BUILD_SHARED_LIBS`,
+`HEADER_ONLY_BUILD`, `CMAKE_C_STANDARD`, `WG14_SIGNALS_CXA_THREAD_ATEXIT_LIB`), the
+"Supported targets" section lists the full CI matrix from `.github/workflows/ci.yml`
+(Linux, macOS, Windows, Header-only, TSan, FreeBSD VM, Fil-C), the "Known issues and
+limitations" section records the genuine limitations (longjmp-indeterminate locals after
+recovery, Fil-C's `ENOSYS` for fault-signal handlers, global-decider
+`sig_decision_invoke_recovery` divergence) in addition to the `pcpp` future work, the
+feature list was brought in line with the current API surface, and the `sigguarded()`
+example now calls `siginstall(NULL)` first (fixing analysis.md 9.11/Z11).
 
 ### 7.4 `.gitattributes` trim
 

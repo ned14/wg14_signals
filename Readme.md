@@ -6,30 +6,65 @@ CI: [![CI](https://github.com/ned14/wg14_signals/actions/workflows/ci.yml/badge.
 
 Reference API docs: https://ned14.github.io/wg14_signals/
 
-Can be configured to be a standard library implementation for your
-standard C library runtime. Licensed permissively. Features:
+This is a reference implementation of the WG14 proposal (currently N3924
+revision 4) for improved C signals handling. It can be configured to be a
+standard library implementation for your standard C library runtime. Licensed
+permissively. Features:
 
-- Standardises thread local signal handling across all platforms, being
-a thin wrapper of platform specific facilities on platforms with thread
-local signal handling (e.g. Structured Exception Handling on Win32)
-- Can be configured as a header-only library (unity build) which has headers
-also include their source files. This also works from C++, if desired.
+- Thread local signal handling, standardised across all platforms: a thin
+  wrapper of platform specific facilities on platforms with thread local
+  signal handling (e.g. Structured Exception Handling on Win32), and a
+  thread-local frame stack of guarded sections on POSIX.
+- `sigguarded()` which invokes a function with a thread-local signal guard:
+  any raise of a guarded signal during that function calls a decider function
+  which may request recovery, in which case execution resumes as-if a
+  `longjmp()` to just before the guarded function ran, with a recovery
+  function then invoked. Guards can be stacked.
+- `stdc_raise()` which raises a signal into the library's own handler chain,
+  so the library's thread-local and global deciders run for a user raise
+  exactly as they would for a real hardware fault. On Windows this raises a
+  Win32 structured exception; on POSIX it runs the decider chain in-process
+  and hands off to the previously installed handler if nothing claims it.
+- Global signal handlers installed by `siginstall()` (threadsafe and
+  reference counted), with global continuation deciders registered by
+  `signal_decider_create()` that are consulted when no thread-local guard
+  claims a signal.
+- Platform signal-set fillers `sigfillset_synchronous()`,
+  `sigfillset_asynchronous_nondebug()` and `sigfillset_asynchronous_debug()`.
+- `sigfence()`: a compiler-only memory barrier over a list of local
+  variables, so the guarded function can force its locals out to memory where
+  the recovery machinery can observe them.
+- `tss_async_signal_safe`: async-signal-safe thread local storage, backed by
+  a hash table, or by native async-signal-safe thread locals where the
+  platform provides them (much faster).
+- `current_thread_id()`: an async-signal-safe way to retrieve the current
+  thread's identifier.
+- Can be configured as a header-only library (unity build) where the headers
+  also include their source files. This also works from C++, if desired.
 
 ## Example of use
 
 ```c
-/* Invoke `func` passing it `user_value`. If `SIGILL` is raised during the
-execution of `func`, call `decider_func` as a filter to decide what to do.
-If `decider_func` chooses to initiate recovery, perform as-if a `longjmp()`
-back to before `func` was called, and invoke `recovery_func` to recover.
+/* Once per process, install the library's global signal handlers. Passing
+   NULL installs handlers for all standard signals; without this no real
+   fault can ever reach a sigguarded() guard. */
+void *handlers = siginstall(NULL);
 
-`sigguarded()` can be stacked i.e. `func` can invoke subfunctions
-with their own signal raise filter functions.
+/* Invoke `func` passing it `user_value`. If `SIGILL` is raised during the
+   execution of `func`, call `decider_func` as a filter to decide what to do.
+   If `decider_func` chooses to initiate recovery, perform as-if a `longjmp()`
+   back to before `func` was called, and invoke `recovery_func` to recover.
+
+   `sigguarded()` can be stacked i.e. `func` can invoke subfunctions
+   with their own signal raise filter functions.
 */
 sigset_t guarded;
 sigemptyset(&guarded);
 sigaddset(&guarded, SIGILL);
 sigguarded(&guarded, func, recovery_func, decider_func, user_value);
+
+/* Remove the installed handlers when done. */
+siguninstall(handlers);
 ```
 
 ## Supported targets
@@ -38,103 +73,152 @@ This library should work well on any POSIX implementation, as well as
 Microsoft Windows. You will need a minimum of C 11 in your toolchain.
 Every architecture supporting C 11 atomics should work.
 
-Current CI test targets:
+Current CI test matrix (see `.github/workflows/ci.yml`):
 
-- Ubuntu Linux, x64.
-- Mac OS, AArch64.
-- Microsoft Windows, x64.
+| Job | Compilers | Standards | Notes |
+|-----|-----------|-----------|-------|
+| Linux | gcc, clang | C11, C23 | Debug and Release; static and shared; ASan/UBSan |
+| macOS | clang | C11, C23 | Debug and Release; static and shared; ASan/UBSan |
+| Windows VS2022 | MSVC | C11, C17 | Debug and Release; static and shared; ASan |
+| Header-only | gcc/clang/MSVC | C11, C17, C23 | ubuntu, macOS and Windows; `HEADER_ONLY_BUILD=ON` |
+| TSan | gcc, clang | C11, C23 | Ubuntu and macOS; ThreadSanitizer |
+| FreeBSD | clang | C11, C23 | Real FreeBSD 15 kernel under a VM |
+| Fil-C | Fil-C | C11 | The Fil-C memory-safe C compiler, Linux x64 |
 
 Current compilers:
 
 - GCC
 - clang
 - MSVC
+- Fil-C
 
 Mingw does not work due to lack of `__try ... __except` support. Donations of
 a suitable workaround are welcome.
 
 ## Configuration
 
-You can find a number of user definable macros to override in `config.h`.
-They have sensible defaults on the major platforms and toolchains.
+The CMake options are:
 
-The only one to be especially aware of is `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL`.
-If your platform and toolchain has async signal safe thread local storage,
-it can be used instead of a hash table which is much, much faster. Current
-platform status for this support can be read all about at
+| Option | Default | Description |
+|--------|---------|-------------|
+| `BUILD_SHARED_LIBS` | `OFF` | Build a shared library instead of a static one |
+| `HEADER_ONLY_BUILD` | `OFF` | Build using header-only (unity) mode; defines `WG14_SIGNALS_ENABLE_HEADER_ONLY` for consumers |
+| `CMAKE_C_STANDARD` | `11` | The C standard to compile against |
+| `WG14_SIGNALS_CXA_THREAD_ATEXIT_LIB` | (auto) | Library supplying `__cxa_thread_atexit()`, left empty if the C runtime supplies it itself |
+
+You can find a number of user definable macros to override in `config.h`.
+They have sensible defaults on the major platforms and toolchains. The most
+important ones are:
+
+- `WG14_SIGNALS_PREFIX(x)`: prefixes every exported symbol, defaulting to
+  no prefix.
+- `WG14_SIGNALS_ENABLE_HEADER_ONLY`: set to `1` to use the header-only mode,
+  where each header also includes its `.ipp` implementation file.
+- `WG14_SIGNALS_DISABLE_SIGFENCE_MACRO`: set to `1` to disable the `sigfence()`
+  macro.
+
+The only one to be especially aware of is
+`WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL`. If your platform and toolchain
+has async signal safe thread local storage, it can be used instead of a hash
+table which is much, much faster. Current platform status for this support can
+be read all about at
 https://maskray.me/blog/2021-02-14-all-about-thread-local-storage, but to
 summarise:
 
 - Most ELF platforms require the `initial-exec` TLS attribute, which we
-turn on for all GNU toolchains except on Apple ones. **IF** your libc
-reserves static TLS space for runtime loaded shared libraries (e.g. glibc),
-you can incorporate this library into runtime loaded shared libraries
-without issue. If it does not, runtime loading a shared library will fail.
-In this case, either place this library in a process bootstrap shared
-library or the program library, or force disable off use of async safe
-thread locals.
+  turn on for all GNU toolchains except on Apple ones. **IF** your libc
+  reserves static TLS space for runtime loaded shared libraries (e.g. glibc),
+  you can incorporate this library into runtime loaded shared libraries
+  without issue. If it does not, runtime loading a shared library will fail.
+  In this case, either place this library in a process bootstrap shared
+  library or the program library, or force disable off use of async safe
+  thread locals.
 
 - PE platforms (Microsoft Windows) use async thread safe thread locals
-in all situations. They are initialised when their shared library is
-loaded.
+  in all situations. They are initialised when their shared library is
+  loaded.
 
 - Mach O platforms (Apple) do not provide async thread safe thread locals
-and so the fallback hash table is always used on those platforms, which
-is unfortunate.
+  and so the fallback hash table is always used on those platforms, which
+  is unfortunate.
 
 ## Performance
 
 ### On my Threadripper 5975WX which is a 3.6Ghz processor bursting to 4.5Ghz on Linux:
 
 - `tss_async_signal_safe_get()` which implements an async signal safe
-thread local storage using a hash table costs about 8 nanoseconds, so
-maybe 29 clock cycles.
+  thread local storage using a hash table costs about 8 nanoseconds, so
+  maybe 29 clock cycles.
 
 
 With `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=1` (the default on Linux,
 Windows, and other ELF based platforms):
 
     - `sigguarded()` which invokes a function which thread locally
-handles any signals raised costs about 16 nanoseconds (31 clock cycles)
-for the happy case (most of this is the cost of `_setjmp()` on this platform
-and glibc).
+      handles any signals raised costs about 16 nanoseconds (31 clock cycles)
+      for the happy case (most of this is the cost of `_setjmp()` on this
+      platform and glibc).
 
     - A globally installed signal decider takes about 8 nanoseconds (29
-clock cycles) to reach (there is a CAS lock-unlock sequence needed).
+      clock cycles) to reach (there is a CAS lock-unlock sequence needed).
 
 
 With `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0`:
 
     - `sigguarded()` which invokes a function which thread locally
-handles any signals raised costs about 25 nanoseconds for the happy case.
+      handles any signals raised costs about 25 nanoseconds for the happy case.
 
     - A globally installed signal decider takes about 10 nanoseconds to reach.
 
 ### On a MacBook Pro M3 running ARM64
 
 - `tss_async_signal_safe_get()` which implements an async signal safe
-thread local storage using a hash table costs about 16 nanoseconds.
+  thread local storage using a hash table costs about 16 nanoseconds.
 
     - `sigguarded()` which invokes a function which thread locally
-handles any signals raised costs about 20 nanoseconds for the happy case
-(most of this is the cost of `_setjmp()` on this platform and libc).
+      handles any signals raised costs about 20 nanoseconds for the happy case
+      (most of this is the cost of `_setjmp()` on this platform and libc).
 
     - A globally installed signal decider takes about 20 nanoseconds to reach
-(there is a CAS lock-unlock sequence needed, and a hash table lookup).
+      (there is a CAS lock-unlock sequence needed, and a hash table lookup).
 
 ### On a MacBook Pro M3 running ARM64 Windows within a VM
 
 - `tss_async_signal_safe_get()` which implements an async signal safe
-thread local storage using a hash table costs about 22 nanoseconds.
+  thread local storage using a hash table costs about 22 nanoseconds.
 
 - `sigguarded()` which invokes a function which thread locally
-handles any signals raised costs about 17 nanoseconds (this is Windows
-Structured Exception Handling, not our library code).
+  handles any signals raised costs about 17 nanoseconds (this is Windows
+  Structured Exception Handling, not our library code).
 
 - A globally installed signal decider takes about 7,372 nanoseconds to reach
-(this is also Windows code, not our library code, shame it is so slow).
+  (this is also Windows code, not our library code, shame it is so slow).
 
-# Known bugs/issues
+The benchmark targets are `benchmark_async_signal_safe_tls_test` and
+`benchmark_thrd_signal_handle_test`, and are excluded from the default CI test
+run via `ctest -E benchmark`.
+
+# Known issues and limitations
+
+- Recalling `sigguarded()` recovery: like any `setjmp()`/`longjmp()` pair,
+  after recovery any non-volatile automatic objects which were modified
+  between the guard's `setjmp` and the `longjmp` can have indeterminate values
+  (C11 7.13.2.1), though there is specifically a new proposed macro `sigfence()`
+  to remedy this issue. To be safe, the recovery function should rely on the
+  `stdc_siginfo` passed to it (and on the signal's own fault address), not on
+  the guarded function's locals.
+
+- Under the Fil-C memory-safe C compiler, `sigaction()` for
+  `SIGILL`/`SIGTRAP`/`SIGBUS`/`SIGSEGV`/`SIGFPE` returns `ENOSYS`: Fil-C
+  reserves those signals for its own memory-safety machinery, so the library
+  cannot install fault handlers for them and synchronous-fault recovery is not
+  possible on Fil-C. Everything else works.
+
+- A global decider returning `sig_decision_invoke_recovery` is only
+  meaningful for thread-local guards. For global deciders POSIX claims the
+  raise without performing any recovery, whereas Windows unwinds to the top
+  guard frame: use `sig_decision_next_decider` or
+  `sig_decision_resume_execution` for global deciders.
 
 - We should have `pcpp` generate an edition of this library suitable for
-direct drop into a C standard library.
+  direct drop into a C standard library.
