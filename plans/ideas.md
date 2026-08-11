@@ -250,6 +250,17 @@ inside the handler). The TSan job now sets `report_signal_unsafe=0` (a flag supp
 both GCC and LLVM TSan), which fully gates that report type via `ShouldReport()` while
 leaving data-race detection (`halt_on_error=1`) untouched.
 
+**TSan CI follow-up 2 (2026-08-11):** the Linux x86_64 TSan legs then failed
+`thrd_signal_sigfpe_handle_test` with an unhandled SIGFPE. TSan proxies every user
+signal handler and never restores its per-thread signal state when the library's
+recovery `longjmp`s out of the handler (the `in_signal_handler` counter and the signal
+mask it substituted stay stuck), so a subsequent hardware SIGFPE is mishandled.
+`test/thrd_sigfpe_test.c` now detects TSan and raises via `stdc_raise()` instead of the
+hardware divide-by-zero — same decider/recovery path, no kernel-delivered fault
+(`recovery_null_loop_test`, SIGSEGV, is unaffected). **Verified:** all 15 `ctest` tests
+pass under TSan on macOS arm64 in C11 and C23, under ASan/UBSan on macOS arm64, and in
+the Fil-C simulation build; the Linux x86_64 TSan legs run only in CI.
+
 ### 3.2 FreeBSD VM job (fixes analysis.md 5.4, 4.1) **[DONE 2026-08-10]**
 
 Append the sibling's FreeBSD job (`ci.yml:104-144`): `vmactions/freebsd-vm@v1` (real

@@ -832,6 +832,21 @@ a strict build are invisible.
   `sighandler_info_release()` from freeing inside the handler). The job now sets
   `report_signal_unsafe=0` (GCC and LLVM TSan flag that gates exactly this report type);
   data-race detection is unaffected.
+  **TSan CI follow-up 2 (2026-08-11):** the Linux x86_64 TSan legs then failed
+  `thrd_signal_sigfpe_handle_test` with an unhandled SIGFPE (`***Exception: Numerical`).
+  TSan proxies every user-installed signal handler through its own `sighandler`, and when
+  `sigguarded()`'s recovery `longjmp`s out of the handler, TSan's per-thread signal state
+  (the `in_signal_handler` counter and the signal mask it substituted with
+  `internal_sigfillset`) is never restored, so a subsequent hardware SIGFPE from the
+  divide-by-zero is mishandled and terminates the process. `recovery_null_loop_test`
+  (SIGSEGV) is unaffected. **Fixed:** `test/thrd_sigfpe_test.c` now detects TSan
+  (`__SANITIZE_THREAD__` / `__has_feature(thread_sanitizer)`, a new
+  `WG14_SIGFPE_TEST_TSAN` probe) and drives SIGFPE through `stdc_raise()` instead of a
+  hardware divide-by-zero — the same decider/recovery path with no kernel-delivered
+  fault, matching the path the no-trap architectures already take. The hardware-fault
+  path remains covered by the ASan/UBSan and unsanitised legs. **Verified:** all 15
+  `ctest` tests pass under TSan on macOS arm64 (C11 and C23), under ASan/UBSan on macOS
+  arm64, and in the Fil-C simulation build; the Linux x86_64 TSan legs run only in CI.
 - No CI leg runs a fourth OS; the FreeBSD-only code paths — the
   `pthread_getthreadid_np()` branch in `current_thread_id.c.ipp` and the `libstdthreads`
   link for the C11 `thrd_*` tests — are never compiled or run. **[FIXED 2026-08-10]** — a

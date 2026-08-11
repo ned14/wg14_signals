@@ -15,6 +15,25 @@
 #include <math.h>
 #include <string.h>
 
+// ThreadSanitizer proxies every user-installed signal handler through its own
+// sighandler. When the library's sigguarded() recovery longjmps out of the
+// handler, TSan's per-thread signal state (in_signal_handler counter, signal
+// mask) is never restored, so on x86_64 a subsequent hardware SIGFPE can be
+// mishandled and terminate the process with an unhandled SIGFPE (analysis.md
+// 5.4 TSan finding). Under TSan, skip the hardware divide-by-zero and drive
+// SIGFPE through stdc_raise() instead -- the same decider/recovery path, but
+// with no kernel-delivered fault (the no-trap architectures already do this).
+// The hardware-fault path stays covered by the ASan/UBSan and unsanitised CI
+// legs.
+#if defined(__SANITIZE_THREAD__)
+#define WG14_SIGFPE_TEST_TSAN 1
+#endif
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define WG14_SIGFPE_TEST_TSAN 1
+#endif
+#endif
+
 /* Use SIGFPE for all tests */
 #ifndef SIGFPE
 #define SIGFPE 8
@@ -64,8 +83,15 @@ __attribute__((no_sanitize_undefined))
 union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
 sigfpe_func(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 {
+#ifdef WG14_SIGFPE_TEST_TSAN
+  /* TSan cannot recover a hardware SIGFPE (see the TSan probe above), so use a
+     non-faulting divide and let the stdc_raise() below drive the
+     decider/recovery path. */
+  volatile int result = 42 / 1;
+#else
   /* This should trigger SIGFPE */
   volatile int result = 42 / divisor;
+#endif
   /* Not necessary, only here so we're unit testing sigfence() */
   sigfence(result);
   /* If we get here, this architecture doesn't trap integer divide by zero */
