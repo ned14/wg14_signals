@@ -20,125 +20,6 @@ corrections from later passes are folded into the finding they affect.
 
 ## 2. High-severity issues (static analysis and verified)
 
-### 2.1 `tss_async_signal_safe` deinit race -> use-after-free of the `deinit_state` **[FIXED 2026-08-10]**
-
-`tss_async_signal_safe.c.ipp:136-168`. The thread-exit callback
-`tss_async_signal_safe_thread_deinit` decrements `state->count` and frees `state`
-*outside* `mem->lock` (after `UNLOCK` at line 160). Two threads sharing the same `tss`
-that exit at roughly the same time can interleave: thread A erases its own entry and
-`UNLOCK`s; thread B does the same, its `fetch_sub` returns 1 and it `free(state)`s; thread
-A then executes `atomic_fetch_sub(&state->count, ...)` on freed memory (UAF), or reads
-`state->val` concurrently with `tss_async_signal_safe_destroy`'s `state->val = NULL`
-write. **Correction (C13):** the same `deinit_state` field is also subject to purely
-*sequential* UAFs (X1/X2, below) — the lifetime contract of `mem->state` is simply not
-maintained when the last deinit frees it. Additionally, `tss_async_signal_safe_destroy`
-frees `mem` while other threads' atexit handlers may still hold `state->val == mem`. The
-intended usage (destroy only after all threads joined) is not documented.
-
-**Fixed in `tss_async_signal_safe.c.ipp` (deinit rewrite, `:139-180`):** the count
-decrement and the `free(state)` now both execute *under* `mem->lock`, so concurrent
-thread-exit deinits and `destroy` serialise and no deinit can free `state` while another
-thread is still decrementing it or reading `state->val`; the last deinit clears
-`mem->state` (guarded by `state == mem->state`) before freeing, fixing X1/X2 as well. The
-destroy-after-join requirement is now documented in `tss_async_signal_safe.h`; the
-`attr.destroy` callback value is captured under the lock before the unlocked callback
-call, and a non-zero callback return no longer leaks the TID entry or the count (Y4).
-**Follow-up fix (Linux LSan CI):** moving the count decrement + `free(state)` inside the
-`mem != NULL` block made a thread whose instance was destroyed while it was still
-registered (the tests do exactly this) skip both, leaking the 16-byte `deinit_state`.
-The `mem == NULL` branch now still drops the thread's reference (decrement `state->count`,
-free on zero) — `destroy` clears `state->val` but never frees `state`; the last
-still-registered thread's deinit does. Verified against the exact CI failure: under Linux
-ASan/LSan (arm64 Ubuntu container) `async_signal_safe_tls_test` and `header_only_test`
-reproduce the reported 16-byte leak on the unfixed code and are clean with the fix.
-**Verified:** macOS arm64, clang 22, ASan/UBSan. The new regression test
-`test/tss_concurrent_exit_test.c` (registered as `tss_concurrent_exit_test` in
-`test/CMakeLists.txt`) reproduces the ASan `heap-use-after-free` WRITE at
-`tss_async_signal_safe.c.ipp:217` on the unfixed library and now passes, as does its
-1000-iteration two-thread same-tss concurrent-exit stress; the full `ctest` suite (13
-tests) passes.
-
-### 2.2 `siguninstall` / `signal_decider_destroy` vs. in-flight `stdc_raise` -> use-after-free of `sighandler_info` **[FIXED 2026-08-10]**
-
-In `stdc_raise` (POSIX, `thrd_signal_handle_posix.c.ipp:314-368`) the `state->lock` is
-released around each `current->decider(&rsi)` call. If another thread runs `siguninstall`
-during that window and the per-signal refcount drops to zero, it frees the
-`sighandler_info` container (the map entry holding `global_handler`/`deferred_frees`
-list heads) while `stdc_raise` still holds the `it` pointer and re-accesses
-`value(it)->global_handler` after re-acquiring the lock -> UAF. **Correction (C5):** the
-decider-node refcount protocol itself is sound (a raise's `refcount++` always precedes
-the unlocked decider call); the UAF is strictly the container. **Correction (C6/W4):**
-the identical pattern exists in the Windows vectored handler
-(`thrd_signal_handle_windows.c.ipp:329-368`), which additionally may be *removed*
-(`RemoveVectoredContinueHandler`) mid-raise when the count reaches zero. The header
-documents siginstall as threadsafe only with respect to other concurrent executions of
-itself, but nothing prevents the user from doing this.
-
-**Fixed:** `sighandler_info` now carries a `lifetime_refcount`
-(`thrd_signal_handle_common.ipp.ipp`),
-initialised to 1 at creation (the map's reference). A raise takes its own reference on
-the container before the first unlocked decider call and releases it afterwards, and
-`siguninstall` drops only the map's reference — the container is freed by
-`sighandler_info_release()` when the last reference goes away (also draining
-`deferred_frees`). The same refcount protocol is applied to the Windows vectored handler
-(`thrd_signal_handle_windows.c.ipp`), fixing W4/2.15's container UAF. (See 8.6 for the
-caveat this protocol inherits: a decider that never returns leaks the references it
-took.) **Verified:** the
-new regression test `test/siguninstall_raise_test.c` (registered as
-`siguninstall_raise_test`) reproduces the ASan `heap-use-after-free` READ at
-`thrd_signal_handle_posix.c.ipp:355` on the unfixed library (decider node retired via
-`signal_decider_destroy` then container freed by `siguninstall` while the raise is inside
-the decider call) and now passes; full `ctest` suite (14 tests) passes under
-ASan/UBSan on macOS arm64.
-
-### 2.3 `install_sighandler` increments `sighandlers_count` before checking TSS creation **[FIXED 2026-08-10]**
-
-`thrd_signal_handle_common.ipp.ipp:315-323`: if `sig_global_tss_state_create()` fails
-(fallback path: `calloc` failure), the function returns false but `sighandlers_count` was
-already incremented and the map entry already installed. The caller (`siginstall`) treats
-failure as fatal and returns NULL, leaving a handler installed that can never be
-uninstalled (no handle); a subsequent `siguninstall` would call
-`sig_global_tss_state_destroy()` on a TSS that was never created (see also 2.6).
-
-**Fixed in `install_sighandler` (`thrd_signal_handle_common.ipp.ipp:355-375`):** on
-`sig_global_tss_state_create()` failure the install is rolled back under the lock before
-returning false: `sighandlers_count` is restored, the just-incremented `install_count` is
-decremented, and if it reaches zero the handler is uninstalled
-(`uninstall_sighandler_impl`, which on Windows also removes the just-added vectored
-handler), the map entry erased and the container released. The forward declaration of
-`uninstall_sighandler_impl` was moved before `install_sighandler` to allow the rollback.
-**Verified:** no deterministic test is feasible for this OOM corner (the failure requires
-the fallback-TSS `calloc` to fail); the change is confined to the first-install failure
-path and the full `ctest` suite (14 tests) passes under ASan/UBSan, including the
-install/uninstall cycles in `thrd_signal_handle_test`, `decider_mixed_set_test`,
-`siguninstall_raise_test` and `standalone_setup_test`.
-
-### 2.4 `sig_global_tss_state_destroy` contains dead code **[FIXED 2026-08-10]**
-
-`thrd_signal_handle_common.ipp.ipp:276-281`: the intended reset of the static TSS slot to
-NULL sits after a `return` and never runs. After a full uninstall, `*sig_tss_state_raw()`
-dangles (freed TSS). **Correction (C18):** the sequential post-uninstall UAF this causes
-(Z3, verified) and the concurrent-uninstall hazard (V7) are two sides of the same missing
-reset.
-
-**Fixed in the fallback `sig_global_tss_state_destroy` (`thrd_signal_handle_common.ipp.ipp`):** the
-`*sig_tss_state_raw() = NULL` reset now executes after the destroy (the return value is
-captured first), so a subsequent `sig_global_tss_state_init` recreates the TSS instead of
-`thread_init`-ing the freed handle — this fixes the purely sequential Z3 (2.22); V7's
-concurrent-uninstall framing remains open (3.16). **Verified:** the new regression test
-`test/post_uninstall_reentry_test.c` (registered as `post_uninstall_reentry_test`) performs
-10 install -> use -> full-uninstall -> `stdc_raise(0, ...)` + `sigguarded(...)` cycles; on
-the unfixed fallback path it reproduces the ASan `heap-use-after-free` READ at
-`tss_async_signal_safe.c.ipp:190` (`sig_global_tss_state_init` -> `thread_init` on the freed
-handle) and now passes; full `ctest` suite (15 tests) passes under ASan/UBSan on macOS
-arm64. The test is cross-platform: `INSTALLED_SIGNAL` is `SIGILL`, which is SEH-mapped on
-Windows (`EXCEPTION_ILLEGAL_INSTRUCTION`) and a standard POSIX signal. The raise-while-
-installed step is claimed by a global decider because on Windows an *unclaimed*
-`stdc_raise` terminates the process (W5; a bare `signal()` handler is not enough — the
-CRT never converts the software-raised exception, cf. `thrd_sigfpe_test.c` test 2).
-SIGTERM/SIGUSR2 were rejected: SIGTERM is not SEH-mapped and
-`win32_exception_code_from_signal` aborts on it.
-
 ### 2.5 `tss_async_signal_safe_thread_init` returns success when `create` yields NULL
 
 `tss_async_signal_safe.c.ipp:188-193`: a `create` callback that returns 0 but leaves
@@ -148,29 +29,13 @@ is indistinguishable from success.
 
 ### 2.6 `tss_async_signal_safe_destroy(NULL)` dereferences NULL
 
-The fallback `sig_global_tss_state_destroy` (2.4) and user calls with a NULL/zeroed
+The fallback `sig_global_tss_state_destroy` and user calls with a NULL/zeroed
 handle crash: `tss_async_signal_safe_destroy(NULL)` -> `LOCK(mem->lock)` on NULL. There
 is no validation of the handle in any of create/destroy/thread_init/get. **Extended by
 Z8:** a second `destroy` on the same handle locks freed memory, and post-destroy
 `get`/`thread_init` crash identically; **extended by X8:** `tss_async_signal_safe_create`
 validates neither `val` nor `attr` (`attr == NULL` -> `memcpy` crash, `attr->create ==
 NULL` crashes later in `thread_init`).
-
-### Y3 [code-level, both backends, Low] `tss_async_signal_safe_destroy` frees `mem` while still holding `mem->lock` **[FIXED 2026-08-10]**
-
-`tss_async_signal_safe.c.ipp:111-134` does `LOCK(mem->lock)` at line 116 and never unlocks
-before `free(mem)` at line 132. Harmless to the object's own lifetime (the lock word dies
-with the object), but a user `attr.destroy` callback that re-enters the library on the
-*same* handle (e.g. `tss_async_signal_safe_get`) spins forever on the held lock, and it is
-the concrete mechanism by which a concurrent thread-exit deinit (2.1) locks a freed
-object. Fix: `UNLOCK(mem->lock)` immediately before `free(mem)` (this still does not make
-destroy-vs-deinit safe; it only removes the gratuitous lock state).
-
-**Fixed:** `UNLOCK(mem->lock)` added immediately before `free(mem)` in
-`tss_async_signal_safe_destroy` (`tss_async_signal_safe.c.ipp:135`); the residual
-destroy-vs-live-deinit hazard is now ruled out by the destroy-after-join contract
-documented in `tss_async_signal_safe.h`. **Verified:** macOS arm64 ASan/UBSan; full
-`ctest` suite passes.
 
 ### 2.7 `sigguarded`/`sigfpe` NULL-argument handling aborts the process
 
@@ -220,21 +85,6 @@ On POSIX the same calls are harmless no-ops when no decider is installed. The he
 documents `stdc_raise` as usable for "OUR currently installed signal decider" for
 arbitrary signals.
 
-### 2.13 W1 [code-level, fallback TLS path] `tss_async_signal_safe_thread_init` leaves a dangling map entry when the `deinit_state` allocation fails (High — OOM corner) **[FIXED 2026-08-10]**
-
-`tss_async_signal_safe.c.ipp:201-213`: when `calloc` of `mem->state` fails, the failure
-path destroys `newitem` but **does not erase** the `[mytid] -> newitem` entry committed
-just before the allocation. The map now holds a dangling pointer: the next `get` on that
-thread returns the freed pointer (UAF on read), and the next `thread_init` finds the
-entry, skips the create, and reports success — the thread is permanently bound to freed
-storage, `count` is never incremented, and no atexit cleanup is registered. Fix: erase
-the map entry before destroying `newitem` (or move the `state` allocation before the
-`insert`).
-
-**Fixed:** the OOM path now erases the `[mytid]` entry before `UNLOCK`/destroying
-`newitem` (`tss_async_signal_safe.c.ipp:217-221`). **Verified:** macOS arm64 ASan/UBSan;
-full `ctest` suite passes.
-
 ### 2.14 W2 [confirmed, POSIX] deciders receive indeterminate/stale `error_code`, `addr`, `raw_info` for `stdc_raise(signo, NULL, NULL)` (High)
 
 `prepare_rsi` (`thrd_signal_handle_posix.c.ipp:186-199`) writes `raw_info`,
@@ -252,24 +102,6 @@ on POSIX an unclaimed user raise of a default-terminate signal kills the process
 same outcome Windows produces via WER (W5). POSIX only "returns false" when the signal
 was never installed.
 
-### 2.15 W4 [code-level, Windows] the 2.2 container UAF exists in the Windows vectored handler too (High) **[FIXED 2026-08-10]**
-
-`win32_vectored_exception_function` (`thrd_signal_handle_windows.c.ipp:329-368`) holds
-`it` across the unlocked `current->decider(&rsi)` call and re-accesses
-`signo_to_sighandler_map_t_value(it)->global_handler` after re-locking. A concurrent
-`siguninstall` that drops the last reference frees the `sighandler_info` container in
-that window -> UAF *inside the exception handler*. Additionally the vectored handler may
-be *removed* mid-raise when the count reaches zero, so the remainder of the raise runs
-with no library filter at all.
-
-**Fixed:** the same 2.2 refcount protocol — the vectored handler takes a reference on the
-`sighandler_info` container across the unlocked decider calls and releases it afterwards
-(`thrd_signal_handle_windows.c.ipp:345-397`), so a concurrent `siguninstall` cannot free
-the container while the handler is inside a decider call. The filter-removal-mid-raise
-behaviour is unchanged (a semantic issue, not a memory-safety one). **Verified:** Windows
-path shares the identical code pattern fixed and regression-tested on POSIX
-(`test/siguninstall_raise_test.c`); no Windows host available for live validation.
-
 ### 2.16 W5 [code-level, Windows] `stdc_raise` can never return `false`; an unclaimed raise terminates the process (High — documented-contract violation)
 
 `thrd_signal_handle_windows.c.ipp:252-300` raises via `RaiseException` and always returns
@@ -281,43 +113,6 @@ process**; the same happens inside a `sigguarded` frame guarding a *different* s
 So the portable idiom `if(!stdc_raise(signo, ...)) { /* fall back */ }` is deadly on
 Windows. Distinct from V4 (which covers `abort()` on unsupported signos); this is the
 "no decider" path for *supported* signos.
-
-### 2.17 X1 [confirmed, High] `tss_async_signal_safe_thread_init` performs a use-after-free on the `deinit_state` when called after all previously registered threads have exited **[FIXED 2026-08-10]**
-
-`tss_async_signal_safe.c.ipp:162-166` — the last thread's deinit runs `free(state)` on the
-shared `deinit_state`, but **nothing clears `mem->state`**. A later `thread_init` on a
-fresh thread (a completely ordinary sequential pattern: create -> T1 inits+exits -> T2
-inits) finds `mem->state` still non-NULL (dangling), skips the allocation at `:201-204`,
-and executes `atomic_fetch_add(&mem->state->count, 1)` at `:214` on freed memory.
-Reproduced with ASan (`heap-use-after-free` WRITE at `:214`). The `thread_atexit`
-registration then references the freed `state`, so the new thread's own exit runs the
-deinit on freed memory again. The fallback TLS path is affected; the async-safe TLS path
-never uses this object. Fix direction: the last deinit must clear `mem->state` (under
-`mem->lock`) before `free(state)`, or `thread_init` must validate `mem->state` against a
-generation/refcount.
-
-**Fixed:** the last deinit now clears `mem->state` (under `mem->lock`, guarded by
-`state == mem->state`) before `free(state)`, so the next `thread_init` reallocates a fresh
-`deinit_state` (`tss_async_signal_safe.c.ipp:168-176`). **Verified:** the regression test
-`test/tss_concurrent_exit_test.c` (`test_reinit_and_destroy_after_all_exited`) produced
-the ASan `heap-use-after-free` WRITE at `:217` on the unfixed library and now passes
-(macOS arm64, ASan/UBSan).
-
-### 2.18 X2 [confirmed, High] `tss_async_signal_safe_destroy` writes through the dangling `mem->state` when all registered threads exited before destroy **[FIXED 2026-08-10]**
-
-Same root cause as X1, different trigger: when the last registered thread already exited
-(`state` freed at `:165`), a later `tss_async_signal_safe_destroy(val)` executes
-`mem->state->val = NULL` at `:119` on freed memory. Reproduced with ASan (WRITE of size 8
-at `:119`). Note the documented destroy-after-join pattern ("destroy only after all
-threads left") is exactly the pattern that hits this. Both X1 and X2 are reachable
-through the public `tss_async_signal_safe_*` API alone.
-
-**Fixed:** the same X1 change — the last deinit clears `mem->state` before freeing
-(`tss_async_signal_safe.c.ipp:168-176`) — so a destroy that follows the last thread's
-exit finds `mem->state == NULL` and skips the write; the destroy-after-join requirement is
-documented in `tss_async_signal_safe.h`. **Verified:** the destroy-after-last-exit path is
-covered by `test/tss_concurrent_exit_test.c` (macOS arm64, ASan/UBSan), and the full
-`ctest` suite passes.
 
 ### 2.19 X3 [code-level, Windows, Medium-High] `sigguarded` on Windows never initialises the per-thread TSS (unlike POSIX)
 
@@ -353,26 +148,6 @@ standalone (SIGSEGV). Every map-touching operation crashes on such a platform. M
 libcs never reach NSIG >= 1024, so no CI leg exercises this branch. Fix: call
 `signo_to_sighandler_map_t_init` once.
 
-### 2.22 Z3 [confirmed, High, fallback-TLS platforms] every `sigguarded`/`stdc_raise` after a full `siguninstall` is a heap-use-after-free on the destroyed TSS handle (extends 2.4 / V7) **[FIXED 2026-08-10]**
-
-`thrd_signal_handle_common.ipp.ipp:276-281`: `sig_global_tss_state_destroy`'s intended
-reset of `*sig_tss_state_raw()` to NULL is dead code. After the final `siguninstall` on
-the fallback path, `tss_async_signal_safe_destroy` frees the shared object but the static
-slot still points at it. Verified with ASan: `stdc_raise(0, NULL, NULL)` and
-`sigguarded(...)` after an install->uninstall cycle give a heap-use-after-free READ at
-`tss_async_signal_safe.c.ipp:177`; a real signal delivered to a thread that re-enters the
-library after a second `siginstall` also hits the dangling handle (only a fresh
-`siginstall` overwriting the slot restores sanity). This is the purely sequential,
-documented-usage failure; V7's concurrent framing and 2.4's dead-code framing are two
-sides of the same missing reset (C18). Fix: reset the slot to NULL on destroy, and guard
-`thread_init` against a NULL handle.
-
-**Fixed:** the slot reset is now executed (2.4 fix), so every documented sequential
-re-entry after a full `siguninstall` recreates the TSS — both ASan-verified triggers
-(`stdc_raise(0, ...)` and `sigguarded(...)`) pass in the new `post_uninstall_reentry_test`.
-The `thread_init` NULL-handle guard is tracked separately (2.5/2.6); V7's concurrent
-uninstall remains open (3.16).
-
 ### 2.23 AA1 [confirmed, Medium-High] `signal_decider_destroy` crashes after a `siguninstall` -> `siginstall` cycle orphans the decider node (sequential, no concurrency)
 
 `thrd_signal_handle_common.ipp.ipp:443-614`. `siguninstall` (via `uninstall_sighandler`,
@@ -395,7 +170,7 @@ signal_decider_destroy(d);            // LIST_REMOVE on orphaned node -> crash
 ```
 
 Without the reinstall, `signal_decider_destroy` still frees the orphaned node cleanly.
-This is the sequential sibling of the concurrent container UAF (2.2/W4): the common root
+This is the sequential sibling of the concurrent container UAF: the common root
 cause — `uninstall_sighandler` freeing `sighandler_info` without accounting for nodes
 still linked in its `global_handler` list — should be fixed once for all three (C22).
 It also means `siguninstall` *silently orphans* any decider still registered for the
@@ -469,18 +244,7 @@ thread exits without running its atexit deinit (abnormal termination, `_exit` wi
 thread is process-wide, cancellation corner cases, or `thread_atexit` registration
 failing), the map retains the entry under that TID. A later thread that reuses the same
 TID will observe the *previous* thread's value (never its own), and destruction may run
-with stale state. There is no TID-generation counter. **Extended by Y4:** when the user's
-`attr.destroy` returns non-zero, `tss_async_signal_safe_thread_deinit`
-(`tss_async_signal_safe.c.ipp:153-158`) returns early with the TID entry still in the map
-and `state->count` not decremented (the `fetch_sub` is after the early return, so the
-count never reaches the free point for that thread) — nobody else erases the TID, the
-failed callback never re-runs, and the count stays permanently off relative to the live
-threads. **Y4 [FIXED 2026-08-10]:** the deinit rewrite
-(`tss_async_signal_safe.c.ipp:139-180`) no longer returns early on a non-zero
-`attr.destroy` result: the TID entry is still erased and `state->count` still
-decremented, so the bookkeeping stays consistent (only the failed-to-destroy per-thread
-value leaks, which is the callback's fault). **Verified:** macOS arm64 ASan/UBSan; full
-`ctest` suite passes.
+with stale state. There is no TID-generation counter.
 
 ### 3.7 `sig_global_state_tss_state_init` failure inside `stdc_raise` hides the real error
 
@@ -569,7 +333,7 @@ On the fallback (Apple) path, the final `siguninstall` -> `sig_global_tss_state_
 -> `tss_async_signal_safe_destroy` frees the shared TSS (and every per-thread entry)
 *while another thread may be between `sigguarded` frames*. The interrupted thread's
 `tss->front` points into the freed per-thread state; its next raise runs
-`sig_global_tss_state_init` against the *dangling* `*sig_tss_state_raw()` (2.4/Z3) -> UAF.
+`sig_global_tss_state_init` against the *dangling* `*sig_tss_state_raw()` -> UAF.
 Only the fallback path is affected (the async-safe TLS path's destroy is a no-op). The
 usage requirement "destroy only after all threads have left `sigguarded`" is nowhere
 documented.
@@ -622,27 +386,6 @@ serialise the create callback under the lock (at the cost of re-entrancy, cf. 3.
 ---
 
 ## 4. Portability and configuration concerns
-
-### 4.1 Default `get_current_thread_id` fallback is FreeBSD-only **[FIXED 2026-08-10]**
-
-`current_thread_id.c.ipp:70-72`: the final `#else` branch calls
-`pthread_getthreadid_np()`, which exists only on FreeBSD (the FreeBSD block also pulls in
-`<pthread_np.h>` at line 36-38). On any other POSIX platform the code fails to compile.
-The portable fallback should be `(thread_id_t)pthread_self()`. **Maintainer decision
-(2026-08-10):** the portable `pthread_self()` fallback is *not* used — `pthread_self()`
-is not on the POSIX async-signal-safe list and `current_thread_id()` is documented
-ASYNC-SIGNAL-SAFE, so an unsupported platform is instead a compile-time `#error`.
-
-**Fixed:** `current_thread_id.c.ipp` now has an explicit `#elif defined(__FreeBSD__)`
-branch that keeps `pthread_getthreadid_np()`, and the generic `#else` is a hard `#error`
-("current_thread_id(): unsupported platform; add an explicit branch to
-`get_current_thread_id()` for this platform") so a new platform must be explicitly ported
-rather than silently falling back to an async-signal-unsafe call (the `<pthread_np.h>`
-include was already `#ifdef __FreeBSD__`-guarded). **Verified:** a forced generic-POSIX
-compile on macOS (`clang -fsyntax-only -U__APPLE__ -U__linux__ -U__FreeBSD__ -U_WIN32` on
-`src/wg14_signals/current_thread_id.c`) fails with exactly that diagnostic; full `ctest`
-suite (15 tests) passes under ASan/UBSan on macOS arm64. The FreeBSD leg of CI (ideas.md
-3.2) remains the only place the `pthread_getthreadid_np()` branch is compiled.
 
 ### 4.2 `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL` auto-detection is too optimistic
 
@@ -810,65 +553,12 @@ a strict build are invisible.
   option for `/experimental:c11atomics` in some versions.
 - No CI runs the benchmark targets at all (`-E benchmark`), so the performance claims in
   the README are not verified.
-- No CI tests C11 atomics with an actual stress/TSan build; the spinlock code paths (3.1)
-  would benefit from TSAN. **[FIXED 2026-08-10]** — a dedicated `TSan` job (Ubuntu
-  gcc/clang and macOS clang, C11 and C23) was added to `.github/workflows/ci.yml`, driven
-  by `cmake/tsan-toolchain.cmake` (`-fsanitize=thread` on C/CXX and the linker) with
-  `TSAN_OPTIONS=halt_on_error=1 log_path=stderr symbolize=1 history_size=7
-  report_signal_unsafe=0`. Because
-  glibc's `thrd_create()` calls `pthread_create()` inside libc and bypasses TSan's
-  interceptor, `test/test_common.h` now selects the pthread-based `thrd_*` shim under
-  glibc+TSan (ideas.md 6.2). Verified on macOS arm64 (clang 17): all 15 `ctest` tests
-  pass under TSan in C11 and C23 builds. This supplies the race-free verification of the
-  2.1/2.2 fixes (the macOS legs exercise the fallback TLS path); 3.1 (spinlock not
-  async-signal-safe) is a handler-re-entrancy hazard TSan cannot detect and remains open.
-  **TSan CI follow-up (2026-08-10):** on the Linux GCC legs, `thrd_sigfpe_test` and
-  `recovery_null_loop_test` hit TSan "signal-unsafe call inside of a signal" warnings.
-  These are false positives from `sigguarded()`'s `siglongjmp`-out-of-handler recovery:
-  TSan keeps the thread flagged "inside a signal" across the longjmp, so `malloc`/`free`
-  the tests run afterwards (in `signal_decider_create` / `siguninstall`, both outside
-  the handler) are misreported. The library's handler path is malloc/free-free given
-  `siginstall()` pre-initialisation (the raise's `lifetime_refcount` increment prevents
-  `sighandler_info_release()` from freeing inside the handler). The job now sets
-  `report_signal_unsafe=0` (GCC and LLVM TSan flag that gates exactly this report type);
-  data-race detection is unaffected.
-  **TSan CI follow-up 2 (2026-08-11):** the Linux x86_64 TSan legs then failed
-  `thrd_signal_sigfpe_handle_test` with an unhandled SIGFPE (`***Exception: Numerical`).
-  TSan proxies every user-installed signal handler through its own `sighandler`, and when
-  `sigguarded()`'s recovery `longjmp`s out of the handler, TSan's per-thread signal state
-  (the `in_signal_handler` counter and the signal mask it substituted with
-  `internal_sigfillset`) is never restored, so a subsequent hardware SIGFPE from the
-  divide-by-zero is mishandled and terminates the process. `recovery_null_loop_test`
-  (SIGSEGV) is unaffected. **Fixed:** `test/thrd_sigfpe_test.c` now detects TSan
-  (`__SANITIZE_THREAD__` / `__has_feature(thread_sanitizer)`, a new
-  `WG14_SIGFPE_TEST_TSAN` probe) and drives SIGFPE through `stdc_raise()` instead of a
-  hardware divide-by-zero — the same decider/recovery path with no kernel-delivered
-  fault, matching the path the no-trap architectures already take. The hardware-fault
-  path remains covered by the ASan/UBSan and unsanitised legs. **Verified:** all 15
-  `ctest` tests pass under TSan on macOS arm64 (C11 and C23), under ASan/UBSan on macOS
-  arm64, and in the Fil-C simulation build; the Linux x86_64 TSan legs run only in CI.
-- No CI leg runs a fourth OS; the FreeBSD-only code paths — the
-  `pthread_getthreadid_np()` branch in `current_thread_id.c.ipp` and the `libstdthreads`
-  link for the C11 `thrd_*` tests — are never compiled or run. **[FIXED 2026-08-10]** — a
-  `FreeBSD` job (real FreeBSD 15 kernel under QEMU via `vmactions/freebsd-vm@v1`, C11/C23,
-  Ninja generator, `sanitize-toolchain.cmake`, Release) was added to
-  `.github/workflows/ci.yml`, with the §2.4 `stdthreads` link and the `current_thread_id`
-  unsupported-platform `#error` (4.1) as prerequisites (ideas.md 3.2). The fallback
-  hash-table TLS path (`WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0` on Linux) is still
-  only exercised on macOS (ideas.md 2.1/3.4).
-
-  **FreeBSD CI follow-up (2026-08-10):** the first FreeBSD leg run surfaced a real
-  portability defect in the tests: FreeBSD's `<threads.h>` defines `thrd_success` as `4`
-  (the C11 standard and glibc both use `0`), so the tests' `0 == thrd_create(...)` /
-  `0 != thrd_create(...)` checks failed on FreeBSD even when the thread was created. The
-  checks in `tss_concurrent_exit_test.c` and `siguninstall_raise_test.c` now compare
-  against `thrd_success` (portable: `0` on glibc/the test shim, `4` on FreeBSD).
-  **Still open:** `header_only_build_test`'s single-TU C header-only consumer fails on
-  FreeBSD — `current_thread_id()` returns 0 there, while the library build, the C++ and C
-  multi-TU header-only builds, and `header_only_c_multi_test` all return a non-zero tid;
-  the single-TU weak `_Thread_local` `current_thread_id_cached` retention is suspected.
-  The test is excluded from the FreeBSD ctest run pending diagnosis; the consumer now
-  prints which check failed to make the next run conclusive.
+- `header_only_build_test`'s single-TU C header-only consumer fails on FreeBSD —
+  `current_thread_id()` returns 0 there, while the library build, the C++ and C multi-TU
+  header-only builds, and `header_only_c_multi_test` all return a non-zero tid; the
+  single-TU weak `_Thread_local` `current_thread_id_cached` retention is suspected. The
+  test is excluded from the FreeBSD ctest run pending diagnosis; the consumer now prints
+  which check failed to make the next run conclusive.
 
 ### 5.5 `ProjectConfig.cmake.in` references non-existent export names
 
@@ -876,7 +566,7 @@ a strict build are invisible.
 `@PROJECT_NAME@SlExports.cmake`/`@PROJECT_NAME@DlExports.cmake`, which are never
 generated. Harmless (guarded by `EXISTS`), but misleading.
 
-### 5.6 V1 [confirmed] Installed package is unusable: no headers installed, `find_package` hard-fails (Critical, packaging)
+### 5.6 V1 [confirmed] Installed package is unusable: no headers installed, `find_package` hard-fails (Critical, packaging) **[FIXED 2026-08-12]**
 
 `CMakeLists.txt` has no `install(DIRECTORY include/ ...)` rule — `cmake --install`
 produces only `lib/libwg14_signals.a` and `lib/cmake/wg14_signals/*`. Additionally,
@@ -889,6 +579,20 @@ the installed file and fails as an unknown command on include. Either way the do
 consumption path is broken, and even after fixing the config the exported target's
 `INTERFACE_INCLUDE_DIRECTORIES` points at `<prefix>/include`, which does not exist. Pass 1
 (5.5) only noted the harmless `SlExports`/`DlExports` references and missed this.
+
+**Fixed 2026-08-12** (ported from the sibling `wg14_atomic_waits` CMake packaging):
+`install(DIRECTORY include/wg14_signals ...)` now installs the public headers;
+`configure_file(... @ONLY)` was replaced with `configure_package_config_file()`
+(`PACKAGE_INIT`/`check_required_components` now expand, config stays relocatable), a
+`write_basic_package_version_file()` `ConfigVersion.cmake` was added for versioned
+`find_package`, and the project gained `VERSION 1.0.0`. The regression-proofing
+`install_consumer_test` (ideas.md 1.2) now stages `cmake --install` into a scratch
+prefix, asserts the headers/Config/ConfigVersion/Exports land, and configures + builds +
+runs a `find_package(wg14_signals 1.0 EXACT CONFIG REQUIRED)` consumer linking
+`wg14_signals::wg14_signals`. **Verified:** all three CI configurations (Release,
+ASan/UBSan, `HEADER_ONLY_BUILD=ON`) pass the full `ctest` suite (18 tests), including
+`install_consumer_test`; a consumer exercising `siginstall(NULL)`,
+`current_thread_id()`, `siguninstall` builds and runs against the staged install.
 
 ### 5.7 W6 [build, Medium] `PROJECT_IS_TOP_LEVEL` requires CMake >= 3.21 while `cmake_minimum_required` is 3.15
 
@@ -911,100 +615,6 @@ GCC/Clang build are invisible in the Windows CI leg (extends 5.3).
 the *chosen* `thread_atexit` source is conditional, at `:71-75`), so a C-only toolchain
 cannot configure the project on any platform — even on `__cxa_thread_atexit()` platforms
 where the compiled library is all-C.
-
-### 5.10 AA2 [code-level, build-config, Low] the filc toolchain's `-DDISABLE_INLINE_ASM=1` is a no-op for the library; the toolchain also hardcodes machine-specific paths **[FIXED 2026-08-10]**
-
-`cmake/filc-toolchain.cmake:3-4` passes `-DDISABLE_INLINE_ASM=1` for both C and C++.
-`DISABLE_INLINE_ASM` is referenced **only** by `test/ticks_clock.h:44` (the benchmark
-clock); the library itself never tests it. The library's `WG14_SIGNALS_SIGFENCE_IMPL_*`
-selection in `thrd_signal_handle.h:97-154` keys off `__GNUC__ || __clang__` only — filc
-is clang-based, so `__clang__` is defined and the GNU inline-asm path is compiled
-regardless of the flag (verified by a `-DDISABLE_INLINE_ASM=1 -fsyntax-only` build
-succeeding unchanged; C23). The toolchain's apparent intent (disable inline asm under
-filc) is not achieved; if filc's assembler rejects the `__asm__ volatile(";")` forms, the
-library build fails. Additionally the toolchain hardcodes `/home/ned/Downloads/...`
-compiler paths (not portable), and it is never exercised by CI. Fix direction: gate the
-GNU inline-asm block on `#ifndef DISABLE_INLINE_ASM` (falling back to the volatile-sink
-fallback) and drive the toolchain from a `FILC_ROOT` variable.
-
-**Fixed:** the GNU `WG14_SIGNALS_SIGFENCE_IMPL_*` inline-asm block in
-`thrd_signal_handle.h:98-133` is now gated on `(defined(__GNUC__) || defined(__clang__))
-&& !defined(DISABLE_INLINE_ASM)`, so the toolchain's `-DDISABLE_INLINE_ASM=1` selects
-the portable volatile-sink fallback for the library itself — not just
-`test/ticks_clock.h`. `cmake/filc-toolchain.cmake` was rewritten to be `FILC_ROOT`-driven
-(cache variable or env, `FATAL_ERROR` when unset) instead of hardcoded
-`/home/ned/Downloads/...` paths, and a `FilC` CI job (pinned `FILC_VERSION`/`FILC_SHA256`,
-sha256-verified download, `setup.sh`) now exercises it (ideas.md 3.3). **Verified:** macOS
-arm64 — all 15 `ctest` tests pass both normally and with `-DDISABLE_INLINE_ASM=1` (the
-Fil-C code path); the Fil-C job itself runs only in CI.
-
-**Fil-C CI follow-up (2026-08-10):** the first Fil-C job run also surfaced that Fil-C's
-libc `siginfo_t` is its own complete type, unrelated to the `struct __siginfo` that other
-POSIX libcs expose — so the forward-declared `struct __siginfo` made every siginfo
-interaction in `thrd_signal_handle_posix.c.ipp` a compile error
-(`-Wincompatible-pointer-types`, incomplete-type member access). `thrd_signal_handle.h`
-now has a `#elif defined(__FILC__)` branch aliasing `stdc_siginfo_siginfo_t` to
-`siginfo_t` (the exact type the signal handler receives). **Verified:** a
-`-D__FILC__=1 -DDISABLE_INLINE_ASM=1` build of the whole tree (with a stub `<stdfil.h>`
-providing `zis_unsafe_signal_for_handlers()`) compiles and all 15 `ctest` tests pass on
-macOS arm64.
-
-**Fil-C CI follow-up 2 (2026-08-11):** running the real Fil-C runtime (the stub build
-cannot) showed the remaining five test failures are Fil-C runtime/libc restrictions, not
-library defects:
-
-- **`thrd_signal_sigfpe_handle_test` and `recovery_null_loop_test` are inherently
-  un-runnable on Fil-C.** Fil-C's runtime reserves `SIGILL`/`SIGTRAP`/`SIGBUS`/`SIGSEGV`/
-  `SIGFPE` for its memory-safety mechanism (`zis_unsafe_signal_for_handlers()` returns
-  true for exactly those signals in `libpas/src/libpas/filc_runtime.c`); `sigaction()` on
-  them returns `ENOSYS`, so the library's `install_sighandler()` cannot install user
-  handlers for them and `siginstall` correctly skips them (the
-  `zis_unsafe_signal_for_handlers` guard added in the first follow-up).
-  `thrd_signal_sigfpe_handle_test` then dies with the unhandled `SIGFPE` from the integer
-  divide-by-zero, and `recovery_null_loop_test` never sees a `SIGSEGV` at all — Fil-C
-  traps the null-pointer store as a memory-safety panic before any signal is delivered.
-  Both are excluded from the Fil-C `ctest` run (`ci.yml`); their functionality
-  (thread-local guard + recovery for a synchronous fault) is not expressible under a
-  memory-safe C runtime that intercepts exactly those signals.
-- **`post_uninstall_reentry_test` failed because it raises `SIGILL`, which Fil-C forbids
-  handlers for** ("handler was never installed for that signal", `stdc_raise` returns
-  false). **Fixed:** `INSTALLED_SIGNAL` is now `SIGUSR2` under `__FILC__` (the same
-  pattern already used by `thrd_signal_handle_test.c` and
-  `benchmark_thrd_signal_handle_test.c`); `SIGUSR2` (rather than their `SIGUSR1`)
-  keeps the test distinct from those two and matches `siguninstall_raise_test`'s
-  `SIGUSR2`, which already passes on the Fil-C leg. `stdc_raise()` invokes the
-  decider in-process,
-  so the re-entry regression is still fully exercised. The Windows `SIGILL` choice is
-  untouched outside Fil-C. **Verified:** macOS arm64 — `test/post_uninstall_reentry_test.c`
-  passes with `-D__FILC__=1 -DDISABLE_INLINE_ASM=1` and with the normal build.
-- **`header_only_test` (C++) failed in `thrd_join` with a null-capability pointer.**
-  Upstream musl's `<threads.h>` declares `thrd_t` as `unsigned long` in C++ (pointer in
-  C only), so the `thrd_create()`'d handle loaded back in the C++ TU and passed to
-  `thrd_join()` loses its pointer capability at the C++/C ABI boundary and traps inside
-  `__pthread_timedjoin_np` under Fil-C. **Fixed:** `test/test_common.h` now takes its
-  existing pthread-backed C11-threads shim in C++ under `__FILC__` (the shim's `thrd_t`
-  is a real pointer type in C++, and `pthread_t` is a real pointer type even under
-  musl, so the handle round-trips), instead of including musl's `<threads.h>`;
-  `test/header_only_test.cpp` is unchanged. In C under Fil-C, musl's `thrd_t` is a real
-  pointer and the real `<threads.h>` is still used. **Verified:** macOS arm64 — the
-  `__FILC__` C++ path compiles and runs against a stub `<stdfil.h>`, and the non-Fil-C
-  path is unchanged.
-- **`header_only_build_test` failed at the C consumer sub-build.** Its sub-builds run
-  with the system compiler (they never receive the Fil-C toolchain), so on the Fil-C leg
-  step 1 passes, but the C-consumer build/link fails because it inherits the parent
-  configure's `__cxa_thread_atexit` supplying library, which the system linker cannot
-  always satisfy. The test does not exercise Fil-C on this leg and is excluded from the
-  Fil-C `ctest` run pending diagnosis (same status as the FreeBSD leg, section 5.4); the
-  C header-only functionality remains covered by `header_only_c_multi_test`, the C++
-  `header_only_test`, and the step-1 `HEADER_ONLY_BUILD=ON` build.
-
-**Fixed 2026-08-11:** the Fil-C job's `ctest` command now excludes
-`thrd_signal_sigfpe_handle_test|recovery_null_loop_test|header_only_build_test`;
-`post_uninstall_reentry_test.c` uses `SIGUSR2` under `__FILC__`; and
-`test/test_common.h` swaps in its pthread-backed C11-threads shim for C++ under
-`__FILC__`. **Verified:** macOS arm64 — all 15 `ctest` tests pass normally and with
-`-D__FILC__=1 -DDISABLE_INLINE_ASM=1` (header_only_test exercises the shim path there);
-the Fil-C job itself runs only in CI.
 
 ---
 
@@ -1321,26 +931,6 @@ installed. The debug set is the sibling defect (X9): `asynchronous_debug_sigset`
 signals are within this set: SIGQUIT, SIGTRAP, SIGXCPU, SIGXFSZ" — a Windows consumer gets
 a guard set that never matches anything.
 
-### 9.11 Z11 [documentation, Low-Medium] the README's standalone `sigguarded` example is non-functional on every platform **[FIXED 2026-08-11]**
-
-`Readme.md:20-33` showed `sigguarded(...)` with no preceding `siginstall`. On POSIX the
-frame stack is only consulted by the library's own `raw_signal_handler` (installed only by
-`siginstall`) or by user `stdc_raise`; a genuine fault for an uninstalled signal runs the
-kernel default (terminate) and never reaches the guard. On Windows, `sigguarded` alone
-leaves the per-thread TSS uninitialised (X3).
-
-**Fixed 2026-08-11:** the README was rewritten to match the current implementation (ideas.md
-7.3): the example now calls `siginstall(NULL)` first and `siguninstall(handlers)` at the
-end, the feature list covers the full API surface (`stdc_raise`, global deciders, the
-`sigfillset_*` helpers, `sigfence()`, `tss_async_signal_safe`, `current_thread_id`), the
-"Supported targets" section lists the actual CI matrix from `.github/workflows/ci.yml`
-(Linux, macOS, Windows, Header-only, TSan, FreeBSD VM, Fil-C), a CMake options table was
-added, and the "Known bugs" section (which previously listed only the `pcpp` future work)
-now records the genuine limitations. **Verified:** the example now matches the header's
-`sigguarded()` documentation and the working test usage pattern; markdown structure and
-CI table were cross-checked against `thrd_signal_handle.h`, `config.h`, `CMakeLists.txt`
-and `.github/workflows/ci.yml`.
-
 ### 9.12 AA5 [code-level, both backends, Low] a *global* decider returning `sig_decision_invoke_recovery` has divergent, undocumented semantics
 
 The enum documentation (`thrd_signal_handle.h:254-257`) says `sig_decision_invoke_recovery`
@@ -1393,30 +983,20 @@ invite reading `error_code`.
 
 | ID | Severity | Issue | Location |
 |----|----------|-------|----------|
-| V1 | Critical | Installed package: no headers installed; `find_package` fails (PACKAGE_INIT never expanded) | `CMakeLists.txt:50-70`, `cmake/ProjectConfig.cmake.in` |
-| 2.1 | High | tss deinit count/state race -> UAF **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:136-168` |
-| 2.2 | High | `siguninstall` vs in-flight `stdc_raise` -> container UAF (also Windows, W4) **[FIXED 2026-08-10]** | `thrd_signal_handle_posix.c.ipp:314-368` |
-| W1 | High | dangling map entry after `deinit_state` OOM; next get/init returns freed pointer **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:201-213` |
+| V1 | Critical | Installed package: no headers installed; `find_package` fails (PACKAGE_INIT never expanded) **[FIXED 2026-08-12]** | `CMakeLists.txt:50-70`, `cmake/ProjectConfig.cmake.in` |
 | W2 | High | deciders get indeterminate/stale `error_code`/`addr`/`raw_info` for `stdc_raise(signo,NULL,NULL)` (confirmed) | `thrd_signal_handle_posix.c.ipp:186-199,327` |
-| W4 | High | 2.2 container UAF also in Windows vectored handler; filter removable mid-raise **[FIXED 2026-08-10]** | `thrd_signal_handle_windows.c.ipp:329-368` |
 | W5 | High | Windows `stdc_raise` never returns false; unclaimed raises kill the process via WER | `thrd_signal_handle_windows.c.ipp:252-300` |
-| X1 | High | `thread_init` UAF on `deinit_state` after all registered threads exited (confirmed) **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:162-166,201-214` |
-| X2 | High | `destroy` UAF on `deinit_state` after all registered threads exited (confirmed) **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:117-121` |
 | Y1 | High | `install_sighandler` lock leak when `install_sighandler_impl` fails (confirmed) | `thrd_signal_handle_common.ipp.ipp:305-311` |
-| Z3 | High | `sigguarded`/`stdc_raise` after full `siguninstall` = heap-UAF on destroyed TSS (confirmed; extends 2.4/V7) **[FIXED 2026-08-10]** | `thrd_signal_handle_common.ipp.ipp:276-281`, `tss_async_signal_safe.c.ipp:177` |
 | V2 | High | Windows vectored handler NULL-derefs `tss->front` on fresh threads | `thrd_signal_handle_windows.c.ipp:357-361` |
 | V3 | High | Windows `sigismember(guarded, 0)` UB; C++ exceptions swallowed by `sigguarded` | `thrd_signal_handle_windows.c.ipp:200`, `thrd_signal_handle.h:52-63` |
 | V4 | High | Windows `stdc_raise` aborts for all unsupported signos | `thrd_signal_handle_windows.c.ipp:112-134` |
 | Z1 | Med-High | verstable `signo_to_sighandler_map_t` never initialised -> NULL-metadata crash (NSIG >= 1024) | `thrd_signal_handle_common.ipp.ipp:58-135,174-179` |
 | X3 | Med-High | Windows `sigguarded` never inits per-thread TSS -> NULL-deref in vectored handler on fresh threads | `thrd_signal_handle_windows.c.ipp:219-249` |
 | AA1 | Med-High | `signal_decider_destroy` NULL-deref/UAF after `siguninstall`->`siginstall` orphans the decider node (confirmed) | `thrd_signal_handle_common.ipp.ipp:328-364,443-614` |
-| 2.3 | Med | `sighandlers_count` increment before TSS-create check **[FIXED 2026-08-10]** | `thrd_signal_handle_common.ipp.ipp:316-323` |
-| 2.4 | Med | Dead code after `return` in `sig_global_tss_state_destroy` **[FIXED 2026-08-10]** | `thrd_signal_handle_common.ipp.ipp:276-281` |
 | 2.5 | Med | `thread_init` returns success for NULL item | `tss_async_signal_safe.c.ipp:186-190` |
 | 2.6 | Med | `tss_async_signal_safe_*` NULL handle crash (also Z8, X8) | `tss_async_signal_safe.c.ipp:93-243` |
 | 3.1 | Med | Spinlock not async-signal-safe | `lock_unlock.h` |
 | 3.3 | Med | `SA_NOCLDWAIT`/`SA_NODEFER`/no `SA_RESTART` semantics | `thrd_signal_handle_posix.c.ipp:371-383` |
-| 4.1 | Med | FreeBSD-only fallback for `get_current_thread_id` **[FIXED 2026-08-10]** | `current_thread_id.c.ipp:70-72` |
 | 8.1 | Low | Post-longjmp access to modified non-volatile locals | `thrd_signal_handle_posix.c.ipp:252-258` |
 | V5 | Med | Windows global deciders run twice per exception (once under a debugger) | `thrd_signal_handle_windows.c.ipp:408-427` |
 | V6 | Med | setjmp-buffer race: frame published before setjmp completes | `thrd_signal_handle_posix.c.ipp:251-252`, `thrd_signal_handle_windows.c.ipp:270-271` |
@@ -1441,8 +1021,6 @@ invite reading `error_code`.
 | X9 | Low | Windows `asynchronous_debug_sigset` returns empty set, contradicts docs | `thrd_signal_handle_windows.c.ipp:97-104` |
 | X11 | Low | `sigfence` with >8 args -> cryptic error | `thrd_signal_handle.h:85-95` |
 | X12 | Low | `thrd_join` error check is wrong (`ret != -1`); `thrd_create` unchecked calloc | `test/test_common.h:43-59` |
-| Y3 | Low | `tss_async_signal_safe_destroy` frees `mem` with lock held **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:111-134` |
-| Y4 | Low | deinit `attr.destroy` failure leaves stale TID entry + count never decremented (extends 3.6) **[FIXED 2026-08-10]** | `tss_async_signal_safe.c.ipp:150-158` |
 | Y5 | Low | no `pthread_atfork`; stale TID caches/map across `fork()` | `current_thread_id.c.ipp:50-56,78-84`, `tss_async_signal_safe.c.ipp:81-91` |
 | Y6 | Low | missing `NSIG` -> zero-length array + silently no-op `siginstall` | `thrd_signal_handle_common.ipp.ipp:58-62,381` |
 | Y9 | Low | forced `HAVE_ASYNC_SAFE_THREAD_LOCAL=1` on Apple compiles silently (refines 4.2) | `config.h:41-51,53-67` |
@@ -1453,9 +1031,6 @@ invite reading `error_code`.
 | Z8 | Low | `tss_async_signal_safe` NULL/double destroy + post-destroy `get`/`thread_init` unguarded | `tss_async_signal_safe.c.ipp:111-134,226-243` |
 | Z9 | Low | `thread_init`'s unlocked `attr.create` breaks THREADSAFE claim for concurrent first-use | `tss_async_signal_safe.c.ipp:184-191` |
 | Z10 | Low | Windows nondebug set omits documented signals, includes `SIGKILL`/`SIGSTOP` (extends X9) | `thrd_signal_handle_windows.c.ipp:73-89` |
-| Z11 | Doc | README standalone `sigguarded` example non-functional on all platforms **[FIXED 2026-08-11]** | `Readme.md:20-33` |
-| AA2 | Low | filc `-DDISABLE_INLINE_ASM=1` is a no-op for the library; toolchain paths hardcoded **[FIXED 2026-08-10]** | `thrd_signal_handle.h:97-154`, `cmake/filc-toolchain.cmake` |
-| AA2b | Low | Fil-C runtime forbids user handlers for `SIGILL/SIGTRAP/SIGBUS/SIGSEGV/SIGFPE`; `thrd_signal_sigfpe_handle_test`/`recovery_null_loop_test` excluded from the Fil-C job; `post_uninstall_reentry_test` uses `SIGUSR2` under `__FILC__`; C++ `thrd_t`=`unsigned long` under musl breaks `header_only_test` (test_common.h swaps in its pthread-backed shim in C++ under `__FILC__`); `header_only_build_test` sub-builds use the system compiler **[FIXED 2026-08-11]** | `ci.yml` FilC job, `test/post_uninstall_reentry_test.c`, `test/test_common.h` |
 | AA3 | Low | `WG14_SIGNALS_DISABLE_SIGFENCE_MACRO` breaks the test build (confirmed) | `thrd_signal_handle.h:77`, `test/thrd_sigfpe_test.c:64` |
 | AA4 | Low | `siguninstall` (POSIX) discards post-`siginstall` app handler changes (Z5 sibling) | `thrd_signal_handle_posix.c.ipp:385-390` |
 | AA5 | Low | global decider `invoke_recovery`: POSIX claims-without-recovery vs Windows unwinds-to-frame | `thrd_signal_handle_posix.c.ipp:357-361`, `thrd_signal_handle_windows.c.ipp:354-366` |

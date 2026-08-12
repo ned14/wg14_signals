@@ -8,8 +8,9 @@ option(HEADER_ONLY_BUILD "Build using header only (unity build)" OFF)
 set(WG14_SIGNALS_CXA_THREAD_ATEXIT_LIB "" CACHE STRING
   "Library that supplies __cxa_thread_atexit() (empty if the C runtime does)")
 
-project(wg14_signals LANGUAGES C CXX)
+project(wg14_signals VERSION 1.0.0 LANGUAGES C CXX)
 include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 enable_testing()
 include(CheckCSourceCompiles)
 check_c_source_compiles("#include <setjmp.h>\nint main(void) { jmp_buf buf; return _setjmp(buf); }" LIBC_HAS__SETJMP)
@@ -125,13 +126,28 @@ install(TARGETS ${PROJECT_NAME}
         RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
 )
 
-configure_file(
+# The public headers are the library's interface; without this nothing under
+# <wg14_signals/...> is available to a find_package consumer (analysis.md V1).
+install(DIRECTORY include/wg14_signals
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+
+# configure_package_config_file (not plain configure_file) defines the
+# check_required_components() helper the config template calls and keeps the
+# config relocatable; write_basic_package_version_file makes versioned
+# find_package(wg14_signals N.N) requests work (analysis.md V1).
+configure_package_config_file(
   "${CMAKE_CURRENT_LIST_DIR}/cmake/ProjectConfig.cmake.in"
   "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
-  @ONLY
+  INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
+)
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+  VERSION ${PROJECT_VERSION}
+  COMPATIBILITY SameMajorVersion
 )
 install(FILES
   "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+  "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
   DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
 )
 install(EXPORT ${PROJECT_NAME}Exports

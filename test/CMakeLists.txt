@@ -51,6 +51,29 @@ set_target_properties(header_only_test PROPERTIES
 )
 add_test(NAME header_only_test COMMAND $<TARGET_FILE:header_only_test>)
 
+# Install + find_package consumer test: stages `cmake --install` into a scratch
+# prefix, checks the headers / package config / version file landed, then
+# configures, builds and runs the standalone consumer in install_consumer/
+# against that prefix. This is what catches install/export regressions
+# (analysis.md V1) which a build-and-ctest-only CI would otherwise never see.
+add_test(
+  NAME install_consumer_test
+  COMMAND ${CMAKE_COMMAND}
+    -DINSTALL_TEST_BUILD_DIR=${PROJECT_BINARY_DIR}
+    -DINSTALL_TEST_CONSUMER_DIR=${CMAKE_CURRENT_SOURCE_DIR}/install_consumer
+    -DINSTALL_TEST_PREFIX=${CMAKE_BINARY_DIR}/install_test_prefix
+    -DINSTALL_TEST_BINARY_DIR=${CMAKE_BINARY_DIR}/install_test_consumer
+    -DINSTALL_TEST_VERSION=${PROJECT_VERSION}
+    -DINSTALL_TEST_CONFIG=$<CONFIG>
+    -DINSTALL_TEST_TOOLCHAIN=${CMAKE_TOOLCHAIN_FILE}
+    -DINSTALL_TEST_C_COMPILER=${CMAKE_C_COMPILER}
+    -DINSTALL_TEST_C_FLAGS=${CMAKE_C_FLAGS}
+    -DINSTALL_TEST_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}
+    -DINSTALL_TEST_EXE_SUFFIX=${CMAKE_EXECUTABLE_SUFFIX}
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/install_consumer/driver.cmake
+)
+set_tests_properties(install_consumer_test PROPERTIES TIMEOUT 180)
+
 # Positive regression test for the header-only build (analysis.md 1.8, C3):
 # -DHEADER_ONLY_BUILD=ON must build, and the single-TU C header-only consumer
 # must build, link and run.
