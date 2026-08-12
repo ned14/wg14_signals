@@ -119,7 +119,7 @@ second NULL-info raise in the same guarded frame must not observe the first rais
 `raw_info`). Full `ctest` suite (19 tests) passes under ASan/UBSan and in the
 `HEADER_ONLY_BUILD=ON` configuration on macOS arm64.
 
-### 2.16 W5 [code-level, Windows] `stdc_raise` can never return `false`; an unclaimed raise terminates the process (High — documented-contract violation)
+### 2.16 W5 [code-level, Windows] `stdc_raise` can never return `false`; an unclaimed raise terminates the process (High — documented-contract violation) **[FIXED 2026-08-12]**
 
 `thrd_signal_handle_windows.c.ipp:252-300` raises via `RaiseException` and always returns
 `true`. The header contract (`thrd_signal_handle.h:362-364`) promises "returning false if
@@ -130,6 +130,28 @@ process**; the same happens inside a `sigguarded` frame guarding a *different* s
 So the portable idiom `if(!stdc_raise(signo, ...)) { /* fall back */ }` is deadly on
 Windows. Distinct from V4 (which covers `abort()` on unsupported signos); this is the
 "no decider" path for *supported* signos.
+
+**Fixed 2026-08-12:** the Windows `stdc_raise` now returns `false` when the raised signal
+has no installed handler/decider, matching POSIX (and the documented contract), instead
+of letting WER terminate the process. Two new Windows-only fields on the per-thread
+state (`software_raise_in_progress`, `software_raise_unclaimed`,
+`thrd_signal_handle_common.ipp.ipp`) let the vectored exception function distinguish an
+*unclaimed library raise* from a *genuine fault*: `stdc_raise` sets `in_progress`
+immediately before `RaiseException` and clears it (and `unclaimed`) on every exit path,
+including the `setjmp`-return path taken when a global decider claims the raise; the
+vectored function's map-miss path ("we don't have a handler installed for that signal")
+now checks `software_raise_in_progress` and, for a library raise, sets `unclaimed` and
+returns `EXCEPTION_CONTINUE_EXECUTION` (so `RaiseException` returns normally and
+`stdc_raise` reports `false`), while genuine faults keep `EXCEPTION_CONTINUE_SEARCH`.
+The installed-but-unclaimed path (a decider returning `next_decider`) intentionally
+keeps `EXCEPTION_CONTINUE_SEARCH`, matching POSIX's fall-through-to-default behaviour
+(C14). **Verified:** the new regression test `test/stdc_raise_uninstalled_test.c`
+(registered as `stdc_raise_uninstalled_test`) checks that `stdc_raise(signo, NULL,
+NULL)` for an uninstalled signal returns `false` both bare and inside a `sigguarded()`
+frame guarding a different signal, and that an installed-and-claimed raise still returns
+`true`. On the Windows leg (CI) the first two checks crashed with WER before this fix.
+Full `ctest` suite (20 tests) passes under ASan/UBSan and in the `HEADER_ONLY_BUILD=ON`
+configuration on macOS arm64 (POSIX semantics of the two checks were already correct).
 
 ### 2.19 X3 [code-level, Windows, Medium-High] `sigguarded` on Windows never initialises the per-thread TSS (unlike POSIX)
 
@@ -1002,7 +1024,7 @@ invite reading `error_code`.
 |----|----------|-------|----------|
 | V1 | Critical | Installed package: no headers installed; `find_package` fails (PACKAGE_INIT never expanded) **[FIXED 2026-08-12]** | `CMakeLists.txt:50-70`, `cmake/ProjectConfig.cmake.in` |
 | W2 | High | deciders get indeterminate/stale `error_code`/`addr`/`raw_info` for `stdc_raise(signo,NULL,NULL)` (confirmed) **[FIXED 2026-08-12]** | `thrd_signal_handle_posix.c.ipp:186-199,327` |
-| W5 | High | Windows `stdc_raise` never returns false; unclaimed raises kill the process via WER | `thrd_signal_handle_windows.c.ipp:252-300` |
+| W5 | High | Windows `stdc_raise` never returns false; unclaimed raises kill the process via WER **[FIXED 2026-08-12]** | `thrd_signal_handle_windows.c.ipp:252-300` |
 | Y1 | High | `install_sighandler` lock leak when `install_sighandler_impl` fails (confirmed) | `thrd_signal_handle_common.ipp.ipp:305-311` |
 | V2 | High | Windows vectored handler NULL-derefs `tss->front` on fresh threads | `thrd_signal_handle_windows.c.ipp:357-361` |
 | V3 | High | Windows `sigismember(guarded, 0)` UB; C++ exceptions swallowed by `sigguarded` | `thrd_signal_handle_windows.c.ipp:200`, `thrd_signal_handle.h:52-63` |

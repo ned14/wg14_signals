@@ -287,7 +287,10 @@ extern "C"
     tss->front = &current;
     if(setjmp(current.buf) != 0)
     {
+      // A global decider claimed the raise and longjmp'd back to us.
       tss->front = old;
+      tss->software_raise_in_progress = 0;
+      tss->software_raise_unclaimed = 0;
       return true;
     }
 
@@ -296,6 +299,8 @@ extern "C"
     // info->ExceptionInformation[0] = 0=read 1=write 8=DEP
     // info->ExceptionInformation[1] = causing address
     // info->ExceptionInformation[2] = NTSTATUS causing exception
+    tss->software_raise_in_progress = 1;
+    tss->software_raise_unclaimed = 0;
     if(info != WG14_SIGNALS_NULLPTR)
     {
       if(raw_context != WG14_SIGNALS_NULLPTR &&
@@ -317,7 +322,13 @@ extern "C"
     // claimed it). Pop the frame pushed above so tss->front never points at
     // this dead stack frame (analysis.md 1.6).
     tss->front = old;
-    return true;
+    const int unclaimed = tss->software_raise_unclaimed;
+    tss->software_raise_in_progress = 0;
+    tss->software_raise_unclaimed = 0;
+    // An unclaimed software raise of a signal with no installed handler or
+    // decider returns false instead of letting Windows Error Reporting
+    // terminate the process (analysis.md 2.16/W5).
+    return (unclaimed) ? false : true;
   }
 
   static long __stdcall WG14_SIGNALS_PREFIX(win32_vectored_exception_function)(
@@ -338,8 +349,21 @@ extern "C"
     &state->signo_to_sighandler_map, signo);
     if(WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_is_end)(it))
     {
-      // We don't have a handler installed for that signal
+      // We don't have a handler installed for that signal. If this exception
+      // is one of OUR software raises (stdc_raise() of a signal with no
+      // installed handler/decider), continue execution so RaiseException()
+      // returns and stdc_raise() reports false, instead of the default
+      // unhandled behaviour which invokes Windows Error Reporting and
+      // terminates the process (analysis.md 2.16/W5). Genuine faults keep
+      // EXCEPTION_CONTINUE_SEARCH.
       UNLOCK(state->lock);
+      struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+      WG14_SIGNALS_PREFIX(sig_global_tss_state)();
+      if(tss != WG14_SIGNALS_NULLPTR && tss->software_raise_in_progress)
+      {
+        tss->software_raise_unclaimed = 1;
+        return EXCEPTION_CONTINUE_EXECUTION;
+      }
       return EXCEPTION_CONTINUE_SEARCH;
     }
     struct WG14_SIGNALS_PREFIX(sighandler_info) *item =

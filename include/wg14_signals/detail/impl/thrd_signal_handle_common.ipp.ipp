@@ -222,6 +222,18 @@ extern "C"
   struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t)
   {
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) * front;
+#ifdef _WIN32
+    // Set by stdc_raise() while one of its RaiseException() software raises is
+    // being dispatched, and only then. This lets the vectored exception
+    // function distinguish an unclaimed library raise (must return false) from
+    // a genuine fault on an uninstalled signal (must stay unhandled)
+    // (analysis.md 2.16/W5).
+    int software_raise_in_progress;
+    // Set by the vectored exception function when such a software raise had no
+    // installed handler/decider; stdc_raise() reads it after RaiseException()
+    // returns to report false (analysis.md 2.16/W5).
+    int software_raise_unclaimed;
+#endif
   };
 #if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
   WG14_SIGNALS_EXTERN struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *
