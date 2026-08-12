@@ -323,9 +323,11 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
     int signo;  //!< The signal raised
 
     //! \brief The system specific error code for this signal, the `si_errno`
-    //! code (POSIX) or `NTSTATUS` code (Windows)
+    //! code (POSIX) or `NTSTATUS` code (Windows). Zero when the raise carried
+    //! no OS info (e.g. `stdc_raise(signo, NULL, NULL)`).
     WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t) error_code;
-    void *addr;  //!< Memory location which caused fault, if appropriate
+    void *addr;  //!< Memory location which caused fault, if appropriate. NULL
+                 //!< when the raise carried no OS info.
     union WG14_SIGNALS_PREFIX(
     stdc_siginfo_value) value;  //!< A user-defined value
 
@@ -333,6 +335,10 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
     WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * raw_info;
     //! \brief The OS specific `ucontext_t` (POSIX) or `PCONTEXT` (Windows)
     WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * raw_context;
+    //! \note On POSIX, a `stdc_raise(signo, NULL, NULL)` sets `raw_info` to
+    //! NULL and `raw_context` to the passed `raw_context` (NULL there); on
+    //! Windows the OS info is always present (`raw_info` points at the
+    //! `EXCEPTION_RECORD`).
   };
 
   //! \brief The type of the guarded function.

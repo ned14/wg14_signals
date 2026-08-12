@@ -14,6 +14,7 @@ add_code_test(post_uninstall_reentry_test SOURCES "post_uninstall_reentry_test.c
 set_tests_properties(post_uninstall_reentry_test PROPERTIES TIMEOUT 300)
 add_code_test(standalone_setup_test SOURCES "standalone_setup_test.c" FEATURES c_std_11)
 add_code_test(stdc_raise_zero_test SOURCES "stdc_raise_zero_test.c" FEATURES c_std_11)
+add_code_test(stdc_raise_null_info_test SOURCES "stdc_raise_null_info_test.c" FEATURES c_std_11)
 add_code_test(recovery_null_loop_test SOURCES "recovery_null_loop_test.c" FEATURES c_std_11)
 set_tests_properties(recovery_null_loop_test PROPERTIES TIMEOUT 60)
 

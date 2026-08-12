@@ -85,7 +85,7 @@ On POSIX the same calls are harmless no-ops when no decider is installed. The he
 documents `stdc_raise` as usable for "OUR currently installed signal decider" for
 arbitrary signals.
 
-### 2.14 W2 [confirmed, POSIX] deciders receive indeterminate/stale `error_code`, `addr`, `raw_info` for `stdc_raise(signo, NULL, NULL)` (High)
+### 2.14 W2 [confirmed, POSIX] deciders receive indeterminate/stale `error_code`, `addr`, `raw_info` for `stdc_raise(signo, NULL, NULL)` (High) **[FIXED 2026-08-12]**
 
 `prepare_rsi` (`thrd_signal_handle_posix.c.ipp:186-199`) writes `raw_info`,
 `error_code`, and `addr` **only** when `siginfo != NULL`. On the global path `rsi` is a
@@ -101,6 +101,23 @@ falls through to the default action and the process dies (default-terminate sign
 on POSIX an unclaimed user raise of a default-terminate signal kills the process, the
 same outcome Windows produces via WER (W5). POSIX only "returns false" when the signal
 was never installed.
+
+**Fixed 2026-08-12:** `prepare_rsi` (`thrd_signal_handle_posix.c.ipp`) now zeroes
+`raw_info`, `error_code`, and `addr` when `siginfo == NULL` (`raw_info = NULL`,
+`error_code = 0`, `addr = NULL`). Deliberately **not** a whole-struct `memset` (the
+literal fix suggested above): on the frame path `sigguarded()` pre-sets `rsi.value` and
+`prepare_rsi` runs per-raise, so a `memset` would wipe `value` on the first raise —
+instead only the three OS-info fields `prepare_rsi` owns are made deterministic. The
+Windows backend already did a whole-struct `memset` (its `value` is set after
+`prepare_rsi`), and is unaffected. The NULL-info contract is now documented on
+`stdc_siginfo` in `thrd_signal_handle.h` (POSIX: `raw_info` NULL; Windows: `raw_info`
+always the `EXCEPTION_RECORD`). **Verified:** the new regression test
+`test/stdc_raise_null_info_test.c` (registered as `stdc_raise_null_info_test`) fails on
+the unfixed library — the global-decider path observes garbage `error_code`/`addr`
+(reproduced on every run) — and passes with the fix; it also covers the frame path (a
+second NULL-info raise in the same guarded frame must not observe the first raise's
+`raw_info`). Full `ctest` suite (19 tests) passes under ASan/UBSan and in the
+`HEADER_ONLY_BUILD=ON` configuration on macOS arm64.
 
 ### 2.16 W5 [code-level, Windows] `stdc_raise` can never return `false`; an unclaimed raise terminates the process (High — documented-contract violation)
 
@@ -984,7 +1001,7 @@ invite reading `error_code`.
 | ID | Severity | Issue | Location |
 |----|----------|-------|----------|
 | V1 | Critical | Installed package: no headers installed; `find_package` fails (PACKAGE_INIT never expanded) **[FIXED 2026-08-12]** | `CMakeLists.txt:50-70`, `cmake/ProjectConfig.cmake.in` |
-| W2 | High | deciders get indeterminate/stale `error_code`/`addr`/`raw_info` for `stdc_raise(signo,NULL,NULL)` (confirmed) | `thrd_signal_handle_posix.c.ipp:186-199,327` |
+| W2 | High | deciders get indeterminate/stale `error_code`/`addr`/`raw_info` for `stdc_raise(signo,NULL,NULL)` (confirmed) **[FIXED 2026-08-12]** | `thrd_signal_handle_posix.c.ipp:186-199,327` |
 | W5 | High | Windows `stdc_raise` never returns false; unclaimed raises kill the process via WER | `thrd_signal_handle_windows.c.ipp:252-300` |
 | Y1 | High | `install_sighandler` lock leak when `install_sighandler_impl` fails (confirmed) | `thrd_signal_handle_common.ipp.ipp:305-311` |
 | V2 | High | Windows vectored handler NULL-derefs `tss->front` on fresh threads | `thrd_signal_handle_windows.c.ipp:357-361` |

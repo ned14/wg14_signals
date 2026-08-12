@@ -199,6 +199,17 @@ static void __attribute__((noreturn)) default_abort(void)
       rsi->error_code = siginfo->si_errno;
       rsi->addr = siginfo->si_addr;
     }
+    else
+    {
+      // stdc_raise(signo, NULL, NULL) must hand deciders deterministic
+      // "no OS info" values, not indeterminate garbage or a stale pointer
+      // from an earlier raise in the same frame (analysis.md 2.14/W2). Do
+      // NOT memset the whole struct here: on the frame path `value` is
+      // pre-set by sigguarded() and must survive.
+      rsi->raw_info = WG14_SIGNALS_NULLPTR;
+      rsi->error_code = 0;
+      rsi->addr = WG14_SIGNALS_NULLPTR;
+    }
   }
 
   // The base signal handler for POSIX
