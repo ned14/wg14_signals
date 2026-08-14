@@ -11,8 +11,9 @@ fixed in §5.11); 2026-08-14 Windows CI build-failure pass (analysis.md 4.10 fix
 C++14/17 lacks `__VA_OPT__`; the header's sigfence counting now falls back to a plain
 comma-list form there, after a wrong `/Zc:__VAOPT__` flag attempt was reverted);
 2026-08-14 FreeBSD CI build-failure pass (clang 19 renamed the zero-arg variadic-macro
-warning to `-Wc23-extensions`; the sigfence test now suppresses all three names).
-Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+warning to `-Wc23-extensions`; the sigfence test now suppresses all three names);
+2026-08-14 fix pass (analysis.md 2.5 recorded in §5.3; analysis.md 2.10/V2 — the Windows
+vectored-handler NULL-tss guard — recorded in §5.8, done). Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
 would have caught the defect). Sibling references are cited as
@@ -146,11 +147,12 @@ becomes a benign fallback for "called before any library call", which in a singl
 pre-main context cannot race). This keeps the functions read-only afterwards, preserving
 the "ASYNC-SIGNAL-SAFE" claim.
 
-### 5.8 Windows backend concrete fix (analysis.md V2)
+### 5.8 Windows backend concrete fix (analysis.md V2) **[DONE 2026-08-14]**
 
 - **NULL `tss->front` deref from a fresh thread (V2)** — the vectored handler calls
   `sig_global_tss_state()` on threads that never ran `sig_global_tss_state_init`; on the
-  fallback path that returns NULL and `tss->front` dereferences it. Guard:
+  fallback path that returns NULL and `tss->front` dereferences it. **Fixed 2026-08-14:**
+  the claim path now guards both `tss` and `tss->front`:
 
   ```c
   struct ... *tss = WG14_SIGNALS_PREFIX(sig_global_tss_state)();
@@ -160,6 +162,11 @@ the "ASYNC-SIGNAL-SAFE" claim.
   }
   return EXCEPTION_CONTINUE_EXECUTION;
   ```
+
+  With no frame to resume (fresh thread), the handler falls through to the existing
+  "generally end the process" path instead of NULL-deref'ing inside the exception
+  handler. Verified: guard logic compiles/behaves correctly; full `ctest` suite passes on
+  Linux and macOS.
 
 ### 5.9 `siguninstall`/`signal_decider_destroy` locking hygiene
 
@@ -353,11 +360,10 @@ Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattributes`).
 | # | Change | Location | Fixes (analysis.md) | Effort |
 |---|--------|----------|--------------------|--------|
 | 1 | Fallback-path setup: NULL-safe tss API | `tss_async_signal_safe.c.ipp:96-272` | 2.6 | Small |
-| 2 | Windows NULL-tss guard (V2) | `thrd_signal_handle_windows.c.ipp:357-367` | V2 | Small |
-| 3 | `tss_async_signal_safe`: lock-free `get` via cached TLS value; init re-check | `tss_async_signal_safe.c.ipp:136-243` | 3.1, 3.13, 3.14 | Medium |
-| 4 | `install_sighandler` flags: drop `SA_NOCLDWAIT`, add `SA_RESTART` | `thrd_signal_handle_posix.c.ipp:371-383` | 3.3 | Small |
-| 5 | Remaining regression tests (tss NULL, lock whitebox, decider-destroy leak) | `test/*` | 2.6, 3.1 | Medium |
-| 6 | Compile-fail suite (`expect_compile_fail.cmake` + sigfence targets) | `test/` | 5.3, 2.8, X11 | Medium |
-| 7 | `sigfillset_*` constructor-attribute removal + init under lock | `thrd_signal_handle_posix.c.ipp:49-127` | 7.1, C11 rule 1 | Small |
-| 8 | C `thread_atexit`: propagate a failed `__cxa_thread_atexit()` registration (macOS only excepted) | `thread_atexit.c.ipp:66-76` | 3.21/AC2 | Small |
-| 9 | `docs/proposal.md` + `plans/test-review-todos.md` + `.gitattributes` trim | `docs/`, `plans/`, `.gitattributes` | process | Small |
+| 2 | `tss_async_signal_safe`: lock-free `get` via cached TLS value; init re-check | `tss_async_signal_safe.c.ipp:136-243` | 3.1, 3.13, 3.14 | Medium |
+| 3 | `install_sighandler` flags: drop `SA_NOCLDWAIT`, add `SA_RESTART` | `thrd_signal_handle_posix.c.ipp:371-383` | 3.3 | Small |
+| 4 | Remaining regression tests (tss NULL, lock whitebox, decider-destroy leak) | `test/*` | 2.6, 3.1 | Medium |
+| 5 | Compile-fail suite (`expect_compile_fail.cmake` + sigfence targets) | `test/` | 5.3, 2.8, X11 | Medium |
+| 6 | `sigfillset_*` constructor-attribute removal + init under lock | `thrd_signal_handle_posix.c.ipp:49-127` | 7.1, C11 rule 1 | Small |
+| 7 | C `thread_atexit`: propagate a failed `__cxa_thread_atexit()` registration (macOS only excepted) | `thread_atexit.c.ipp:66-76` | 3.21/AC2 | Small |
+| 8 | `docs/proposal.md` + `plans/test-review-todos.md` + `.gitattributes` trim | `docs/`, `plans/`, `.gitattributes` | process | Small |

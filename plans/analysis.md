@@ -13,7 +13,8 @@ pass (one new finding — AC4 — fixed, in the sigfence volatile-sink fallback)
 `/Zc:__VAOPT__` attempt was reverted); 2026-08-14 FreeBSD CI build-failure pass (clang
 19 renamed the zero-arg variadic-macro warning to `-Wc23-extensions`; added to the
 sigfence test's suppression); 2026-08-14 fix pass (2.5 — `thread_init` now reports
-failure when `create` returns 0 with NULL). Original
+failure when `create` returns 0 with NULL; 2.10/V2 — the Windows vectored handler now
+guards a NULL per-thread state). Original
 revision reviewed: `f48e95e` ("Implement all the changes as per N3924 WIP wording for
 'Thread-safe signals handling rev 4'"), plus one uncommitted whitespace/`nullptr`-for-C++
 change in `config.h`.
@@ -100,7 +101,7 @@ memory, so the explicit qualifier-discarding cast is semantically correct. **Ver
 volatile const int)` combinations compile cleanly; the normal inline-asm path is
 unchanged.
 
-### 2.10 V2 [code-level, Windows] `win32_vectored_exception_function` NULL-derefs the per-thread state on fresh threads (High)
+### 2.10 V2 [code-level, Windows] `win32_vectored_exception_function` NULL-derefs the per-thread state on fresh threads (High) **[FIXED 2026-08-14]**
 
 `thrd_signal_handle_windows.c.ipp:434-441`: when a global decider returns a claiming
 decision, the handler calls `sig_global_tss_state()` and immediately dereferences
@@ -114,6 +115,20 @@ fixed since 2026-08-14:** `sigguarded` on Windows initialises the per-thread TSS
 POSIX, so this finding now covers only the thread whose *only* interaction is
 `siginstall` (or nothing) — that thread's first genuine fault claimed by a global
 decider still NULL-derefs `tss->front` in the vectored handler.
+
+**Fixed 2026-08-14:** the vectored handler's claim path now guards `tss` itself before
+dereferencing `tss->front`:
+`if(tss != WG14_SIGNALS_NULLPTR && tss->front != WG14_SIGNALS_NULLPTR)`. When `tss` is
+NULL (fresh thread, no frame to resume), the handler falls through to the existing
+`EXCEPTION_CONTINUE_EXECUTION` path ("this will generally end the process") instead of
+NULL-deref'ing inside the exception handler. `sig_global_tss_state()` itself is safe to
+call in this path on both backends: the async-safe TLS variant returns the (NULL) TLS
+pointer directly, and the fallback variant looks up the thread in the handle's map
+(which exists — `siginstall` created it) and returns NULL for an unregistered thread.
+**Verified:** the guard compiles and behaves correctly (fresh-thread case does not
+deref; in-guard case still longjmps); the full `ctest` suite (22 tests) passes on Linux
+(clang, native + fallback TLS) and macOS (the shared common `.ipp` is untouched, so
+POSIX behaviour is unchanged).
 
 ### 2.12 V4 [code-level, Windows] `stdc_raise` aborts for every unsupported signo (High)
 
@@ -1009,7 +1024,6 @@ invite reading `error_code`.
 
 | ID | Severity | Issue | Location |
 |----|----------|-------|----------|
-| V2 | High | Windows vectored handler NULL-derefs `tss->front` on fresh threads | `thrd_signal_handle_windows.c.ipp:434-441` |
 | V4 | High | Windows `stdc_raise` aborts for all unsupported signos | `thrd_signal_handle_windows.c.ipp:131-153` |
 | 2.6 | Med | `tss_async_signal_safe_*` NULL handle crash (also Z8, X8) | `tss_async_signal_safe.c.ipp:96-272` |
 | 3.1 | Med | Spinlock not async-signal-safe | `lock_unlock.h` |

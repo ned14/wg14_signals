@@ -434,8 +434,14 @@ extern "C"
           struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
           WG14_SIGNALS_PREFIX(sig_global_tss_state)();
           // If there is a most recent thread local handler, resume there
-          // instead
-          if(tss->front != WG14_SIGNALS_NULLPTR)
+          // instead. tss may be NULL: the per-thread state is created only by
+          // sig_global_tss_state_init() (a prior sigguarded()/stdc_raise() on
+          // this thread), and the vectored handler never initialises it, so a
+          // genuine fault on a thread that has only ever called siginstall()
+          // (or nothing) would otherwise NULL-deref tss->front inside the
+          // exception handler (analysis.md 2.10/V2). With no frame to resume,
+          // fall through to the "generally end the process" path below.
+          if(tss != WG14_SIGNALS_NULLPTR && tss->front != WG14_SIGNALS_NULLPTR)
           {
             longjmp(tss->front->buf, 1);
           }
