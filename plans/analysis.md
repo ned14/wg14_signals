@@ -18,7 +18,8 @@ guards a NULL per-thread state; 2.12/V4 — Windows `stdc_raise` no longer abort
 unsupported signos; 3.7 — `stdc_raise` now reports TSS-setup failure via errno; 3.8 —
 a partial `siginstall` now rolls back its already-installed signals; 3.15/V5 — the
 Windows vectored function now dedups the global-decider pass across the unhandled
-filter + continue handler pair). Original
+filter + continue handler pair; 3.18/X4 — Windows now maps `EXCEPTION_STACK_OVERFLOW`
+to SIGSEGV like POSIX). Original
 revision reviewed: `f48e95e` ("Implement all the changes as per N3924 WIP wording for
 'Thread-safe signals handling rev 4'"), plus one uncommitted whitespace/`nullptr`-for-C++
 change in `config.h`.
@@ -436,7 +437,7 @@ the *outer* recovery runs with the *nested* `rsi` contents. Not a C memory-model
 (same thread), but a re-entrancy aliasing bug; on Windows the frame `rsi` is a fresh
 local in `win32_exception_filter`, so nested exceptions cannot corrupt it.
 
-### 3.18 X4 [code-level, Windows, Medium] `EXCEPTION_STACK_OVERFLOW` (0xC00000FD) is not mapped to any signal
+### 3.18 X4 [code-level, Windows, Medium] `EXCEPTION_STACK_OVERFLOW` (0xC00000FD) is not mapped to any signal **[FIXED 2026-08-14]**
 
 `signal_from_win32_exception_code` (`thrd_signal_handle_windows.c.ipp:154-183`) covers
 the five raised signals plus the eight `EXCEPTION_FLT_*`/`EXCEPTION_INT_*` codes, but has
@@ -445,6 +446,18 @@ no case for `EXCEPTION_STACK_OVERFLOW`. A genuine stack overflow returns `signo 
 whereas on POSIX a stack overflow delivers `SIGSEGV`, which *is* handled. A real
 functional gap between backends for a common, otherwise-recoverable fault class, and it
 is not documented.
+
+**Fixed 2026-08-14:** `signal_from_win32_exception_code` now maps
+`EXCEPTION_STACK_OVERFLOW` (0xC00000FD) to `SIGSEGV`, grouped with the existing
+`EXCEPTION_ACCESS_VIOLATION` -> SIGSEGV case, exactly matching POSIX where a stack
+overflow delivers SIGSEGV. The reverse mapping (`win32_exception_code_from_signal`) is
+deliberately unchanged: `stdc_raise(SIGSEGV)` still raises an access violation, not a
+stack overflow — the asymmetry mirrors POSIX, where SIGSEGV is delivered for both fault
+classes and the decider sees `signo == SIGSEGV` in each. The case comment notes that a
+decider recovering from a stack overflow must call `_resetstkoflw()` to restore the
+guard page before continuing. **Verified:** a probe confirms `STACK_OVERFLOW -> SIGSEGV`
+and that all other genuine fault codes and the unknown-system-code -> 0 behaviour are
+unchanged; the full `ctest` suite (23 tests on Linux, 22 on macOS) passes.
 
 ### 3.19 Z2 [confirmed, Low-Medium] `stdc_raise(signo, NULL, NULL)` hands off to a pre-existing `SA_SIGINFO` handler with NULL `siginfo_t *` and NULL `ucontext_t *`
 
@@ -1101,7 +1114,6 @@ invite reading `error_code`.
 | V7 | Med | `siguninstall` during another thread's `sigguarded` frees live TSS (fallback path) | `thrd_signal_handle_common.ipp.ipp:479-482` |
 | W3 | Med | nested delivery overwrites the frame `rsi` mid-decider (SA_NODEFER re-entrancy) | `thrd_signal_handle_posix.c.ipp:312-315` |
 | W6 | Med | `PROJECT_IS_TOP_LEVEL` needs CMake >= 3.21 vs `minimum_required(3.15)` — tests silently skipped | `CMakeLists.txt:1,231` |
-| X4 | Med | Windows `EXCEPTION_STACK_OVERFLOW` unmapped (POSIX handles it as SIGSEGV) | `thrd_signal_handle_windows.c.ipp:154-183` |
 | Y2 | Med | user `longjmp` out of `guarded()` -> dangling `tss->front` -> stack UAF in `stdc_raise` (confirmed) | `thrd_signal_handle_posix.c.ipp:249-287,310` |
 | 8.6 | Med | never-returning global decider (e.g. `siglongjmp`) leaks node + container refcounts forever | `thrd_signal_handle_posix.c.ipp:358-369`, `thrd_signal_handle_windows.c.ipp:404-416` |
 | Z2 | Low-Med | `stdc_raise(signo,NULL,NULL)` hands NULL `siginfo_t*`/`ucontext_t*` to pre-existing SA_SIGINFO handler (confirmed) | `thrd_signal_handle_posix.c.ipp:396` |

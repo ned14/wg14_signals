@@ -19,7 +19,8 @@ analysis.md 3.7 — `stdc_raise` now reports TSS-setup failure via errno; analys
 a partial `siginstall` now rolls back its already-installed signals, with a new
 `--wrap=calloc` white-box regression test; analysis.md 3.15/V5 — the Windows vectored
 function now dedups the global-decider pass across the unhandled-filter + continue-handler
-pair, recorded in §5.8). Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+pair, recorded in §5.8; analysis.md 3.18/X4 — Windows now maps
+`EXCEPTION_STACK_OVERFLOW` to SIGSEGV like POSIX, recorded in §5.8). Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
 would have caught the defect). Sibling references are cited as
@@ -198,6 +199,17 @@ the "ASYNC-SIGNAL-SAFE" claim.
   nested exception runs the pass fresh; under a debugger only the continue handler runs,
   so the pass executes exactly once. Verified: `sigguarded_tss_init_test`'s Windows
   assertion tightened from `>= 1` to `== 1`; full `ctest` suite passes on Linux and macOS.
+
+- **`EXCEPTION_STACK_OVERFLOW` not mapped to any signal (X4)** — a genuine stack overflow
+  returned `signo == 0` -> `EXCEPTION_CONTINUE_SEARCH`, so WER terminated the process with
+  no library involvement, while POSIX delivers SIGSEGV for a stack overflow.
+  **Fixed 2026-08-14:** `signal_from_win32_exception_code` now maps
+  `EXCEPTION_STACK_OVERFLOW` (0xC00000FD) to SIGSEGV, grouped with the access-violation
+  case, exactly as POSIX. The reverse mapping is deliberately unchanged (`stdc_raise(SIGSEGV)`
+  still raises an access violation — the asymmetry mirrors POSIX, where SIGSEGV is
+  delivered for both fault classes). A decider recovering from a stack overflow must call
+  `_resetstkoflw()` to restore the guard page. Verified: probe confirms the mapping and
+  that all other codes are unchanged; full `ctest` suite passes on Linux and macOS.
 
 ### 5.9 `siguninstall`/`signal_decider_destroy` locking hygiene
 

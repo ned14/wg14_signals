@@ -186,6 +186,14 @@ extern "C"
     // case SIGPIPE:
     //  return signalc::broken_pipe;
     case((unsigned long) 0xC0000005L) /*EXCEPTION_ACCESS_VIOLATION*/:
+    case((unsigned long) 0xC00000FDL) /*EXCEPTION_STACK_OVERFLOW*/:
+      // EXCEPTION_STACK_OVERFLOW (a genuine stack overflow / exhausted guard
+      // page) maps to SIGSEGV exactly as on POSIX, where a stack overflow
+      // delivers SIGSEGV (analysis.md 3.18/X4). Without this case the fault
+      // returned signo == 0 -> EXCEPTION_CONTINUE_SEARCH and Windows Error
+      // Reporting terminated the process with no library involvement. Note a
+      // decider that recovers from a stack overflow is responsible for
+      // _resetstkoflw() to restore the guard page before continuing.
       return SIGSEGV;
     case((unsigned long) 0xC000008DL) /*EXCEPTION_FLT_DENORMAL_OPERAND*/:
     case((unsigned long) 0xC000008EL) /*EXCEPTION_FLT_DIVIDE_BY_ZERO*/:
