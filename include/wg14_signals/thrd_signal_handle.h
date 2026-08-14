@@ -100,9 +100,37 @@ extern "C"
   count
 #define WG14_SIGNALS_SIGFENCE_EXPAND_ARGS(args)                                \
   WG14_SIGNALS_SIGFENCE_RETURN_ARG_COUNT args
+
+// The argument counting below uses __VA_OPT__ only for the zero-argument
+// sigfence() form (the comma-suppression case it exists for). __VA_OPT__ is
+// C23/C++20, provided as an extension by GCC/Clang in all modes and by MSVC's
+// conforming preprocessor in C++20 and C11/C17 modes only. MSVC in C++14/17
+// mode has no __VA_OPT__ at all, so use a plain comma-list counting there:
+// it dispatches 1..8 arguments correctly (and the compile-time assert below
+// checks exactly those), while the zero-argument sigfence() form is
+// unavailable on such compilers (plans/analysis.md 4.10).
+#if defined(__GNUC__) || defined(__clang__)
+#define WG14_SIGNALS_HAVE_VA_OPT 1
+#elif defined(_MSC_VER) && defined(_MSVC_TRADITIONAL) &&                       \
+(0 == _MSVC_TRADITIONAL)
+#if defined(__cplusplus)
+#if defined(_MSVC_LANG) && (_MSVC_LANG >= 202002L)
+#define WG14_SIGNALS_HAVE_VA_OPT 1
+#endif
+#else
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
+#define WG14_SIGNALS_HAVE_VA_OPT 1
+#endif
+#endif
+#endif
+#ifdef WG14_SIGNALS_HAVE_VA_OPT
 #define WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(...)                             \
   WG14_SIGNALS_SIGFENCE_EXPAND_ARGS(                                           \
   (__VA_ARGS__ __VA_OPT__(, ) 8, 7, 6, 5, 4, 3, 2, 1, 0))
+#else
+#define WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(...)                             \
+  WG14_SIGNALS_SIGFENCE_EXPAND_ARGS((__VA_ARGS__, 8, 7, 6, 5, 4, 3, 2, 1, 0))
+#endif
 #define WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO2(name, count) name##count
 #define WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO1(name, count)                     \
   WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO2(name, count)
@@ -122,12 +150,15 @@ extern "C"
   // defect surfaces instead of silently mis-dispatching. (The zero-argument
   // path — the comma-suppression case __VA_OPT__ exists for — is exercised by
   // test/sigfence_fence_test.c, whose TU suppresses the -Wpedantic diagnostic
-  // that an empty variadic-macro call triggers; a public header must not.)
+  // that an empty variadic-macro call triggers; a public header must not.
+  // The counts asserted here — 3 and 5 — are in the 1..8 range that the
+  // non-__VA_OPT__ fallback counting also handles, so the assert is valid on
+  // every supported compiler, including MSVC C++14/17.)
   WG14_SIGNALS_STATIC_ASSERT(
   ((WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(a, b, c) == 3) &&
    (WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(a, b, c, d, e) == 5)),
-  "wg14_signals: sigfence() requires __VA_OPT__ argument counting (C23, or the "
-  "GNU/Clang/MSVC extension)");
+  "wg14_signals: sigfence() argument counting is broken (requires __VA_OPT__ "
+  "on this compiler, or a counting-broken preprocessor)");
 
 #if (defined(__GNUC__) || defined(__clang__)) && !defined(DISABLE_INLINE_ASM)
 // On compilers with extended inline asm, we can tell the compiler that a

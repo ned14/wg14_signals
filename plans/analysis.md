@@ -8,8 +8,11 @@ and the fixed portions of 4.6, 5.2, 5.3, 5.4; one new finding — AC2 — added)
 Linux LSan pass against the current tree (fixed: AB1 and one new fallback-path finding
 AC3; one new finding — AC1 docs-hygiene — added to §9); 2026-08-14 Fil-C build-failure
 pass (one new finding — AC4 — fixed, in the sigfence volatile-sink fallback);
-2026-08-14 Windows CI build-failure pass (fixed analysis.md 4.10 — MSVC C++ needs
-`/Zc:__VAOPT__`). Original
+2026-08-14 Windows CI build-failure pass (fixed analysis.md 4.10 — MSVC C++14/17 lacks
+`__VA_OPT__`; the header now falls back to plain argument counting, after a wrong
+`/Zc:__VAOPT__` attempt was reverted); 2026-08-14 FreeBSD CI build-failure pass (clang
+19 renamed the zero-arg variadic-macro warning to `-Wc23-extensions`; added to the
+sigfence test's suppression). Original
 revision reviewed: `f48e95e` ("Implement all the changes as per N3924 WIP wording for
 'Thread-safe signals handling rev 4'"), plus one uncommitted whitespace/`nullptr`-for-C++
 change in `config.h`.
@@ -469,18 +472,33 @@ latent portability break for older compilers or strict MSVC C modes.
 
 **Fixed 2026-08-14:** the Windows CI (VS2022) failed the C++ header-only test
 (`header_only_test`) with `error C2338: static assertion failed: ... sigfence()
-requires __VA_OPT__ argument counting`: MSVC only enables `__VA_OPT__` by default for
-`/std:c11`, `/std:c17` and `/std:c++20+` (VS 2022 17.9+); C++14/17 needs the explicit
-`/Zc:__VAOPT__` opt-in (available since VS 2019 16.10). The C test targets pass because
-they compile with `c_std_11` (`/std:c11`). Fixed by adding `/Zc:__VAOPT__` to every MSVC
-target's compile options: the library target (`CMakeLists.txt`, PUBLIC so `find_package`
-consumers inherit it), `add_code_example` (all C test targets), `header_only_test` and
-`header_only_c_multi_test` (`test/CMakeLists.txt`), the install consumer
-(`test/install_consumer/CMakeLists.txt`) and the header-only C consumer
-(`test/header_only_c_consumer/CMakeLists.txt`). **Verified:** clang-cl accepts
-`/Zc:__VAOPT__` as a no-op (harmless for non-MSVC), GCC/Clang on Linux and macOS are
-unaffected by the MSVC-only flag and the full 22-test `ctest` suite passes on Linux
-(native + fallback TLS) and macOS.
+requires __VA_OPT__ argument counting`. **Root cause:** MSVC provides `__VA_OPT__` only
+via its conforming preprocessor in C++20 and C11/C17 modes; C++14/17 (the mode
+`header_only_test` compiles the header in) has **no `__VA_OPT__` at all**, and there is
+no flag that enables it there — an initial attempt that added `/Zc:__VAOPT__` to the
+MSVC compile options was wrong (`cl` rejects it with `D9002: ignoring unknown option`),
+so it was reverted. The C test targets pass because `c_std_11` maps to `/std:c11`, where
+MSVC's conforming preprocessor does provide `__VA_OPT__`. **Real fix:** the header now
+detects `__VA_OPT__` availability and falls back to a plain comma-list counting
+(`(__VA_ARGS__, 8, 7, 6, 5, 4, 3, 2, 1, 0)`) where it is absent. The fallback dispatches
+1..8 arguments correctly — the range the compile-time assert checks — while the
+zero-argument `sigfence()` form is unavailable on compilers without `__VA_OPT__`
+(MSVC C++14/17); no test exercises the zero-arg form there (`sigfence_fence_test.c` is C,
+compiled in C11 mode where `__VA_OPT__` works). Detection: GCC/Clang always; MSVC
+conforming preprocessor (`_MSVC_TRADITIONAL == 0`) in C++20 (`_MSVC_LANG >= 202002L`) or
+C11/C17 (`__STDC_VERSION__ >= 201112L`). **Verified:** the fallback counting dispatches
+1..8 args correctly under `-Werror` (preprocessor simulation of the MSVC C++14/17
+branch); GCC/Clang on Linux and macOS still take the `__VA_OPT__` path and the full
+22-test `ctest` suite passes on Linux (native + fallback TLS) and macOS. **Follow-up
+2026-08-14:** the FreeBSD CI (clang 19) failed `test/sigfence_fence_test.c` with
+`error: passing no argument for the '...' parameter of a variadic macro is a C23
+extension [-Werror,-Wc23-extensions]` at its zero-argument `sigfence()` call — clang 19
+renamed the zero-arg variadic-macro diagnostic again (the third name: pre-18
+`-Wvariadic-macro-arguments-omitted`, 18 `-Wgnu-zero-variadic-macro-arguments`, 19+
+`-Wc23-extensions`). Fixed by adding `-Wc23-extensions` to the test's clang diagnostic
+suppression (the `-Wunknown-warning-option` suppression already makes the unknown-name
+case safe). **Verified:** `sigfence_fence_test` compiles and the full `ctest` suite
+passes with clang 19 (FreeBSD CI compiler) and clang 18; macOS and Linux unchanged.
 
 ### 4.11 X10 [code-level, Medium-Low] musl (Alpine etc.) fails to compile: wrong `siginfo_t` fallback spelling
 

@@ -14,11 +14,8 @@ target_compile_features(header_only_c_consumer PRIVATE c_std_11)
 if(MSVC)
   # C11 atomics (<stdatomic.h>) in the pulled-in .ipp implementations require
   # this on MSVC (mirrors test/CMakeLists.txt; plans/ideas.md 2.2).
-  # /Zc:__VAOPT__ for sigfence()'s __VA_OPT__ argument counting
-  # (plans/analysis.md 4.10) — MSVC only defaults it on for
-  # /std:c11/c17/c++20+, not C++14/17.
   target_compile_options(header_only_c_consumer PRIVATE
-    /W4 /experimental:c11atomics /Zc:__VAOPT__)
+    /W4 /experimental:c11atomics)
 endif()
 
 if(WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT)

@@ -8,7 +8,11 @@ their verification notes moving with the analysis.md findings they fixed, plus t
 analysis.md AC2 finding folded into §5.10); 2026-08-14 Linux LSan pass (analysis.md AB1
 and AC3 fixed, recorded in §5.9); 2026-08-14 Fil-C build-failure pass (analysis.md AC4
 fixed in §5.11); 2026-08-14 Windows CI build-failure pass (analysis.md 4.10 fixed — MSVC
-C++ needs `/Zc:__VAOPT__` for the sigfence argument counting). Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+C++14/17 lacks `__VA_OPT__`; the header's sigfence counting now falls back to a plain
+comma-list form there, after a wrong `/Zc:__VAOPT__` flag attempt was reverted);
+2026-08-14 FreeBSD CI build-failure pass (clang 19 renamed the zero-arg variadic-macro
+warning to `-Wc23-extensions`; the sigfence test now suppresses all three names).
+Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
 would have caught the defect). Sibling references are cited as
@@ -277,10 +281,12 @@ into `test/CMakeLists.txt`. Targets (each a `.c` + `.cpp` pair):
   no-op rather than a compile error, so instead make this a
   `WG14_SIGNALS_STATIC_ASSERT`-backed compile-fail for the `sizeof(sigset_t) <= 4` contract
   (the static-assert helper added in 2026-08-14, formerly §4.2) on Windows.
-- MSVC C++ note: the sigfence argument-counting static assert requires `__VA_OPT__`,
-  which MSVC only enables by default for `/std:c11`/`c17`/`c++20+`. The build now passes
-  `/Zc:__VAOPT__` on every MSVC target (analysis.md 4.10, fixed 2026-08-14); the
-  compile-fail suite must use the same flag on MSVC.
+- MSVC C++ note: the sigfence argument-counting static assert needs `__VA_OPT__` for the
+  zero-argument form; MSVC only provides it via the conforming preprocessor in C++20 and
+  C11/C17 modes. The header now detects `__VA_OPT__` and falls back to a plain comma-list
+  counting on MSVC C++14/17, which handles the 1..8-argument range the assert checks
+  (analysis.md 4.10, fixed 2026-08-14); the zero-argument `sigfence()` is then unavailable
+  on that configuration, and the compile-fail suite must respect the same detection.
 
 The `expect_compile_fail.cmake` script matches the *literal* namespaced diagnostic text (no
 regexes) and echoes build output, so failures are visible in ctest logs.
