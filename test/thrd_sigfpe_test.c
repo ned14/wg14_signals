@@ -108,7 +108,7 @@ sigfpe_func(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 static int test_thread_local_sigfpe(void)
 {
   int ret = 0;
-  puts("Test 1: Thread-local SIGFPE handling ...");
+  SECTION("Test 1: Thread-local SIGFPE handling ...");
   struct shared_t shared = {
   .count_decider = 0, .count_recovery = 0, .test_value = 0};
   union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value = {.ptr_value = &shared};
@@ -127,7 +127,7 @@ static int test_thread_local_sigfpe(void)
 static int test_global_sigfpe(void)
 {
   int ret = 0;
-  puts("Test 2: Global SIGFPE handling ...");
+  SECTION("Test 2: Global SIGFPE handling ...");
   struct shared_t shared = {
   .count_decider = 0, .count_recovery = 0, .test_value = 0};
   union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value = {.ptr_value = &shared};
@@ -151,7 +151,7 @@ static int test_global_sigfpe(void)
 static int test_sigfpe_with_custom_value(void)
 {
   int ret = 0;
-  puts("Test 3: SIGFPE with custom value ...");
+  SECTION("Test 3: SIGFPE with custom value ...");
   struct shared_t shared = {
   .count_decider = 0, .count_recovery = 0, .test_value = 0};
   union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value = {.ptr_value = &shared};
@@ -172,7 +172,7 @@ static int test_sigfpe_with_custom_value(void)
 static int test_multiple_sigfpe_invocations(void)
 {
   int ret = 0;
-  puts("Test 4: Multiple SIGFPE invocations ...");
+  SECTION("Test 4: Multiple SIGFPE invocations ...");
   struct shared_t shared = {
   .count_decider = 0, .count_recovery = 0, .test_value = 0};
   union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value = {.ptr_value = &shared};

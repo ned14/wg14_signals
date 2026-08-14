@@ -8,7 +8,7 @@ SDK floor) implemented; 2026-08-14 §2.5 (test `-Werror`, incl. analysis.md AA3)
 implemented; 2026-08-14 §4.2 (`WG14_SIGNALS_STATIC_ASSERT` helper) implemented;
 2026-08-14 §4.3 (Windows `sigset_t` bounds-checked bit shifts, fixing analysis.md 4.5)
 implemented; 2026-08-14 §4.4 (backend `.ipp` wrong-platform `#error` guards)
-implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+implemented; 2026-08-14 §6.3 (`SECTION(...)` progress markers) implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
 would have caught the defect). Sibling references are cited as
@@ -520,13 +520,25 @@ the "ASYNC-SIGNAL-SAFE" claim.
 `while(atomic_load(...) == 2) {}` handshakes in `thrd_signal_handle_test.c:118-120` and
 `thrd_sigfpe_test.c` to use it. (AGENTS.md rule 5.)
 
-### 6.3 `SECTION(...)` progress markers
+### 6.3 `SECTION(...)` progress markers **[DONE 2026-08-14]**
 
 **Concrete change.** Add `#define SECTION(name) fprintf(stderr, "<test>: " name "\n")` to
 `test_common.h` and emit one before each phase of `thrd_signal_handle_test.c` (three
 `puts(...)` already exist — convert them), `thrd_sigfpe_test.c`, and
 `async_signal_safe_tls_test.c`. ctest echoes stderr only on failure, so a hang becomes
 localisable.
+
+**Done 2026-08-14:** `SECTION(name)` was added to `test/test_common.h` (after the `CHECK`
+macro, using the same `__FILE__` idiom) and emitted before every phase of the three
+targeted tests — `thrd_signal_handle_test.c` (three `puts` converted: thread-local,
+global, concurrent-destroy), `thrd_sigfpe_test.c` (four `puts` converted: tests 1-4), and
+`async_signal_safe_tls_test.c` (five `printf` phase markers converted: worker init,
+create, main init, join, destroy). **Deviation from the sketch:** the macro prefix is
+`__FILE__` rather than the literal placeholder `<test>`, so each test identifies itself
+in the marker without per-file boilerplate (and matches the `CHECK` macro's existing
+`__FILE__` idiom). **Verified:** the markers print to stderr as
+`<path>/<test>.c: <phase> ...` on both C and C++ test TUs; a hang now shows the last
+marker reached; the full `ctest` suite (22 tests) passes.
 
 ### 6.4 Remaining regression tests to add (each one maps to a verified analysis finding)
 

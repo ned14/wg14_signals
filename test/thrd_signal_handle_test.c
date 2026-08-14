@@ -68,7 +68,7 @@ int main(void)
     return 1;
   }
 
-  puts("Test thread local handling ...");
+  SECTION("Test thread local handling ...");
   {
     struct shared_t shared = {
     .count_decider = 0, .count_recovery = 0, .latch = 0};
@@ -83,7 +83,7 @@ int main(void)
     CHECK(shared.count_recovery == 1);
   }
 
-  puts("Test global handling ...");
+  SECTION("Test global handling ...");
   {
     struct shared_t shared = {
     .count_decider = 0, .count_recovery = 0, .latch = 0};
@@ -101,7 +101,7 @@ int main(void)
     WG14_SIGNALS_PREFIX(signal_decider_destroy(sigill_decider));
   }
 
-  puts("Test concurrent destroy of global signal handler whilst in use ...");
+  SECTION("Test concurrent destroy of global signal handler whilst in use ...");
   {
     struct shared_t shared = {
     .count_decider = 0, .count_recovery = 0, .latch = 1};

@@ -16,6 +16,12 @@
     ret++;                                                                     \
   }
 
+// Progress marker printed to stderr. ctest echoes stderr only on failure, so a
+// hang in a multi-phase test becomes localisable to the exact phase
+// (plans/ideas.md 6.3). __FILE__ identifies the test TU (the same idiom the
+// CHECK macro above uses); name must be a string literal.
+#define SECTION(name) fprintf(stderr, "%s: " name "\n", __FILE__)
+
 // TSAN detection: GCC defines __SANITIZE_THREAD__; Clang exposes
 // __has_feature(thread_sanitizer). The __has_feature probe is nested so that
 // compilers without __has_feature support (which would report a preprocessor
