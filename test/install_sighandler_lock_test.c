@@ -1,3 +1,12 @@
+// Feature-test-macro mirror of the library build (plans/ideas.md 2.2): the .ipp
+// implementations compiled below must see the same declarations as the compiled
+// library. _GNU_SOURCE alone is the mirror — on glibc it subsumes the library's
+// _POSIX_C_SOURCE/_XOPEN_SOURCE trio, and macOS/BSD must not take those at all
+// (they hide NSIG, which the signo-to-sighandler map needs, analysis.md Y6).
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #define WG14_SIGNALS_ENABLE_HEADER_ONLY 1
 
 #include "test_common.h"

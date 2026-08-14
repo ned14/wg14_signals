@@ -2,7 +2,8 @@
 
 Review date: 2026-08-06 (concretised against the `wg14_signals` implementation source);
 2026-08-14 status reconciliation (done items removed, the new analysis.md AB1 finding
-folded in) and §1.3 implemented; 2026-08-14 §2.1 + §3.4 + §3.5 implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+folded in) and §1.3 implemented; 2026-08-14 §2.1 + §3.4 + §3.5 implemented;
+2026-08-14 §2.2 (feature-test macro discipline) implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
 would have caught the defect). Sibling references are cited as
@@ -88,7 +89,7 @@ suite (22 tests, including `header_only_test`, `header_only_c_multi_test`,
 is byte-for-byte unchanged; the define was confirmed present in the compile flags of the
 library and all header-only targets. CI coverage is §3.4 (below).
 
-### 2.2 Feature-test macro discipline
+### 2.2 Feature-test macro discipline **[DONE 2026-08-14]**
 
 **Why.** `current_thread_id.c.ipp` hand-defines `_GNU_SOURCE` (`:20-22`); the white-box
 tests and any header-only consumer must replicate feature-test macros by hand or
@@ -105,6 +106,36 @@ endif()
 
 Keep the mirrors in test/install_consumer/app.c and any white-box test (the sibling does
 exactly this: `../wg14_atomic_waits/test/hash_table_whitebox_test.c:12-20`).
+
+**Done 2026-08-14:** the library target now compiles with explicit feature-test macros
+(PRIVATE) in `CMakeLists.txt` — selected by **escalating probe**, not by platform name.
+Whether a libc/compile-mode exposes the symbols the library needs (NSIG — used
+unguarded by the signo-to-sighandler map, analysis.md Y6 — the sigset functions, and
+SIGSYS/SIGXCPU/SIGXFSZ, analysis.md 4.6) is a property of the toolchain, not of the OS
+name. `CMakeLists.txt` therefore runs a `check_c_source_compiles` probe of a realistic
+TU first with **no extra defines at all** (only the ones known to be mandatory on every
+supported platform, i.e. none), and only if that fails adds defines one level at a time
+until it compiles: `_GNU_SOURCE` → `_POSIX_C_SOURCE=200809L` →
+`+_XOPEN_SOURCE=700` → the full trio. Most libcs already pass the empty level in their
+default GNU-extension compile mode (verified on macOS arm64: level 0 passes and no
+macros are added); strict-POSIX modes and libcs that ignore `_GNU_SOURCE` get exactly
+the least intrusive set that works, and the full trio is only ever used where nothing
+less works. `_GNU_SOURCE` alone is the usual non-empty winner because it subsumes the
+trio on glibc/musl and is harmless on Apple/BSD. The mirrors were added to
+`test/install_consumer/app.c` (which previously deliberately had *no* preamble and
+documented why — that note is now updated) and the two white-box tests
+(`install_sighandler_lock_test.c`, `signo_map_verstable_init_test.c`): each defines
+`_GNU_SOURCE` with an `#ifndef` guard before the first system include, exactly the
+sibling's `hash_table_whitebox_test.c` pattern — `_GNU_SOURCE` is the portable mirror
+because it is either the selected set or a no-op/implied-superset on every platform the
+library builds on. The per-file `#ifndef _GNU_SOURCE` hand-define in
+`current_thread_id.c.ipp` stays as the header-only-consumer fallback. **Verified:**
+default and `WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=ON` builds under ASan/UBSan on macOS
+arm64 pass the full `ctest` suite (22 tests), including `install_consumer_test` and both
+white-box tests; the macOS configure log shows the level-0 probe passing and no macros
+being added; the escalation control flow (non-empty level selection and the no-match
+warning) was verified with a standalone CMake simulation. The non-empty ladder levels
+are exercised by the Linux CI legs (glibc strict mode picks `_GNU_SOURCE`).
 
 ### 2.3 Windows SDK floor
 
@@ -532,5 +563,5 @@ Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattributes`).
 | 7 | Remaining regression tests (tss NULL, lock whitebox, decider-destroy leak) | `test/*` | 2.6, 3.1, AB1 | Medium |
 | 8 | Compile-fail suite (`expect_compile_fail.cmake` + sigfence targets) | `test/` | 5.3, 2.8, X11 | Medium |
 | 9 | `sigfillset_*` constructor-attribute removal + init under lock | `thrd_signal_handle_posix.c.ipp:49-127` | 7.1, C11 rule 1 | Small |
-| 10 | Feature-test macros + MSVC c11-atomics helper | `CMakeLists.txt` | 4.6, X9 | Small |
+| 10 | MSVC c11-atomics helper (feature-test macros: **[DONE 2026-08-14]**) | `CMakeLists.txt` | 4.6, X9 | Small |
 | 11 | `docs/proposal.md` + `plans/test-review-todos.md` + `.gitattributes` trim | `docs/`, `plans/`, `.gitattributes` | process | Small |

@@ -5,10 +5,17 @@
 // wrong INTERFACE_* properties), not to test the library's concurrency (that
 // is covered by the in-tree tests).
 //
-// Note: unlike the wg14_atomic_waits sibling, this library is *not* built with
-// -D_POSIX_C_SOURCE/-D_XOPEN_SOURCE/-D_GNU_SOURCE, so the consumer must not
-// define them either: on macOS they put <signal.h> into strict POSIX mode,
-// which hides NSIG and breaks the header-only build.
+// Mirror the feature-test macros the library itself is built with
+// (plans/ideas.md 2.2) so the header-only .ipp implementations compiled here
+// see the same declarations as the library build. _GNU_SOURCE alone is the
+// mirror: on glibc it subsumes the library's _POSIX_C_SOURCE/_XOPEN_SOURCE
+// trio, and the BSDs/macOS must NOT get _POSIX_C_SOURCE/_XOPEN_SOURCE at all
+// (their <signal.h> hides NSIG — used unguarded by the signo-to-sighandler map
+// — under strict POSIX mode, which would break the header-only build).
+
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 
 #include <wg14_signals/thrd_signal_handle.h>
 

@@ -372,7 +372,10 @@ signals would overflow.
 
 `thrd_signal_handle_posix.c.ipp:53-54` uses `SIGSYS`, and `:109` uses `SIGXCPU`/`SIGXFSZ`
 without `#ifdef` guards (only `SIGPOLL` is guarded). On a POSIX platform that omits any of
-these the file fails to compile.
+these the file fails to compile. **Partially mitigated 2026-08-14:** the library build now
+compiles with explicit feature-test macros (ideas.md 2.2, done), so glibc/musl
+consistently expose `SIGSYS`/`SIGXCPU`/`SIGXFSZ`; the missing `#ifdef` guards remain for
+platforms that omit the signals entirely.
 
 ### 4.7 `ucontext_t` and `siginfo_t` portability
 

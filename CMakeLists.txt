@@ -113,6 +113,55 @@ endif()
 target_link_libraries(${PROJECT_NAME} PUBLIC $<$<PLATFORM_ID:FreeBSD>:stdthreads>)
 target_compile_features(${PROJECT_NAME} PRIVATE c_std_11 cxx_std_11)
 target_compile_definitions(${PROJECT_NAME} PRIVATE WG14_SIGNALS_SOURCE)
+# Feature-test-macro discipline (plans/ideas.md 2.2): the library needs the
+# POSIX signal surface — NSIG (used unguarded by the signo-to-sighandler map,
+# analysis.md Y6), the sigset functions, and SIGSYS/SIGXCPU/SIGXFSZ
+# (analysis.md 4.6). Whether the toolchain exposes those by default is a
+# property of the compiler mode and the libc, not of the OS name: most libcs
+# expose them in the default (GNU-extension) compile mode, while strict-POSIX
+# modes and some libcs (e.g. Apple/BSD hide NSIG under
+# _POSIX_C_SOURCE/_XOPEN_SOURCE) hide them until a feature-test macro is
+# defined. Rather than enumerate platforms, probe the actual toolchain from the
+# *least* intrusive configuration upward: first with no extra defines at all,
+# then adding defines one level at a time until the probe compiles. PRIVATE:
+# consumers compile their own context (see the mirrors in
+# test/install_consumer/app.c and the white-box tests).
+if(NOT MSVC)
+  set(_ftm_probe_src
+    "#include <pthread.h>\n#include <signal.h>\n#include <string.h>\n#ifndef NSIG\n#error NSIG missing\n#endif\nint main(void)\n{\n  sigset_t set;\n  memset(&set, 0, sizeof(set));\n  sigemptyset(&set);\n  sigfillset(&set);\n  sigaddset(&set, SIGSYS);\n  sigaddset(&set, SIGXCPU);\n  sigaddset(&set, SIGXFSZ);\n  return (NSIG > 0 && sigismember(&set, SIGSEGV) == 0) ? 1 : 0;\n}\n"
+  )
+  # Escalation ladder, least intrusive first. _GNU_SOURCE alone is the usual
+  # winner (it subsumes the whole trio on glibc/musl and is harmless on Apple/
+  # BSD); _POSIX_C_SOURCE/_XOPEN_SOURCE cover libcs that ignore _GNU_SOURCE.
+  set(_ftm_defs_0)
+  set(_ftm_defs_1 _GNU_SOURCE)
+  set(_ftm_defs_2 _POSIX_C_SOURCE=200809L)
+  set(_ftm_defs_3 _POSIX_C_SOURCE=200809L _XOPEN_SOURCE=700)
+  set(_ftm_defs_4 _POSIX_C_SOURCE=200809L _XOPEN_SOURCE=700 _GNU_SOURCE)
+  set(_ftm_found FALSE)
+  foreach(_ftm_level RANGE 0 4)
+    set(CMAKE_REQUIRED_DEFINITIONS)
+    foreach(_ftm_d IN LISTS _ftm_defs_${_ftm_level})
+      list(APPEND CMAKE_REQUIRED_DEFINITIONS "-D${_ftm_d}")
+    endforeach()
+    check_c_source_compiles("${_ftm_probe_src}"
+      WG14_SIGNALS_FT_PROBE_${_ftm_level})
+    if(WG14_SIGNALS_FT_PROBE_${_ftm_level})
+      set(_ftm_choice ${_ftm_defs_${_ftm_level}})
+      set(_ftm_found TRUE)
+      break()
+    endif()
+  endforeach()
+  unset(CMAKE_REQUIRED_DEFINITIONS)
+  if(_ftm_found)
+    if(_ftm_choice)
+      target_compile_definitions(${PROJECT_NAME} PRIVATE ${_ftm_choice})
+    endif()
+    message(STATUS "Feature-test macros: ${_ftm_choice} (least intrusive set whose probe compiled)")
+  else()
+    message(WARNING "Feature-test macros: no tested define set exposes NSIG and the signal set on this toolchain; compiling with none")
+  endif()
+endif()
 if(LIBC_HAS__SETJMP)
   target_compile_definitions(${PROJECT_NAME} PRIVATE WG14_SIGNALS_HAVE__SETJMP)
 endif()
