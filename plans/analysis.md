@@ -64,6 +64,11 @@ handler*, turning a recoverable fault into a crash. POSIX is immune (its handler
 the TLS state as part of the raise). **Extended by X3:** a Windows thread whose only
 library interaction is `sigguarded()` (never `stdc_raise`) also has a NULL per-thread
 state, so `sigguarded` alone is insufficient on Windows while being sufficient on POSIX.
+**The `sigguarded`-only sub-case is now fixed with X3 (2026-08-14):** `sigguarded` on
+Windows initialises the per-thread TSS like POSIX, so this finding now covers only the
+thread whose *only* interaction is `siginstall` (or nothing) — that thread's first
+genuine fault claimed by a global decider still NULL-derefs `tss->front` in the vectored
+handler.
 
 ### 2.11 V3 [code-level, Windows] Unsupported exception codes reach `sigismember(guarded, 0)` -> UB; C++ exceptions can be swallowed by `sigguarded` (High)
 
@@ -153,7 +158,7 @@ frame guarding a different signal, and that an installed-and-claimed raise still
 Full `ctest` suite (20 tests) passes under ASan/UBSan and in the `HEADER_ONLY_BUILD=ON`
 configuration on macOS arm64 (POSIX semantics of the two checks were already correct).
 
-### 2.19 X3 [code-level, Windows, Medium-High] `sigguarded` on Windows never initialises the per-thread TSS (unlike POSIX)
+### 2.19 X3 [code-level, Windows, Medium-High] `sigguarded` on Windows never initialises the per-thread TSS (unlike POSIX) **[FIXED 2026-08-14]**
 
 `thrd_signal_handle_windows.c.ipp:219-249` — the Windows `sigguarded` performs no
 `sig_global_tss_state_init()` call; POSIX does (`thrd_signal_handle_posix.c.ipp:234`). A
@@ -161,6 +166,24 @@ Windows thread whose only library interaction is `sigguarded()` has a NULL per-t
 state; if a genuine fault then occurs and a global decider claims it, the vectored
 handler evaluates `tss->front` on the NULL state (`:357-361`) — a crash *inside the
 exception handler*. Extends V2.
+
+**Fixed 2026-08-14:** the Windows `sigguarded` (`thrd_signal_handle_windows.c.ipp`) now
+calls `sig_global_tss_state_init()` after the NULL-argument check and before the
+`__try`, returning a `stdc_siginfo_value` of `int_value = -1` on failure — exactly the
+setup the POSIX backend already performs (`thrd_signal_handle_posix.c.ipp:248-253`), so
+`sigguarded()` alone now sets up the calling thread's per-thread TSS on both backends.
+With the state non-NULL the vectored exception function's claiming-decider path
+(`:418-422`) safely reads `tss->front` (NULL for a `sigguarded`-only thread, so it
+returns `EXCEPTION_CONTINUE_EXECUTION` instead of dereferencing a NULL `tss`). **Verified:**
+the new regression test `test/sigguarded_tss_init_test.c` (registered as
+`sigguarded_tss_init_test`) installs a handler and a claiming global decider for the
+signal, then enters `sigguarded()` (the thread's only library interaction, deliberately
+no `stdc_raise(0, ...)` setup call) with a frame decider that declines and raises the
+signal — a `RaiseException(EXCEPTION_ACCESS_VIOLATION)` on Windows, `stdc_raise` on
+POSIX. The test asserts the raise is claimed by the global decider exactly once and
+`sigguarded` returns the guarded function's value; on the Windows leg the exception
+handler would have NULL-deref'd the per-thread state before this fix. Full `ctest` suite
+(19 tests) passes under ASan/UBSan on macOS arm64.
 
 ### 2.20 Y1 [confirmed, High] `install_sighandler` leaks the global spinlock when `install_sighandler_impl` fails — a second instance of the global-spinlock-leak bug family (both backends)
 
@@ -1030,7 +1053,7 @@ invite reading `error_code`.
 | V3 | High | Windows `sigismember(guarded, 0)` UB; C++ exceptions swallowed by `sigguarded` | `thrd_signal_handle_windows.c.ipp:200`, `thrd_signal_handle.h:52-63` |
 | V4 | High | Windows `stdc_raise` aborts for all unsupported signos | `thrd_signal_handle_windows.c.ipp:112-134` |
 | Z1 | Med-High | verstable `signo_to_sighandler_map_t` never initialised -> NULL-metadata crash (NSIG >= 1024) | `thrd_signal_handle_common.ipp.ipp:58-135,174-179` |
-| X3 | Med-High | Windows `sigguarded` never inits per-thread TSS -> NULL-deref in vectored handler on fresh threads | `thrd_signal_handle_windows.c.ipp:219-249` |
+| X3 | Med-High | Windows `sigguarded` never inits per-thread TSS -> NULL-deref in vectored handler on fresh threads **[FIXED 2026-08-14]** | `thrd_signal_handle_windows.c.ipp:219-249` |
 | AA1 | Med-High | `signal_decider_destroy` NULL-deref/UAF after `siguninstall`->`siginstall` orphans the decider node (confirmed) | `thrd_signal_handle_common.ipp.ipp:328-364,443-614` |
 | 2.5 | Med | `thread_init` returns success for NULL item | `tss_async_signal_safe.c.ipp:186-190` |
 | 2.6 | Med | `tss_async_signal_safe_*` NULL handle crash (also Z8, X8) | `tss_async_signal_safe.c.ipp:93-243` |

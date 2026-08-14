@@ -241,6 +241,18 @@ extern "C"
     {
       abort();
     }
+    // sigguarded() must set up the calling thread's per-thread TSS, exactly as
+    // the POSIX backend does. A Windows thread whose only library interaction
+    // is sigguarded() would otherwise have a NULL per-thread state; a genuine
+    // fault then claimed by a global decider makes the vectored exception
+    // function dereference tss->front on the NULL state, a crash inside the
+    // exception handler (analysis.md 2.19/X3).
+    if(0 != WG14_SIGNALS_PREFIX(sig_global_tss_state_init)())
+    {
+      union WG14_SIGNALS_PREFIX(stdc_siginfo_value) ret;
+      ret.int_value = -1;
+      return ret;
+    }
     struct WG14_SIGNALS_PREFIX(stdc_siginfo) rsi;
 #ifdef __MINGW32__
 #error                                                                         \
