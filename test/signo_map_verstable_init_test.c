@@ -2,7 +2,7 @@
 // implementations compiled below must see the same declarations as the compiled
 // library. _GNU_SOURCE alone is the mirror — on glibc it subsumes the library's
 // _POSIX_C_SOURCE/_XOPEN_SOURCE trio, and macOS/BSD must not take those at all
-// (they hide NSIG, which this TU then overrides to 1024; analysis.md Y6).
+// (they hide NSIG, which this TU then overrides to 1024; finding `NSIG`).
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif

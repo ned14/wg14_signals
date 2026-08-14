@@ -115,8 +115,8 @@ target_compile_features(${PROJECT_NAME} PRIVATE c_std_11 cxx_std_11)
 target_compile_definitions(${PROJECT_NAME} PRIVATE WG14_SIGNALS_SOURCE)
 # Feature-test-macro discipline (plans/ideas.md 2.2): the library needs the
 # POSIX signal surface — NSIG (used unguarded by the signo-to-sighandler map,
-# analysis.md Y6), the sigset functions, and SIGSYS/SIGXCPU/SIGXFSZ
-# (analysis.md 4.6). Whether the toolchain exposes those by default is a
+# finding `NSIG`), the sigset functions, and SIGSYS/SIGXCPU/SIGXFSZ
+# (`SIGN`). Whether the toolchain exposes those by default is a
 # property of the compiler mode and the libc, not of the OS name: most libcs
 # expose them in the default (GNU-extension) compile mode, while strict-POSIX
 # modes and some libcs (e.g. Apple/BSD hide NSIG under
@@ -236,7 +236,7 @@ if(PROJECT_IS_TOP_LEVEL AND (NOT DEFINED BUILD_TESTING OR BUILD_TESTING))
       target_compile_options(${target} PRIVATE /W4 /experimental:c11atomics)
     else()
       # Tests build with -Werror like the library (plans/ideas.md 2.5,
-      # analysis.md 5.3), so test-only warnings surface instead of being
+      # (`WXMS`), so test-only warnings surface instead of being
       # invisible.
       target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()

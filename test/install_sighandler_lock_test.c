@@ -2,7 +2,7 @@
 // implementations compiled below must see the same declarations as the compiled
 // library. _GNU_SOURCE alone is the mirror — on glibc it subsumes the library's
 // _POSIX_C_SOURCE/_XOPEN_SOURCE trio, and macOS/BSD must not take those at all
-// (they hide NSIG, which the signo-to-sighandler map needs, analysis.md Y6).
+// (they hide NSIG, which the signo-to-sighandler map needs, finding `NSIG`).
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -19,7 +19,7 @@
 //
 // Including the header with WG14_SIGNALS_ENABLE_HEADER_ONLY makes the internal
 // install_sighandler() and sig_global_state() per-TU statics callable from here
-// (the header_only_c_multi_test pattern, ideas.md 6.5). SIGKILL is the one
+// (the header_only_c_multi_test pattern, ideas.md 10). SIGKILL is the one
 // signal the siginstall() loop skips for which sigaction() is *guaranteed* to
 // fail (EINVAL) on every POSIX platform, so calling install_sighandler(SIGKILL)
 // deterministically drives install_sighandler_impl() to failure.

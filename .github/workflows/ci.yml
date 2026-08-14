@@ -274,7 +274,7 @@ jobs:
           cmake --build . --parallel
           # header_only_build_test is excluded on FreeBSD pending diagnosis of
           # its single-TU C header-only consumer (current_thread_id() returns 0
-          # there; plans/analysis.md 5.4 FreeBSD finding). The same header-only
+          # there; finding `CIGA` FreeBSD case). The same header-only
           # functionality is covered on this leg by header_only_test (C++),
           # header_only_c_multi_test (C) and the header_only_build_test step-1
           # HEADER_ONLY_BUILD=ON build.

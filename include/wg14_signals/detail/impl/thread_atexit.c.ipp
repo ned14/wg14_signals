@@ -20,7 +20,7 @@ limitations under the License.
 /* The single implementation of thread_atexit(), usable from C and C++
    translation units and from the library (src/wg14_signals/thread_atexit.c).
    This removes the previous C++ implementation, so the library has no C++
-   runtime dependency (analysis.md 5.2, Y7; AGENTS.md rule 4).
+   runtime dependency (`CPPR`, `CXXR`; AGENTS.md rule 4).
 
    On platforms that supply __cxa_thread_atexit() (the Itanium ABI thread-local
    destructor registration primitive, discovered by a CMake configure probe) it

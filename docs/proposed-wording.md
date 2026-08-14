@@ -1,0 +1,902 @@
+---
+title: "Nxxxx: Wording for \"Thread-safe signals handling rev 5\""
+author:
+    - Douglas, Niall
+date:
+    - 2026-07-24
+---
+
+
+## Preamble
+
+### contributing {-}
+
+Niall Douglas (rationale, history)
+
+Niall Douglas, Jens Gustedt (wording)
+
+### Related documents
+
+| number                                                              | Title                                  | Authors        | Remarks                   |
+|---------------------------------------------------------------------|----------------------------------------|----------------|---------------------------|
+| [N2471](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n2471.pdf) | Stackable, thread local, signal guards | Douglas, Niall | revision 0, 2020-02-02    |
+| [N3540](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3540.pdf) | Modern signals handling                | Douglas, Niall | revision 1, 2025-05-02    |
+| [N3765](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3765.pdf) | Thread-safe signals handling           | Douglas, Niall | revision 2, 2025-12-14    |
+| [N3872](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3872.pdf) | Thread-safe signals handling           | Douglas, Niall | revision 3, 2026-04-12    |
+| [N3783](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3783.pdf) | Working Draft                          |                | base for diff, 2025-01-15 |
+| [N3924](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3924.htm) | &lt;this paper&gt;                     | Wording Group  |                           |
+
+### LaTeX document branch
+
+none
+
+### Liaison
+
+WG21, Austin Group
+
+### Relevant polls
+
+| meeting                                       | date       | for | against | abstain |
+|-----------------------------------------------|------------|-----|---------|---------|
+| N3924 revision 4                              | ?          | ?   | ?       | ?       |
+| N3872 revision 3                              | ?          | ?   | ?       | ?       |
+| N3765 revision 2 (March 2026 virtual [N3856]) | 2026-03-09 | 15  | 2       | 4       |
+| N3540 revision 1 (Final Fall 2025 [N3815])    | 2025-08-29 | 19  | 2       | 4       |
+| N2471 revision 0 (Draft April 2020 [N2519])   | 2020-03-30 | 5   | 2       | 6       |
+
+
+## Proposed wording
+
+### Legend
+
+Deletions in the shown standard text are as shown <del>here</del>,
+additions, as shown <ins>here</ins>. These may render differently
+according to the style in which the document is shown by your browser,
+but should always be well distinguishable. In the provided style there
+are two visual distinctions:
+
+- A high contrast color palete
+  ([Okabe and Ito](https://jfly.uni-koeln.de/color/)) namely using colors
+  black, <span style="color: #E69F00">orange</span>, <span
+  style="color: #009E73">teal green</span> and <span
+  style="background: #FFFFD0">light yellow</span>
+- normal text, <s>strike through</s>, <u>underlining</u> and
+  <tt>typewriter font</tt>.
+
+Close to each other proposed changes <span style="color:
+  #009E73"><u>resemble</u></span> <span style="color:
+  #E69F00"><s>like</s></span> `this`.
+
+
+### Modifications in clause 5.2.2.4 p5:
+
+> When the processing of the abstract machine is interrupted by receipt of a signal, the values of objects
+> that are <del>neither lock-free atomic objects nor of type `volatile sig_atomic_t`</del>
+
+> <ins>
+> not one of these categories:
+>
+> 1. A lock-free atomic object.
+> 2. Of type `volatile sig_atomic_t`.
+> 3. Modified since a `sigfence()`.
+> 4. The `void *` returned by `tss_async_signal_safe_get()`.
+> </ins>
+
+> are unspecified, as is
+> the state of the dynamic floating-point environment. The representation of any object modified by
+> the handler that is <del>neither a lock-free atomic object nor of type `volatile sig_atomic_t`</del>
+
+> <ins>not one of these categories:
+>
+> 1. A lock-free atomic object.
+> 2. Of type `volatile sig_atomic_t`.
+> 3. Accessed before a `sigfence()`.
+> </ins>
+
+> becomes
+> indeterminate when the handler exits, as does the state of the dynamic floating-point environment if
+> it is modified by the handler and not restored to its original state.
+
+### Modifications in clause 7.14.1
+
+> The header `<signal.h>` declares <del>a type and two functions and
+> defines several macros</del> <ins>types, functions and macros</ins>,
+> for handling various *signals* (conditions that may be reported
+> during program execution).
+
+> <ins>
+> A signal can be received by a thread within the program.
+> When a signal is received, execution is interrupted and the
+> currently installed *signal handler* for that signal is called.
+>
+> There are the following categories of signal:
+> </ins>
+
+> <ins>
+> 1. *Synchronous:* these are caused by a thread doing something. Standard
+> signals are:
+>     (i) abnormal termination
+>     (ii) erroneous arithmetic operation
+>     (iii) detection of an invalid function image
+>     (iv) invalid access to storage.
+>
+>     The implementation may define additional synchronous category signals.
+>
+> 2. *Asynchronous non-debug:* these are generated by the environment and are not usually generated by testing. Standard signals are:
+>     (i) receipt of an interactive attention signal
+>     (ii) termination request sent to the program.
+>
+>     The implementation may define additional asynchronous non-debug category signals.
+>
+> 3. *Asynchronous debug:* these are generated by the environment and are
+>    usually generated by testing.
+>
+>     The implementation may define asynchronous debug category signals.
+>
+> *Async-signal-safe* functions and macros are those safe to call during the handling of a signal. Only the functions of clause 7 listed below are required to be async-signal-safe, all other functions can be not async-signal-safe. The following functions are required to be async-signal-safe:
+>
+> - the functions in `<stdatomic.h>` (except where explicitly stated otherwise) when the atomic arguments are lock-free,
+> - the `atomic_is_lock_free` function with any atomic argument,
+> - the `signal` function with the first argument equal to the signal number corresponding to the signal that caused the call of the handler. Furthermore, if such a call to the signal function results in a `SIG_ERR` return, the object designated by `errno` has an indeterminate representation, or
+> - any function within this standard explicitly described as async-signal-safe.
+>
+> There are two ways to change the currently installed signal handler:
+>
+> 1. The `signal` function globally installs a single signal
+> handler for the whole program execution, overwriting any previously set handler.
+>
+> 2. The `siginstall` function enables an alternative
+> signal handling mechanism which implements thread-safe composable signal handling.
+> </ins>
+
+> <ins>
+> If `siginstall` has not been called in the current program execution, then the following sequence occurs on signal receipt:
+>
+> 1. If there is such a handler, the last most recently installed handler by `signal` for that signal number is called, unless that handler was set to `SIG_IGN`, in which case the signal is ignored.
+> The thread in which the handler is called is unspecified.
+> 2. Otherwise, if no call of `signal` for the signal number was performed, the handler has `SIG_DFL` semantics, which is the default action for that signal number on that implementation.
+>
+> If `siginstall` has been called in the current program execution, then the following sequence occurs on signal receipt:
+>
+> 1. For synchronous category signals, the handler shall be called within the thread which caused the signal. For asynchronous category signals, the thread in which the handler is called is unspecified.
+>
+> 2. For each thread in a program, an ordered sequence of signal deciders is sequentially invoked to decide how to handle the signal. The ordered sequence begins with thread-locally installed signal deciders with a signal set matching the signal number in order of most recently installed last for that thread, followed by signal deciders installed globally with a signal set matching the signal number:
+>     - For thread-locally installed signal handlers, each decider function is called with a pointer to a valid `stdc_siginfo`, with its `value` member set to the value that was specified when that decider was installed. If a decider function returns:
+>         - `sig_decision_resume_execution`: execution of the interrupted thread is resumed.
+>         - `sig_decision_call_recovery`: the environment is restored to what it was when that thread-local decider was installed as if `setjmp` had been called during installation and a `longjmp` to restore that saved environment had been performed, and the recovery function as specified at that time shall be called to implement recovery from the signal raise for that thread.
+>         - `sig_decision_next_decider`: the next decider in the sequence is called.<br><br>
+>
+>     - For globally installed signal handlers, each decider function is called with a pointer to a valid `stdc_siginfo`, with its `value` set to the `value` as was specified when that decider was installed. The deciders are called in order of:
+>         - those with `callfirst == true` most recently installed last, and then
+>         - those with `callfirst == false` in order of most recently installed first.
+>
+>         If any decider function returns:
+>
+>         - `sig_decision_resume_execution`: execution of the interrupted thread is resumed.
+>         - `sig_decision_call_recovery`: An implementation-defined action is performed.
+>         - `sig_decision_next_decider`: The next decider in the sequence is called.
+>
+> It is permitted for a signal decider to never return. Signal deciders shall meet the same requirements as for a signal handler as specified for the `signal` function (7.14.2.1).
+> If every signal decider returns `sig_decision_next_decider` the behavior is implementation-defined.
+>
+> `siginstall` may be called multiple times, and for each a corresponding `siguninstall` should be present in the program. Each call to `siginstall` takes a set of signals for which the threadsafe implementation is to be activated. The threadsafe implementation shall not be deactivated for that signal number until the last uninstallation for that signal number is performed.
+> </ins>
+
+> <ins>
+> **Recommended practice**
+
+<ins>
+
+> It is recommended
+> that pre-existing programs be upgraded to use `siginstall`,
+> and that newly written code prefers `siginstall`
+> over `signal`.</ins>
+
+</ins>
+
+> <ins>
+> EXAMPLE 1: Use `sigguarded` to recover from a `SIGFPE`:
+> </ins>
+
+> <ins>
+> ```
+> /* Recovery function for SIGFPE */
+> static union stdc_siginfo_value
+> sigfpe_recovery_func(const struct stdc_siginfo *rsi)
+> {
+>   /* Recover from the signal raise */
+>   return rsi->value;
+> }
+> 
+> /* Decider function for SIGFPE */
+> static enum sig_decision
+> sigfpe_decider_func(struct stdc_siginfo *rsi)
+> {
+>   /* Verify we got SIGFPE */
+>   if(rsi->signo != SIGFPE)
+>   {
+>     abort();
+>   }
+>   rsi->value.int_value = SIGFPE;
+>   /* Please recover */
+>   return sig_decision_call_recovery;
+> }
+> 
+> /* Guarded function that triggers SIGFPE via division by zero */
+> static union stdc_siginfo_value
+> sigfpe_func(union stdc_siginfo_value value)
+> {
+>   /* volatile is needed to prevent elision under optimization */
+>   volatile int divisor = 0;
+>   /* This should trigger SIGFPE */
+>   volatile int result = 42 / divisor;
+>   /* If we get here, this architecture doesn't trap integer divide by zero */
+>   stdc_raise(SIGFPE, nullptr, nullptr);
+>   return value;
+> }
+> ...
+> int main() {
+>   union stdc_siginfo_value value = { .int_value = 0 };
+>   sigset_t guarded;
+>   sigemptyset(&guarded);
+>   sigaddset(&guarded, SIGFPE);
+>   value = sigguarded(&guarded,
+>                     sigfpe_func,
+>                     sigfpe_recovery_func,
+>                     sigfpe_decider_func,
+>                     value);
+>   assert(value.int_value == SIGFPE);
+> }
+> ```
+> </ins>
+
+> The <del>type defined is</del><ins>types defined are</ins>
+
+> <ins>
+> `stdc_siginfo_error_code_t`
+> which is an implementation-defined complete native error code type.
+> </ins>
+
+
+> <ins>
+> The `stdc_siginfo_value` union shall contain at least a member `void *ptr_value`, and if the implementation has `intptr_t` (7.23.2.5), then also a member `intptr_t int_value`, in any order.
+> </ins>
+
+> <ins>
+> `stdc_siginfo_siginfo_t`
+> which is an implementation-defined possibly incomplete signal information type.
+> </ins>
+
+> <ins>
+> `stdc_siginfo_context_t`
+> which is an implementation-defined possibly incomplete context type.
+> </ins>
+
+> <ins>
+> The `stdc_siginfo` structure shall contain at least the following members, in any order. The semantics of the members are expressed in the comments.
+> </ins>
+
+> <ins>
+> ```
+> // The signal raised
+> int signo;
+> 
+> // The system specific error code for this signal
+> stdc_siginfo_error_code_t error_code;
+> 
+> // Memory location which caused fault, if appropriate
+> void *addr;
+> 
+> // A user-defined value
+> union stdc_siginfo_value value;
+> 
+> // The system specific information. Can be null if the
+> // value was not supplied, or was supplied as null.
+> stdc_siginfo_siginfo_t *raw_info;
+> 
+> // The system specific context. Can be null if the
+> // value was not supplied, or was supplied as null.
+> stdc_siginfo_context_t *raw_context;
+> ```
+> </ins>
+
+> <ins>
+> The `sig_func_t` type is a function type with a single argument `stdc_siginfo_value` and which returns `stdc_siginfo_value`.
+> </ins>
+
+> <ins>
+> The `sig_recover_t` type is a function type with a single argument `const stdc_siginfo *` and which returns `stdc_siginfo_value`.
+> </ins>
+
+> <ins>
+> The `sig_decision` enumeration shall contain at least the following members, in any order. The semantics of the members are expressed in the comments:
+> </ins>
+
+> <ins>
+> ```
+> // We have decided to do nothing
+> sig_decision_next_decider
+> 
+> // We have fixed the cause of the signal, please resume execution
+> sig_decision_resume_execution
+> 
+> // thread-local signal deciders only: reset the stack and local
+> // state to entry to `sigguarded()`, and call the recovery
+> // function.
+> sig_decision_call_recovery
+> ```
+> </ins>
+
+> <ins>
+> The `sig_decide_t` type is a function type with a single argument `stdc_siginfo *` and which returns `enum sig_decision`, this being the type of the function called by `sigguarded()` and globally installed signal deciders to decide how to handle a raised exception.
+> </ins>
+
+> `sig_atomic_t`
+
+> which is the (possibly volatile-qualified) integer type of an object that can be accessed as an atomic entity, even in the presence of asynchronous interrupts.
+
+> <ins>
+> `sigset_t`
+> </ins>
+
+> <ins>
+> which is an implementation-defined complete type able to represent a set of signals on this platform, and for which this code is valid:
+> </ins>
+
+> <ins>
+> ```
+> sigset_t a;
+> sigemptyset(&a);
+> sigset_t b = a;
+> ```
+> </ins>
+
+> The macros defined are
+
+> ```
+> SIG_DFL
+> SIG_ERR
+> SIG_IGN
+> ```
+
+> which expand to constant expressions with distinct values that have type compatible with the second argument to, and the return value of, the `signal` function, and whose values compare unequal to the address of any declarable function; and the following,
+>  which expand to positive integer constant expressions with type `int` and distinct values that are the signal numbers, each corresponding to the specified condition:
+
+> `SIGABRT` abnormal termination, such as is initiated by the `abort` function<ins>, which is of *synchronous signal* category</ins>
+
+> `SIGFPE` an erroneous arithmetic operation, such as zero divide or an operation resulting in overflow<ins>, which is of *synchronous signal* category</ins>
+
+> `SIGILL` detection of an invalid function image, such as an invalid instruction<ins>, which is of *synchronous signal* category</ins>
+
+> `SIGINT` receipt of an interactive attention signal<ins>, which is of *asynchronous non-debug signal* category</ins>
+
+> `SIGSEGV` an invalid access to storage<ins>, which is of *synchronous signal* category</ins>
+
+> `SIGTERM` a termination request sent to the program<ins>, which is of *asynchronous non-debug signal* category</ins>
+
+<ins>
+> And the following macros, which restrict the optimizations which the compiler may perform:
+
+> - `sigfence(vars ...)` for the following prevents the compiler relocating memory accesses from one side of the fence to the other side of the fence; it also causes the compiler to flush changes to memory before the fence, and to reload from memory after the fence.
+>     - the memory storing all values accessible by external or internal linkage.
+>     - the memory storing values `vars ...` without linkage.
+>
+>   `sigfence()` is *async-signal-safe*.
+>   NOTE: `atomic_signal_fence()` provides weaker guarantees than `sigfence()`, and may be sufficient for some performance orientated use cases.
+
+</ins>
+
+## Insert new clause after 7.14.1 as 7.14.2 moving remainder downwards
+
+### 7.14.2.1 Signal set initialization
+
+#### The `sigemptyset` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> int sigemptyset(sigset_t *setp);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe apart from other operations concurrently acting on `*setp`, and is async-signal-safe.
+
+> The set of signals pointed to by `setp` is set to the empty set as defined by the implementation.
+
+> **Returns**
+
+> This function always returns zero.
+</ins>
+
+#### The `sigfillset` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> int sigfillset(sigset_t *setp);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe apart from other operations concurrently acting on `*setp`, and is async-signal-safe.
+
+> The set of signals pointed to by `setp` is set to the full set as defined by the implementation.
+
+> **Returns**
+
+> This function always returns zero.
+</ins>
+
+#### The `sigfillset_synchronous` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> int sigfillset_synchronous(sigset_t *setp);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe apart from other operations concurrently acting on `*setp`, and is async-signal-safe.
+
+> `*setp` is set to exactly the set of synchronous signals. It is permitted for the memory pointed to by `setp` to be uninitialized.
+
+> Synchronous signals are those which can be raised by a thread in the course of its execution. This set can include platform-specific additional signals, however at least these standard signals are within this set: `SIGABRT`, `SIGFPE`, `SIGILL`, `SIGSEGV`.
+
+> **Returns**
+
+> This function always returns zero.
+</ins>
+
+#### The `sigfillset_asynchronous_nondebug` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> int sigfillset_asynchronous_nondebug(sigset_t *setp);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe apart from other operations concurrently acting on `*setp`, and is async-signal-safe.
+
+> `*setp` is set to exactly the set of non-debug asynchronous signals. It is permitted for the memory pointed to by `setp` to be uninitialized.
+
+> Non-debug asynchronous signals are those which are delivered by the system which do not default to resulting in a core dump. This set can include platform-specific additional signals, however at least these standard signals are within this set: `SIGINT`, `SIGTERM`.
+
+> **Returns**
+
+> This function always returns zero.
+</ins>
+
+#### The `sigfillset_asynchronous_debug` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> int sigfillset_asynchronous_debug(sigset_t *setp);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe apart from other operations concurrently acting on `*setp`, and is async-signal-safe.
+
+> `*setp` is set to exactly the set of debug asynchronous signals. It is permitted for the memory pointed to by `setp` to be uninitialized.
+
+> Debug asynchronous signals are those which are delivered by the system which default to resulting in a core dump.
+
+> **Returns**
+
+> This function always returns zero.
+</ins>
+
+### 7.14.2.2 Signal set manipulation
+
+#### The `sigaddset` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> int sigaddset(sigset_t *setp, int signo);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe apart from other operations concurrently acting on `*setp`, and is async-signal-safe.
+
+> Signal number `signo` is added to the set of signals pointed to by `setp`, if it is not already set in which case nothing is done.
+
+> If `*setp` was not previously initialized, the behavior is undefined.
+
+> **Returns**
+
+> This function always returns zero.
+</ins>
+
+#### The `sigdelset` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> int sigdelset(sigset_t *setp, int signo);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe apart from other operations concurrently acting on `*setp`, and is async-signal-safe.
+
+> Signal number `signo` is removed from the set of signals pointed to by `setp`, if it is not already unset in which case nothing is done.
+
+> If `*setp` was not previously initialized, the behavior is undefined.
+
+> **Returns**
+
+> This function always returns zero.
+</ins>
+
+#### In 7.14.1.5: The `sigismember` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> int sigismember(const sigset_t *setp, int signo);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe apart from other operations concurrently acting on `*setp`, and async-signal-safe.
+
+> If `*setp` was not previously initialized, the behavior is undefined.
+
+> **Returns**
+
+> If signal number `signo` is set within the set of signals pointed to by `setp`, positive one is returned. If it is not present, zero is returned.
+</ins>
+
+### Modifications in clause 7.14.2.1
+
+> ...
+
+> **Description**
+
+> ...
+
+> 5 If the signal occurs other than as the result of calling the `abort` or `raise` function<del>, the behavior is undefined if the signal handler refers to any object with static or thread storage duration that is not a lock-free atomic object and that is not declared with the `constexpr` storage-class specifier other than by assigning a value to an object declared as `volatile sig_atomic_t`, or the signal handler calls any function in the standard library other than</del><ins>or the signal handler calls any function in the standard library not described as async-signal-safe other than:</ins>
+
+
+> - the `abort` function,
+> - the `_Exit` function,
+> - the `quick_exit` function,
+> - the functions in `<stdatomic.h>` (except where explicitly stated otherwise) when the atomic arguments are lock-free,
+> - the `atomic_is_lock_free` function with any atomic argument, or
+> - the `signal` function with the first argument equal to the signal number corresponding to the signal that caused the invocation of the handler. Furthermore, if such a call to the signal function results in a `SIG_ERR` return, the object designated by `errno` has an indeterminate representation.
+
+> 6 ...
+
+> 7 Use of this function in a multi-threaded program results in undefined behavior. <del>The implementation shall behave as if no library function calls the signal function.</del>
+
+### Modifications in clause 7.14.2
+
+
+#### In 7.14.2.5: The `siginstall` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> void *siginstall(const sigset_t *guarded);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe.
+
+> If `*guarded` was not previously initialized, the behavior is undefined.
+
+> For all signals in the signal set `guarded`, the threadsafe implementation shall be activated according to the Introduction above.
+
+> **Returns**
+
+> If the installation was unsuccessful, this function returns a null pointer.
+
+> If the installation was successful, this function returns a handle to this installation which can be later passed to `siguninstall()`.
+</ins>
+
+#### In 7.14.2.6: The `siguninstall` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> int siguninstall(void *handle);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe.
+
+> For all signals in the signal set originally installed by the `siginstall()` which returned `handle`, the threadsafe implementation shall be deactivated according to the Introduction above.
+
+> **Returns**
+
+> If successful, this function returns zero. If unsuccessful, this function returns a nonzero value.
+</ins>
+
+
+#### In 7.14.2.7: The `signal_decider_create` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> void *signal_decider_create(const sigset_t *guarded, bool callfirst,
+>                             sig_decide_t decider,
+>                             union stdc_siginfo_value value);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe.
+
+> Installs a global signal continuation decider function, which shall be async signal handler safe. See Introduction for how global signal continuation decider functions are called.
+
+> If `callfirst` is true, installs the function at the top of the list to be called before any other functions currently in the list, otherwise it is installed at the end of the list.
+
+> **Returns**
+
+> If successful, this function returns a non-null pointer which can be later passed to the `signal_decider_destroy()` function. Otherwise a null pointer is returned.
+</ins>
+
+#### In 7.14.2.8: The `signal_decider_destroy` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> int signal_decider_destroy(void *handle);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe.
+
+> Uninstalls a previously installed global signal continuation decider function.
+
+> **Returns**
+
+> If successful, this function returns zero. If unsuccessful, this function returns a nonzero value.
+</ins>
+
+#### In 7.14.3.2: The `stdc_raise` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> bool stdc_raise(int signo,
+>                        stdc_siginfo_siginfo_t *raw_info,
+>                        stdc_siginfo_context_t *raw_context);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe and async-signal-safe.
+
+> As-if call `raise`, but with the added information `raw_info` and `raw_context`.
+
+</ins>
+
+Note to implementers:
+For your information the reference implementation library does not raise a real
+signal on POSIX, but simulates raising one instead because there is no other
+way to pass in a custom `siginfo_t` and `ucontext_t`. If it reaches the end of
+all lists, it calls the signal handler which was installed before threadsafe signals was
+installed. On Microsoft Windows, it does actually raise a real Win32 exception as
+for those you can specify a custom `EXCEPTION_RECORD` and `CONTEXT`. As both thread
+local and globally installed signal handlers are directly installed with Windows, it
+will perform its default action when it runs out of handlers.
+Suggestion to implementers: I think it would be preferable if a real signal was
+initially raised where possible, then debuggers get notified. You may be able to
+persuade your standard C library to implement this e.g. on Linux one can use
+syscall `rt_tgsigqueueinfo`.
+
+<ins>
+
+> **Returns**
+
+> It is implementation-defined if this function ever returns, but if it does, this function returns true if at least one signal decider installed under this facility was called.
+</ins>
+
+### Add 7.14.3 Recover from signal
+
+#### Add 7.14.4.1: The `sigguarded` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> union stdc_siginfo_value
+> sigguarded(const sigset_t *signals,
+>            sig_func_t guarded,
+>            sig_recover_t recovery,
+>            sig_decide_t decider,
+>            union stdc_siginfo_value value);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe and async-signal-safe. The `decider` function shall be async-signal-safe.
+
+> Installs a thread-local signal continuation decider function, recording the current stack and local state such that it can be restored later if this recovery function is ever called. See 7.14.1 for how thread-local signal continuation decider functions are called.
+
+> **Returns**
+
+> If no signal was raised, this function returns the value returned by `guarded`. If a signal was raised and a signal decider initiated recovery, this function returns the value returned by `recovery`.
+</ins>
+
+
+
+### Modifications in clause 7.25.5.1
+
+#### In 7.25.5.1: The `abort` function
+
+> The `abort` function causes abnormal program termination to occur, unless the signal `SIGABRT` is being caught and the signal handler does not return. Whether open streams with unwritten buffered data are flushed, open streams are closed, or temporary files are removed is implementation-defined. An implementation-defined form of the status *unsuccessful termination* is returned to the host environment by means of the function call `raise(SIGABRT)`.
+>
+> <ins>Calling this function is async-signal-safe.</ins>
+
+### Modifications in clause 7.25.5.5
+
+#### In 7.25.5.5: The `_Exit` function
+
+> The `_Exit` function causes normal program termination to occur and control to be returned to the host environment. No functions registered by the `atexit` function, the `at_quick_exit` function, or signal handlers registered by the `signal` function are called. The status returned to the host environment is determined in the same way as for the `exit` function. Whether open streams with unwritten buffered data are flushed, open streams are closed, or temporary files are removed is implementation-defined.
+>
+> <ins>Calling this function is async-signal-safe.</ins>
+
+### Modifications in clause 7.25.5.7
+
+#### In 7.25.5.7: The `quick_exit` function
+
+> The `quick_exit` function causes normal program termination to occur. No functions registered by the `atexit` function or signal handlers registered by the signal function are called. If a program calls the `quick_exit` function more than once, or calls the `exit` function in addition to the `quick_exit` function, the behavior is undefined. If a signal is raised while the `quick_exit` function is executing, the behavior is undefined.
+>
+> <ins>Calling this function is async-signal-safe.</ins>
+
+
+### Modifications in clause 7.30 Threads `<threads.h>`
+
+#### In 7.30.1 Introduction
+
+<ins>
+> `tss_async_signal_safe`
+> which is a complete object type that holds an identifier for an async-signal-safe thread-specific storage pointer.
+
+> The `tss_async_signal_safe_attr` structure shall contain at least the following members, in any order. The semantics of the members are expressed in the comments.
+>
+> ```
+> // Create an instance
+> int (*create)(void **dest);
+> 
+> // Destroy an instance
+> int (*destroy)(void *v);
+> ```
+
+</ins>
+
+#### In 7.30.6.5: The `tss_async_signal_safe_create` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <threads.h>
+> int tss_async_signal_safe_create(tss_async_signal_safe *val,
+>                                  const struct tss_async_signal_safe_attr *attr);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe apart from other operations concurrently acting on `*val`.
+
+> Creates an async-signal-safe thread-specific storage pointer. A copy of `attr` is taken, this describes function pointers later called to create and destroy instances of the thread-specific storage. The object pointed to by `val` is set to a value that uniquely identifies the newly created instance.
+
+> **Returns**
+
+> This function returns `thrd_success` if successful and `thrd_error` if unsuccessful.
+</ins>
+
+
+#### In 7.30.6.6: The `tss_async_signal_safe_destroy` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <threads.h>
+> int tss_async_signal_safe_destroy(tss_async_signal_safe val);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe apart from other operations concurrently acting on `*val`.
+
+> Destroys a previously created async-signal-safe thread-specific storage pointer. All thread-specific storage pointers associated with this instance are destroyed using the original `attr->destroy()` upon the successful return of this function.
+
+> **Returns**
+
+> This function returns `thrd_success` if successful and `thrd_error` if unsuccessful.
+</ins>
+
+#### In 7.30.6.7: The `tss_async_signal_safe_thread_init` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <threads.h>
+> int tss_async_signal_safe_thread_init(tss_async_signal_safe val);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe.
+
+> Creates the thread-specific storage pointer for the calling thread by invoking the original `attr->create()`.
+
+> It is implementation-defined if the thread-specific storage pointer created has the original `attr->destroy()` called upon it on thread exit, if that occurs before the call to `tss_async_signal_safe_destroy()`.
+
+> **Returns**
+
+> This function returns `thrd_success` if successful and `thrd_error` if unsuccessful.
+</ins>
+
+#### In 7.30.6.8: The `tss_async_signal_safe_thread_get` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <threads.h>
+> void *tss_async_signal_safe_get(tss_async_signal_safe val);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe and async-signal-safe.
+
+> `tss_async_signal_safe_thread_init()` shall have been called within the same thread beforehand, in which case the thread-specific storage pointer created at that time is returned; otherwise the behavior is undefined.
+
+> **Returns**
+
+> This function returns the thread-specific storage pointer for the calling thread.
+</ins>
+
+[N2471]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n2471.pdf
+[N2519]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n2519.pdf
+[N3540]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3540.pdf
+[N3765]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3765.pdf
+[N3783]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3783.pdf
+[N3815]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3815.pdf
+[N3856]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3856.pdf
+[N3872]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3872.pdf
