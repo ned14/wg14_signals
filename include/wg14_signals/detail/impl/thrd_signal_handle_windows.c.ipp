@@ -20,6 +20,12 @@ limitations under the License.
 #ifndef WG14_SIGNALS_THRD_SIGNAL_HANDLE_WINDOWS_IPP
 #define WG14_SIGNALS_THRD_SIGNAL_HANDLE_WINDOWS_IPP
 
+// A wrong-platform include is a clear compile error instead of a silent
+// mis-compile (plans/ideas.md 4.4).
+#if !defined(_WIN32) && !defined(_WIN64)
+#error "thrd_signal_handle_windows.c.ipp must only be included on Windows"
+#endif
+
 // Windows SDK floor (plans/ideas.md 2.3): the backend relies on
 // AddVectoredContinueHandler / SetUnhandledExceptionFilter (Vista-and-later SDK
 // declarations). The library build defines _WIN32_WINNT/WINVER as 0x0600

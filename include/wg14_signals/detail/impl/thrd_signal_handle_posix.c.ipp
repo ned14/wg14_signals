@@ -20,6 +20,12 @@ limitations under the License.
 #ifndef WG14_SIGNALS_THRD_SIGNAL_HANDLE_POSIX_IPP
 #define WG14_SIGNALS_THRD_SIGNAL_HANDLE_POSIX_IPP
 
+// A wrong-platform include is a clear compile error instead of a silent
+// mis-compile (plans/ideas.md 4.4).
+#ifdef _WIN32
+#error "thrd_signal_handle_posix.c.ipp must only be included on non-Windows"
+#endif
+
 #include "../../thrd_signal_handle.h"
 
 #include <pthread.h>

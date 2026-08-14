@@ -7,6 +7,7 @@ folded in) and §1.3 implemented; 2026-08-14 §2.1 + §3.4 + §3.5 implemented;
 SDK floor) implemented; 2026-08-14 §2.5 (test `-Werror`, incl. analysis.md AA3)
 implemented; 2026-08-14 §4.2 (`WG14_SIGNALS_STATIC_ASSERT` helper) implemented;
 2026-08-14 §4.3 (Windows `sigset_t` bounds-checked bit shifts, fixing analysis.md 4.5)
+implemented; 2026-08-14 §4.4 (backend `.ipp` wrong-platform `#error` guards)
 implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
@@ -347,7 +348,7 @@ least `uint32_t`-wide). **Verified:** a standalone ASan/UBSan probe exercising s
 `sigismember` is false out of range with no shift UB, and in-range behaviour is
 unchanged; the full `ctest` suite (22 tests) passes.
 
-### 4.4 Backend `.ipp` include guards + platform `#error` guards [partially DONE]
+### 4.4 Backend `.ipp` include guards + platform `#error` guards **[DONE 2026-08-14]**
 
 **Why.** `thrd_signal_handle_posix.c.ipp` / `_windows.c.ipp` / the shared
 `tss_async_signal_safe.c.ipp` had no include guards of their own; double inclusion was
@@ -364,6 +365,21 @@ to do — add the wrong-platform `#error` to the POSIX file:
 #error "thrd_signal_handle_posix.c.ipp must only be included on non-Windows"
 #endif
 ```
+
+**Done 2026-08-14:** every `.ipp` file already carries its own include guard (added
+2026-08-09), and both platform-specific backends now also reject a wrong-platform include
+at preprocessing time, mirroring the sibling's `atomic_wait_macos.c.ipp:23-25` /
+`atomic_wait_windows.c.ipp:23-29`:
+- `thrd_signal_handle_posix.c.ipp`: `#ifdef _WIN32` -> `#error "thrd_signal_handle_posix.c.ipp must only be included on non-Windows"`.
+- `thrd_signal_handle_windows.c.ipp`: `#if !defined(_WIN32) && !defined(_WIN64)` ->
+  `#error "thrd_signal_handle_windows.c.ipp must only be included on Windows"`.
+
+The shared `.ipp` files (`tss_async_signal_safe`, `current_thread_id`, `thread_atexit`,
+`thrd_signal_handle_common`) are platform-agnostic by design (they dispatch internally on
+`#ifdef _WIN32`) and need no wrong-platform guard. **Verified:** preprocessing probes
+confirm the POSIX guard fires under `_WIN32` and the Windows guard fires on non-Windows
+while each passes on its own platform; the full `ctest` suite (22 tests) passes on macOS
+arm64, and the Windows CI legs compile the Windows backend (whose guard passes there).
 
 ---
 
