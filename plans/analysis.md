@@ -257,7 +257,7 @@ dereference (reproduced: ASan SEGV at `verstable.h:1434`, `_get` on a read of ad
 with the fix the round-trip passes. Full `ctest` suite (21 tests) passes under ASan/UBSan
 and in the `HEADER_ONLY_BUILD=ON` configuration on macOS arm64.
 
-### 2.23 AA1 [confirmed, Medium-High] `signal_decider_destroy` crashes after a `siguninstall` -> `siginstall` cycle orphans the decider node (sequential, no concurrency)
+### 2.23 AA1 [confirmed, Medium-High] `signal_decider_destroy` crashes after a `siguninstall` -> `siginstall` cycle orphans the decider node (sequential, no concurrency) **[FIXED 2026-08-14]**
 
 `thrd_signal_handle_common.ipp.ipp:443-614`. `siguninstall` (via `uninstall_sighandler`,
 `:328-364`) frees the per-signal `sighandler_info` container as soon as its refcount hits
@@ -284,6 +284,37 @@ cause — `uninstall_sighandler` freeing `sighandler_info` without accounting fo
 still linked in its `global_handler` list — should be fixed once for all three (C22).
 It also means `siguninstall` *silently orphans* any decider still registered for the
 uninstalled signal.
+
+**Fixed 2026-08-14:** three coordinated changes in `thrd_signal_handle_common.ipp.ipp` /
+`linked_list.h`:
+1. `sighandler_info_release` now **detaches** any decider node still linked in the
+   container's `global_handler` list before freeing the container (the node's `prev`/
+   `next` are reset so nothing dangles into freed memory); the node stays owned by its
+   `signal_decider_destroy()` handle and is freed when that handle is destroyed. This
+   also removes the *silent orphaning*: a decider for an uninstalled signal stays valid
+   and inert until destroyed.
+2. `signal_decider_destroy` only `LIST_REMOVE`s a node when it is actually linked in the
+   (possibly reinstalled) container's list (`sighandler_info_has_decider` walk); a
+   detached/orphaned node is just freed. Its map-miss path (signal uninstalled, no
+   container) now decrements the node's refcount and frees only at zero, so a node
+   pinned by an in-flight raise is retired via `deferred_frees` instead of being freed
+   from under the raise (the concurrent sibling).
+3. Root-cause fix in `linked_list.h`: `LIST_INSERT_FRONT`/`LIST_INSERT_BACK` never
+   re-linked the displaced neighbour (`front->prev`/`back->next`), so a multi-node
+   `global_handler` list had inconsistent `next`/`prev` links — the reason
+   `LIST_REMOVE` dereferenced a NULL pointer on any non-front/back removal and why a
+   multi-decider raise only ever visited the front decider. Both macros now maintain
+   the full doubly-linked list, restoring the documented "call order is in the order of
+   addition".
+
+**Verified:** the new regression test `test/decider_orphan_reinstall_test.c` (registered
+as `decider_orphan_reinstall_test`) runs the exact crash sequence above (single and two
+orphaned nodes, with and without reinstall, plus a normal cycle) and a two-decider raise
+to pin down the list-link fix. On the unfixed library the first `signal_decider_destroy`
+crashes (reproduced: ASan SEGV, WRITE to 0x0, in `signal_decider_destroy` at
+`thrd_signal_handle_common.ipp.ipp:682`); with the fix the full cycle passes. Full `ctest`
+suite (22 tests) passes under ASan/UBSan and in the `HEADER_ONLY_BUILD=ON` configuration
+on macOS arm64.
 
 ---
 
@@ -1108,7 +1139,7 @@ invite reading `error_code`.
 | V4 | High | Windows `stdc_raise` aborts for all unsupported signos | `thrd_signal_handle_windows.c.ipp:112-134` |
 | Z1 | Med-High | verstable `signo_to_sighandler_map_t` never initialised -> NULL-metadata crash (NSIG >= 1024) **[FIXED 2026-08-14]** | `thrd_signal_handle_common.ipp.ipp:58-135,174-179` |
 | X3 | Med-High | Windows `sigguarded` never inits per-thread TSS -> NULL-deref in vectored handler on fresh threads **[FIXED 2026-08-14]** | `thrd_signal_handle_windows.c.ipp:219-249` |
-| AA1 | Med-High | `signal_decider_destroy` NULL-deref/UAF after `siguninstall`->`siginstall` orphans the decider node (confirmed) | `thrd_signal_handle_common.ipp.ipp:328-364,443-614` |
+| AA1 | Med-High | `signal_decider_destroy` NULL-deref/UAF after `siguninstall`->`siginstall` orphans the decider node (confirmed) **[FIXED 2026-08-14]** | `thrd_signal_handle_common.ipp.ipp:328-364,443-614` |
 | 2.5 | Med | `thread_init` returns success for NULL item | `tss_async_signal_safe.c.ipp:186-190` |
 | 2.6 | Med | `tss_async_signal_safe_*` NULL handle crash (also Z8, X8) | `tss_async_signal_safe.c.ipp:93-243` |
 | 3.1 | Med | Spinlock not async-signal-safe | `lock_unlock.h` |

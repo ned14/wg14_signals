@@ -172,8 +172,9 @@ extern "C"
   };
 
   // Drop one reference on a sighandler_info container; when the last reference
-  // goes away, retire any deciders already moved to deferred_frees and free the
-  // container. The caller must hold state->lock.
+  // goes away, retire any deciders already moved to deferred_frees, detach any
+  // decider still registered for the signal, and free the container. The
+  // caller must hold state->lock.
   static void WG14_SIGNALS_PREFIX(sighandler_info_release)(
   struct WG14_SIGNALS_PREFIX(sighandler_info) * item)
   {
@@ -186,8 +187,39 @@ extern "C"
         LIST_REMOVE(item->deferred_frees, i);
         free(i);
       }
+      // Any decider node still registered for this signal (its
+      // signal_decider_destroy() handle not yet called) is detached rather than
+      // left with prev/next pointing into the freed container: the node stays
+      // owned by the handle and is freed when that handle is destroyed
+      // (analysis.md 2.23/AA1).
+      while(item->global_handler.front != WG14_SIGNALS_NULLPTR)
+      {
+        struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *i =
+        item->global_handler.front;
+        LIST_REMOVE(item->global_handler, i);
+      }
       free(item);
     }
+  }
+
+  // Returns true if node is currently linked in item->global_handler. The
+  // caller must hold state->lock. A node orphaned by a siguninstall that freed
+  // its original container is detached, so it is not found here.
+  static bool WG14_SIGNALS_PREFIX(sighandler_info_has_decider)(
+  struct WG14_SIGNALS_PREFIX(sighandler_info) * item,
+  struct WG14_SIGNALS_PREFIX(global_signal_decider_t) * node)
+  {
+    struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *current =
+    item->global_handler.front;
+    while(current != WG14_SIGNALS_NULLPTR)
+    {
+      if(current == node)
+      {
+        return true;
+      }
+      current = current->next;
+    }
+    return false;
   }
 
   struct WG14_SIGNALS_PREFIX(sig_global_state_t)
@@ -679,8 +711,21 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
           {
             if(0 == --(*retp)->refcount)
             {
-              LIST_REMOVE(signo_to_sighandler_map_t_value(it)->global_handler,
-                          *retp);
+              // The node may have been orphaned (detached) by a siguninstall
+              // that freed its original container, leaving this signal's new
+              // container without it; only LIST_REMOVE when the node is still
+              // linked in the current container, otherwise just free it
+              // (analysis.md 2.23/AA1).
+              if(WG14_SIGNALS_PREFIX(sighandler_info_has_decider)(
+                 signo_to_sighandler_map_t_value(it), *retp))
+              {
+                LIST_REMOVE(signo_to_sighandler_map_t_value(it)->global_handler,
+                            *retp);
+              }
+              else
+              {
+                (*retp)->next = (*retp)->prev = WG14_SIGNALS_NULLPTR;
+              }
             }
             else
             {
@@ -696,7 +741,15 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
       {
         if(*retp != WG14_SIGNALS_NULLPTR)
         {
-          free(*retp);
+          // The signal is not currently installed (its container was released
+          // by a siguninstall). The node may still be pinned by an in-flight
+          // raise, so only free it once its refcount reaches zero; a pinned
+          // node is retired via deferred_frees when the raise completes
+          // (analysis.md 2.23/AA1 concurrent sibling).
+          if(0 == --(*retp)->refcount)
+          {
+            free(*retp);
+          }
         }
         retp++;
       }

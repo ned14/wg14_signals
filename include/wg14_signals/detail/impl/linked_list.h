@@ -36,6 +36,7 @@ limitations under the License.
     assert((lst).back != WG14_SIGNALS_NULLPTR);                                \
     (item)->prev = WG14_SIGNALS_NULLPTR;                                       \
     (item)->next = (lst).front;                                                \
+    (lst).front->prev = (item);                                                \
     (lst).front = (item);                                                      \
   }
 
@@ -51,6 +52,7 @@ limitations under the License.
     assert((lst).back != WG14_SIGNALS_NULLPTR);                                \
     (item)->next = WG14_SIGNALS_NULLPTR;                                       \
     (item)->prev = (lst).back;                                                 \
+    (lst).back->next = (item);                                                 \
     (lst).back = (item);                                                       \
   }
 
