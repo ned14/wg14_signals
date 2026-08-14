@@ -533,7 +533,35 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
       {
         if(!WG14_SIGNALS_PREFIX(install_sighandler)(signo))
         {
+          // Roll back the signals this call already installed: a partial
+          // install that returned NULL would otherwise leave handlers
+          // installed with no handle to uninstall them, and a subsequent
+          // siginstall would double-count them (analysis.md 3.8). Every signal
+          // processed before this failure was successfully installed (the loop
+          // returns at the first failure), so uninstalling exactly the members
+          // of `ret` below this signo undoes this call's contribution.
+          // uninstall_sighandler() always succeeds and decrements the signal's
+          // install_count, fully uninstalling only when it reaches zero, so a
+          // signal that was already installed by an earlier siginstall stays
+          // installed at its previous reference count.
           const int errcode = errno;
+          for(int rollback_signo = 1; rollback_signo < signo; rollback_signo++)
+          {
+            if(rollback_signo == SIGKILL || rollback_signo == SIGSTOP)
+            {
+              continue;
+            }
+#ifdef __FILC__
+            if(zis_unsafe_signal_for_handlers(rollback_signo))
+            {
+              continue;
+            }
+#endif
+            if(sigismember(ret, rollback_signo))
+            {
+              (void) WG14_SIGNALS_PREFIX(uninstall_sighandler)(rollback_signo);
+            }
+          }
           free(ret);
           errno = errcode;
           return WG14_SIGNALS_NULLPTR;

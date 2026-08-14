@@ -15,8 +15,8 @@ pass (one new finding — AC4 — fixed, in the sigfence volatile-sink fallback)
 sigfence test's suppression); 2026-08-14 fix pass (2.5 — `thread_init` now reports
 failure when `create` returns 0 with NULL; 2.10/V2 — the Windows vectored handler now
 guards a NULL per-thread state; 2.12/V4 — Windows `stdc_raise` no longer aborts for
-unsupported signos; 3.7 — `stdc_raise` now reports TSS-setup failure via errno).
-Original
+unsupported signos; 3.7 — `stdc_raise` now reports TSS-setup failure via errno; 3.8 —
+a partial `siginstall` now rolls back its already-installed signals). Original
 revision reviewed: `f48e95e` ("Implement all the changes as per N3924 WIP wording for
 'Thread-safe signals handling rev 4'"), plus one uncommitted whitespace/`nullptr`-for-C++
 change in `config.h`.
@@ -300,7 +300,7 @@ state allocation, `stdc_raise(0, NULL, NULL)` returns false with `errno == ENOME
 both the async-safe TLS path and the fallback hash-table path (Linux, clang); the full
 `ctest` suite (22 tests) passes on Linux (native + fallback TLS) and macOS.
 
-### 3.8 Partial install failure in `siginstall` leaves handlers installed (no rollback)
+### 3.8 Partial install failure in `siginstall` leaves handlers installed (no rollback) **[FIXED 2026-08-14]**
 
 `thrd_signal_handle_common.ipp.ipp:488-527`: if `install_sighandler` fails for any signal
 in the set, `siginstall` frees the returned handle and returns NULL, but the signals
@@ -308,6 +308,22 @@ already installed remain installed and counted. The caller has no handle and no 
 uninstall them; a subsequent `siginstall` will double-count. `siguninstall` semantics
 ("threadsafe with respect to other concurrent executions of itself") also allow
 concurrent partial uninstall while handlers are in flight.
+
+**Fixed 2026-08-14:** `siginstall` now rolls back the signals it already installed in the
+failing call before returning NULL. Because each `siginstall` call increments every
+installed signal's reference count (`install_count`), the rollback uninstalls exactly the
+members of the requested set below the failing signo; `uninstall_sighandler()` always
+succeeds and decrements the count, fully uninstalling only when it reaches zero, so a
+signal that was already installed by an earlier `siginstall` stays installed at its
+previous reference count. The failure `errno` is preserved across the rollback (which may
+clobber it). **Verified:** new white-box test `test/siginstall_rollback_test.c` links with
+`--wrap=calloc` to fail the per-signal `sighandler_info` allocation for a chosen later
+signal; it fails against the pre-fix code (SIGUSR1 left installed with
+`sighandlers_count == 1`) and passes with the fix (both map entries gone, count back to
+0, and a subsequent full `siginstall`/`siguninstall` cycle leaves the state pristine).
+Full `ctest` suite (23 tests on Linux incl. the new test) passes on Linux (clang/gcc,
+native + fallback TLS) and macOS (22 tests — the `--wrap` test is excluded on Apple and
+MSVC whose linkers do not support `--wrap`).
 
 ### 3.9 `signal_decider_create` failure path partially self-destroys correctly but leaves warning-path signals uncounted
 

@@ -15,7 +15,9 @@ warning to `-Wc23-extensions`; the sigfence test now suppresses all three names)
 2026-08-14 fix pass (analysis.md 2.5 recorded in §5.3; analysis.md 2.10/V2 — the Windows
 vectored-handler NULL-tss guard — recorded in §5.8, done; analysis.md 2.12/V4 — the
 Windows `stdc_raise` user-defined exception-code mapping — recorded in §5.8, done;
-analysis.md 3.7 — `stdc_raise` now reports TSS-setup failure via errno). Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+analysis.md 3.7 — `stdc_raise` now reports TSS-setup failure via errno; analysis.md 3.8 —
+a partial `siginstall` now rolls back its already-installed signals, with a new
+`--wrap=calloc` white-box regression test). Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
 would have caught the defect). Sibling references are cited as

@@ -10,6 +10,18 @@ add_code_test(decider_mixed_set_test SOURCES "decider_mixed_set_test.c" FEATURES
 set_tests_properties(decider_mixed_set_test PROPERTIES TIMEOUT 60)
 add_code_test(siguninstall_raise_test SOURCES "siguninstall_raise_test.c" FEATURES c_std_11)
 set_tests_properties(siguninstall_raise_test PROPERTIES TIMEOUT 300)
+# White-box regression test for analysis.md 3.8: a partial siginstall() must
+# roll back the signals already installed in that call. It links with
+# --wrap=calloc (GNU/BSD ld) to fail the per-signal sighandler_info allocation
+# for a chosen later signal; the header-only build compiles the .ipp into the
+# test TU so the interposer sees the .ipp's calloc calls. Excluded on MSVC and
+# Apple (their linkers do not support --wrap).
+if(NOT MSVC AND NOT APPLE AND NOT CMAKE_C_COMPILER_ID MATCHES "MSVC")
+  add_code_example(siginstall_rollback_test SOURCES "siginstall_rollback_test.c" FEATURES c_std_11)
+  target_link_options(siginstall_rollback_test PRIVATE "LINKER:--wrap=calloc")
+  add_test(NAME siginstall_rollback_test COMMAND $<TARGET_FILE:siginstall_rollback_test>)
+  set_tests_properties(siginstall_rollback_test PROPERTIES TIMEOUT 60)
+endif()
 add_code_test(post_uninstall_reentry_test SOURCES "post_uninstall_reentry_test.c" FEATURES c_std_11)
 set_tests_properties(post_uninstall_reentry_test PROPERTIES TIMEOUT 300)
 add_code_test(standalone_setup_test SOURCES "standalone_setup_test.c" FEATURES c_std_11)
