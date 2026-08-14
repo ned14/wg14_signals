@@ -1,116 +1,23 @@
 # Ideas and techniques to adopt from `wg14_atomic_waits` — concretised
 
-Review date: 2026-08-06 (concretised against the `wg14_signals` implementation source).
-Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was derived from this
-project. Every idea is tied to a specific file and function in this tree, shows the
-current code, and gives the concrete replacement (or a test design that would have caught
-the defect). Sibling references are cited as `../wg14_atomic_waits/include/...` /
-`.../CMakeLists.txt` and verified by direct reading.
+Review date: 2026-08-06 (concretised against the `wg14_signals` implementation source);
+2026-08-14 status reconciliation (done items removed, the new analysis.md AB1 finding
+folded in) and §1.3 implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+derived from this project. Every idea is tied to a specific file and function in this
+tree, shows the current code, and gives the concrete replacement (or a test design that
+would have caught the defect). Sibling references are cited as
+`../wg14_atomic_waits/include/...` / `.../CMakeLists.txt` and verified by direct reading.
 
-Cross-references to `plans/analysis.md` findings use its stable IDs (e.g. "2.1", "V1",
-"AA1"); `analysis.md` records verified reproductions inline.
+Cross-references to `plans/analysis.md` findings use its stable IDs (e.g. "2.6", "V2",
+"AB1"); `analysis.md` records verified reproductions inline.
 
 ---
 
 ## 1. Highest-impact adoptions (quick wins)
 
-### 1.1 Packaging: make the installed package usable (fixes analysis.md V1) **[DONE 2026-08-12]**
+### 1.3 Per-test `TIMEOUT` (test hygiene) **[DONE 2026-08-14]**
 
-**Why.** `find_package(wg14_signals REQUIRED)` currently hard-fails and the installed
-tree ships no headers (verified, V1). Two root causes in `CMakeLists.txt`:
-
-- `:58-62` uses `configure_file(... @ONLY)`, so `@PACKAGE_INIT@` and
-  `check_required_components()` in `cmake/ProjectConfig.cmake.in` are never
-  expanded -> `Unknown CMake command "check_required_components"`.
-- There is no `install(DIRECTORY include/...)`, so nothing under
-  `<wg14_signals/...>` exists after install.
-
-**Concrete change.** In `CMakeLists.txt`, replace the `configure_file` block (`:58-62`)
-with:
-
-```cmake
-include(CMakePackageConfigHelpers)   # add near line 11
-...
-configure_package_config_file(
-  "${CMAKE_CURRENT_LIST_DIR}/cmake/ProjectConfig.cmake.in"
-  "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
-  INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
-)
-write_basic_package_version_file(
-  "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
-  VERSION ${PROJECT_VERSION}
-  COMPATIBILITY SameMajorVersion
-)
-install(FILES
-  "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
-  "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
-  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
-)
-install(DIRECTORY include/wg14_signals
-        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
-```
-
-and change line 10 to `project(wg14_signals VERSION 1.0.0 LANGUAGES C CXX)`. (The
-`install(TARGETS ... EXPORT ...)` at `:50-56` and the `install(EXPORT ...)` at `:67-70`
-stay as-is; `@PROJECT_NAME@Exports.cmake` becomes real and `check_required_components` now
-exists.)
-
-**Done 2026-08-12:** implemented exactly as sketched in `CMakeLists.txt` (`VERSION 1.0.0`
-on the `project()` call, `include(CMakePackageConfigHelpers)`,
-`install(DIRECTORY include/wg14_signals ...)`, `configure_package_config_file()` +
-`write_basic_package_version_file()`, both installed alongside the existing
-`install(EXPORT ...)`). **Verified:** a clean configure/build/install into a staging
-prefix plus a consumer project using `find_package(wg14_signals 1.0 REQUIRED)` and
-linking `wg14_signals::wg14_signals` configures, builds and runs against the installed
-tree; full `ctest` suite (17 tests) passes. The regression-proofing ctest is §1.2 (below).
-
-### 1.2 Add an install-consumer ctest (regression-proofs 1.1) **[DONE 2026-08-12]**
-
-**Concrete change.** Copy the sibling's `test/install_consumer/` pattern
-(`../wg14_atomic_waits/test/install_consumer/`, `driver.cmake` + `app.c` +
-`CMakeLists.txt`) and register it in `test/CMakeLists.txt` as `install_consumer_test`
-(TIMEOUT 180), passing the parent build/toolchain/compiler/flags through. The consumer
-`app.c` (thread-free; its job is packaging, not concurrency) must mirror the sibling's
-"feature-test macros first" preamble (glibc needs `_POSIX_C_SOURCE=200809L
-_XOPEN_SOURCE=700 _GNU_SOURCE` before the first include) and then exercise:
-`stdc_raise(0, NULL, NULL)` setup, `sigfillset_synchronous`, `siginstall(NULL)` + a
-`signal_decider_create`/`stdc_raise`/destroy cycle, and `sigfence(x)`. The driver asserts
-the installed headers / Config / ConfigVersion / Exports files exist, then configures +
-builds + runs the consumer with the parent toolchain (so sanitizer legs still link) and
-the per-OS loader-path handling (the Windows `PATH` semicolon-escaping gotcha at
-`driver.cmake:122-136`).
-
-**Verification.** `ctest -R install_consumer_test` fails before the 1.1 fix ("missing
-include/wg14_signals/...") and passes after.
-
-**Done 2026-08-12:** ported as `test/install_consumer/{CMakeLists.txt,driver.cmake,app.c}`
-and registered as `install_consumer_test` in `test/CMakeLists.txt` (TIMEOUT 180). The
-consumer exercises `stdc_raise(0, ...)` setup, `sigfillset_synchronous`,
-`siginstall(NULL)` + a `signal_decider_create`/`stdc_raise`/destroy cycle, `sigfence(x)`
-and `siguninstall`. Two deviations from the sketch above, both found by the first run:
-- **No feature-test-macro preamble.** Unlike the sibling, this library is *not* built
-  with `-D_POSIX_C_SOURCE`/`-D_XOPEN_SOURCE`/`-D_GNU_SOURCE`, so the consumer must not
-  define them either — on macOS they put `<signal.h>` into strict POSIX mode, which hides
-  `NSIG` and breaks the header-only build (`HEADER_ONLY_BUILD=ON` propagates the
-  `WG14_SIGNALS_ENABLE_HEADER_ONLY` define PUBLIC, so the consumer compiles the `.ipp`
-  implementations).
-- **`signal_decider_destroy` returns 0 on success** (the registry reference it drops
-  comes back at 1); the consumer checks `== 0`.
-- **SIGILL vs SIGUSR2 under `__FILC__`** (same rule as the in-tree tests: Fil-C forbids
-  user handlers for SIGILL, so the raise signal is SIGUSR2 there; the
-  `sigfillset_synchronous` member check uses SIGILL, which is in the set on every
-  backend).
-
-**Verified:** `install_consumer_test` passes in the Release, ASan/UBSan
-(`sanitize-toolchain.cmake`) and `HEADER_ONLY_BUILD=ON` configurations — staging the
-install, asserting all headers/Config/ConfigVersion/Exports land, and building + running
-the `find_package(wg14_signals 1.0 EXACT CONFIG REQUIRED)` consumer with
-`wg14_signals::wg14_signals`. Full `ctest` suite passes in all three configurations (18
-tests).
-
-### 1.3 Per-test `TIMEOUT` (test hygiene)
-
-**Concrete change.** `CMakeLists.txt:88-91` (`add_code_test`):
+**Concrete change.** `CMakeLists.txt` (`add_code_test`):
 
 ```cmake
 function(add_code_test target)
@@ -123,18 +30,16 @@ endfunction()
 A hang is then reported against the specific test instead of only after the CI-wide
 `ctest --timeout 300` expires.
 
-### 1.4 AGENTS.md rules (developer discipline)
-
-Port rules 4 and 5 from `../wg14_atomic_waits/AGENTS.md`:
-
-- **Rule 4**: C++ is permitted in `test/` *solely* for compile-testing the public header
-  and `extern "C"` linkage; never under `include/` or `src/`. This targets the
-  `thread_atexit.cpp` problem class (analysis.md 5.2, Y7, AA7).
-  **[PARTIALLY DONE 2026-08-10]** — on platforms with `__cxa_thread_atexit()` the C++ file
-  is neither compiled nor linked; on platforms without it the C++ implementation is
-  retained by design.
-- **Rule 5**: "Never, EVER use sleeps alone to synchronise between threads... ALWAYS use
-  a proper synchronisation between threads." (Backbone of §6.1.)
+**Done 2026-08-14:** `set_tests_properties(${target} PROPERTIES TIMEOUT 60)` added to
+`add_code_test` in `CMakeLists.txt`; tests that need longer, or that bound a
+pathological hang, keep their explicit larger `TIMEOUT` (the later
+`set_tests_properties` calls in `test/CMakeLists.txt` override the default — verified:
+`tss_concurrent_exit_test` 300, `siguninstall_raise_test` 300,
+`post_uninstall_reentry_test` 300, `decider_mixed_set_test` 60,
+`install_sighandler_lock_test` 60, `recovery_null_loop_test` 60, `sigfence_codegen_test`
+300, `install_consumer_test` 180, `header_only_build_test` 600 all retain their values
+while every other `add_code_test` test now reports 60). Full `ctest` suite (22 tests)
+passes under ASan/UBSan on macOS arm64.
 
 ---
 
@@ -440,13 +345,14 @@ the "ASYNC-SIGNAL-SAFE" claim.
 - **`siguninstall` `-1` failure path leaks `ss`** (analysis.md §9): `:423-426`
   `return -1` before `free(ss)`; free first. (`uninstall_sighandler` always returns true so
   the path is currently dead, but keep it correct.)
-- **Orphaned decider nodes on `siguninstall` (AA1):** `uninstall_sighandler` frees the
-  `sighandler_info` container without accounting for decider nodes still linked in its
-  `global_handler` list; a later `signal_decider_destroy` on such a node performs
-  `LIST_REMOVE` against the reinstalled signal's list using the orphaned node's stale
-  pointers (a NULL write, or heap-UAF with multiple orphans). On container teardown,
-  unlink-and-defer-free any nodes still in `global_handler`, and have
-  `signal_decider_destroy` tolerate nodes already removed.
+- **`signal_decider_destroy` leaks the node on the normal destroy path (analysis.md
+  AB1):** the AA1 fix left the post-unlock free as a *second* refcount decrement, so a
+  node whose first decrement hit 0 (still-installed signal, base refcount 1) is
+  LIST_REMOVE'd and then counted down to -1 and never freed. Concrete fix: free the node
+  where its refcount first reaches zero (in the map-entry branch, after the
+  `sighandler_info_has_decider` walk), and leave the post-unlock block for the map-miss
+  path only — i.e. restructure the second decrement as `else` on "the map had no entry",
+  or simply restore `free(*retp)` in the map-entry refcount-zero branch.
 
 ---
 
@@ -475,9 +381,9 @@ Add to `test/` (all `add_code_test`, C11):
 
 | Test file | Exercise | Catches |
 |---|---|---|
-| `decider_cycle_test.c` | siginstall -> decider -> destroy -> uninstall -> siginstall -> decider -> raise (the AA1 orphan cycle) | AA1 |
 | `tss_null_handle_test.c` | `create/destroy/thread_init/get` on NULL and zeroed handles | 2.6 |
 | `lock_whitebox_test.c` | `#include "detail/impl/lock_unlock.h"`, lock/unlock under TSan | 3.1 discipline |
+| `decider_destroy_leak_test.c` | loop 10,000 x {create, destroy} on an installed signal; assert no node allocation growth (malloc/calloc interposition, the analysis.md AB1 pattern) | AB1 |
 
 ### 6.5 White-box tests (include internals directly)
 
@@ -568,10 +474,10 @@ Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattributes`).
 - **The hash-table proxy engine is tuned for wait/notify**; adopt the *techniques*
   (§5.2-5.4: re-check-under-lock, refcounted containers, lock-free cached reads) rather
   than the structure wholesale. Replacing `verstable.h` with a triangular-probing table is
-  a larger refactor; the concrete bug it would fix (analysis.md Z1: uninitialised verstable
-  map on NSIG>=1024) is better fixed first by initialising the map instance
-  (`signo_to_sighandler_map_t_init(&...)`) in `sig_global_state()` — a one-line fix that
-  removes the entire NSIG>=1024 hazard class without touching the table.
+  a larger refactor; the concrete bug that motivated it (analysis.md Z1: uninitialised
+  verstable map on NSIG>=1024) was fixed exactly as recommended here — initialising the
+  map instance in `sig_global_state()` — so there is no longer a defect pushing the
+  replacement.
 - **CI breadth**: 7 jobs/~80 legs in the sibling is proportional to its problem; for
   `wg14_signals` defer the fallback-TLS matrix breadth (§3.4) until the §1 quick wins
   land.
@@ -582,17 +488,14 @@ Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattributes`).
 
 | # | Change | Location | Fixes (analysis.md) | Effort |
 |---|--------|----------|--------------------|--------|
-| 1 | Packaging: `configure_package_config_file` + version file + `install(DIRECTORY include/...)` **[DONE 2026-08-12]** | `CMakeLists.txt:10,58-70` | V1 | Small |
-| 2 | Install-consumer ctest **[DONE 2026-08-12]** | `test/install_consumer/` | V1 regression-proofing | Medium |
-| 3 | Fallback-path setup: NULL-safe tss API | `tss_async_signal_safe.c.ipp:93-243` | 2.6 | Small |
-| 4 | Windows NULL-tss guard (V2) | `thrd_signal_handle_windows.c.ipp:357-367` | V2 | Small |
-| 5 | Per-test `TIMEOUT 60` | `CMakeLists.txt:88-91` | test hygiene | Trivial |
-| 6 | AGENTS.md rules 4 & 5 | `AGENTS.md` | Y7, flaky tests | Trivial |
-| 7 | `tss_async_signal_safe`: lock-free `get` via cached TLS value; init re-check | `tss_async_signal_safe.c.ipp:136-243` | 3.1, 3.13, 3.14, 2.5 | Medium |
-| 8 | `install_sighandler` flags: drop `SA_NOCLDWAIT`, add `SA_RESTART` | `thrd_signal_handle_posix.c.ipp:371-383` | 3.3 | Small |
-| 9 | Remaining regression tests (decider cycle, tss NULL, lock whitebox) | `test/*` | AA1, 2.6, 3.1 | Medium |
-| 10 | Compile-fail suite (`expect_compile_fail.cmake` + sigfence targets) | `test/` | 5.3, 2.8, X11 | Medium |
-| 11 | `sigfillset_*` constructor-attribute removal + init under lock | `thrd_signal_handle_posix.c.ipp:49-127` | 7.1, C11 rule 1 | Small |
-| 12 | AA1 orphan: `uninstall_sighandler` must account for decider nodes still linked in `global_handler` | `thrd_signal_handle_common.ipp.ipp:328-364` | AA1 | Medium |
-| 13 | Feature-test macros + MSVC c11-atomics helper | `CMakeLists.txt` | 4.6, X9 | Small |
-| 14 | `docs/proposal.md` + `plans/test-review-todos.md` + `.gitattributes` trim | `docs/`, `plans/`, `.gitattributes` | process | Small |
+| 1 | Fix `signal_decider_destroy` node leak: free at the refcount-zero branch, keep the map-miss block for uninstalled signals only | `thrd_signal_handle_common.ipp.ipp:708-755` | AB1 | Small |
+| 2 | Fallback-path setup: NULL-safe tss API | `tss_async_signal_safe.c.ipp:93-243` | 2.6 | Small |
+| 3 | Windows NULL-tss guard (V2) | `thrd_signal_handle_windows.c.ipp:357-367` | V2 | Small |
+| 4 | Per-test `TIMEOUT 60` **[DONE 2026-08-14]** | `CMakeLists.txt:88-91` | test hygiene | Trivial |
+| 5 | `tss_async_signal_safe`: lock-free `get` via cached TLS value; init re-check | `tss_async_signal_safe.c.ipp:136-243` | 3.1, 3.13, 3.14, 2.5 | Medium |
+| 6 | `install_sighandler` flags: drop `SA_NOCLDWAIT`, add `SA_RESTART` | `thrd_signal_handle_posix.c.ipp:371-383` | 3.3 | Small |
+| 7 | Remaining regression tests (tss NULL, lock whitebox, decider-destroy leak) | `test/*` | 2.6, 3.1, AB1 | Medium |
+| 8 | Compile-fail suite (`expect_compile_fail.cmake` + sigfence targets) | `test/` | 5.3, 2.8, X11 | Medium |
+| 9 | `sigfillset_*` constructor-attribute removal + init under lock | `thrd_signal_handle_posix.c.ipp:49-127` | 7.1, C11 rule 1 | Small |
+| 10 | Feature-test macros + MSVC c11-atomics helper | `CMakeLists.txt` | 4.6, X9 | Small |
+| 11 | `docs/proposal.md` + `plans/test-review-todos.md` + `.gitattributes` trim | `docs/`, `plans/`, `.gitattributes` | process | Small |

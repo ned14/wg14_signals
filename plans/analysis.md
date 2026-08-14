@@ -1,9 +1,10 @@
 # Exhaustive implementation analysis: wg14_signals
 
 Review dates: 2026-08-05 and 2026-08-06 (seven full review passes, all against the same
-revision). Revision reviewed: `f48e95e` ("Implement all the changes as per N3924 WIP
-wording for 'Thread-safe signals handling rev 4'"), plus one uncommitted
-whitespace/`nullptr`-for-C++ change in `config.h`.
+revision); 2026-08-14 status reconciliation pass against the current tree (fixed
+findings removed, one new finding — AB1 — added). Original revision reviewed: `f48e95e`
+("Implement all the changes as per N3924 WIP wording for 'Thread-safe signals handling
+rev 4'"), plus one uncommitted whitespace/`nullptr`-for-C++ change in `config.h`.
 
 Scope: every header, every source file, both backends (POSIX/Windows), the header-only
 configuration, the fallback hash-table TLS path and the async-signal-safe TLS path, all
@@ -13,8 +14,8 @@ Findings are ranked by severity. Items marked **[confirmed]** were reproduced on
 (arm64, clang 17, ASan/UBSan where noted). Windows-only items are code-level findings (no
 Windows host available) but were verified against the MSVC build matrix in CI. Finding
 IDs are stable and are referenced by `plans/ideas.md`. Later-pass findings keep their
-pass letter (V = pass 2, W = pass 3, X = pass 4, Y = pass 5, Z = pass 6, AA = pass 7);
-corrections from later passes are folded into the finding they affect.
+pass letter (V = pass 2, W = pass 3, X = pass 4, Y = pass 5, Z = pass 6, AA = pass 7,
+AB = pass 8); corrections from later passes are folded into the finding they affect.
 
 ---
 
@@ -50,7 +51,10 @@ the three top-level arguments.)
 
 `WG14_SIGNALS_SIGFENCE_IMPL_1(a)` expands to `__asm__ volatile(";" : "+m"(a) : : "memory")`.
 The `+m` operand must be an lvalue: `sigfence(42)` or `sigfence(x + 1)` is a hard compile
-error. Verified (`error: invalid lvalue in asm output`); the 0-arg form compiles.
+error. Verified (`error: invalid lvalue in asm output`); the 0-arg form compiles. The
+header now documents the requirement ("Any variable in the argument list MUST be a
+lvalue", `thrd_signal_handle.h:248-249`), so the failure is documented if still a bare
+compiler error.
 
 ### 2.10 V2 [code-level, Windows] `win32_vectored_exception_function` NULL-derefs the per-thread state on fresh threads (High)
 
@@ -61,14 +65,11 @@ decision, the handler calls `sig_global_tss_state()` and immediately dereference
 initialises it. A genuine fault (AV, div-by-zero) on a thread that has only ever called
 `siginstall` (or nothing) -> `tss == NULL` -> NULL dereference *inside the exception
 handler*, turning a recoverable fault into a crash. POSIX is immune (its handler inits
-the TLS state as part of the raise). **Extended by X3:** a Windows thread whose only
-library interaction is `sigguarded()` (never `stdc_raise`) also has a NULL per-thread
-state, so `sigguarded` alone is insufficient on Windows while being sufficient on POSIX.
-**The `sigguarded`-only sub-case is now fixed with X3 (2026-08-14):** `sigguarded` on
-Windows initialises the per-thread TSS like POSIX, so this finding now covers only the
-thread whose *only* interaction is `siginstall` (or nothing) — that thread's first
-genuine fault claimed by a global decider still NULL-derefs `tss->front` in the vectored
-handler.
+the TLS state as part of the raise). **The `sigguarded`-only sub-case (formerly X3) is
+fixed since 2026-08-14:** `sigguarded` on Windows initialises the per-thread TSS like
+POSIX, so this finding now covers only the thread whose *only* interaction is
+`siginstall` (or nothing) — that thread's first genuine fault claimed by a global
+decider still NULL-derefs `tss->front` in the vectored handler.
 
 ### 2.11 V3 [code-level, Windows] Unsupported exception codes reach `sigismember(guarded, 0)` -> UB; C++ exceptions can be swallowed by `sigguarded` (High)
 
@@ -90,231 +91,30 @@ On POSIX the same calls are harmless no-ops when no decider is installed. The he
 documents `stdc_raise` as usable for "OUR currently installed signal decider" for
 arbitrary signals.
 
-### 2.14 W2 [confirmed, POSIX] deciders receive indeterminate/stale `error_code`, `addr`, `raw_info` for `stdc_raise(signo, NULL, NULL)` (High) **[FIXED 2026-08-12]**
+### 2.24 AB1 [confirmed, Medium-High] `signal_decider_destroy` leaks every decider node on the normal destroy path — the AA1 fix (65322dd) double-decrements the node refcount (regression)
 
-`prepare_rsi` (`thrd_signal_handle_posix.c.ipp:186-199`) writes `raw_info`,
-`error_code`, and `addr` **only** when `siginfo != NULL`. On the global path `rsi` is a
-fresh uninitialised stack variable (`:327`) — all three fields are indeterminate garbage
-(reproduced); `raw_info` is a garbage *pointer* the decider may dereference. On the frame
-path the frame's `rsi` is zeroed at `sigguarded` entry, but a *second* raise in the same
-frame with NULL `info` keeps the stale `raw_info` pointer from the first raise — a
-pointer into a dead kernel stack frame. The documented usage `stdc_raise(signo, nullptr,
-nullptr)` is exactly what the tests and README use. Pass 2's 7.2 only noted `value`
-(C8); the defect is broader. Fix: memset the struct in `prepare_rsi` regardless of
-`siginfo`. **Correction (C14):** a decider returning `next_decider` on a *user* raise
-falls through to the default action and the process dies (default-terminate signals) —
-on POSIX an unclaimed user raise of a default-terminate signal kills the process, the
-same outcome Windows produces via WER (W5). POSIX only "returns false" when the signal
-was never installed.
+`thrd_signal_handle_common.ipp.ipp:708-755`. In `signal_decider_destroy`, for a signal
+that is still installed (map entry present) whose node has the base refcount of 1 (the
+normal `signal_decider_create` -> `signal_decider_destroy` cycle with no in-flight
+raise):
 
-**Fixed 2026-08-12:** `prepare_rsi` (`thrd_signal_handle_posix.c.ipp`) now zeroes
-`raw_info`, `error_code`, and `addr` when `siginfo == NULL` (`raw_info = NULL`,
-`error_code = 0`, `addr = NULL`). Deliberately **not** a whole-struct `memset` (the
-literal fix suggested above): on the frame path `sigguarded()` pre-sets `rsi.value` and
-`prepare_rsi` runs per-raise, so a `memset` would wipe `value` on the first raise —
-instead only the three OS-info fields `prepare_rsi` owns are made deterministic. The
-Windows backend already did a whole-struct `memset` (its `value` is set after
-`prepare_rsi`), and is unaffected. The NULL-info contract is now documented on
-`stdc_siginfo` in `thrd_signal_handle.h` (POSIX: `raw_info` NULL; Windows: `raw_info`
-always the `EXCEPTION_RECORD`). **Verified:** the new regression test
-`test/stdc_raise_null_info_test.c` (registered as `stdc_raise_null_info_test`) fails on
-the unfixed library — the global-decider path observes garbage `error_code`/`addr`
-(reproduced on every run) — and passes with the fix; it also covers the frame path (a
-second NULL-info raise in the same guarded frame must not observe the first raise's
-`raw_info`). Full `ctest` suite (19 tests) passes under ASan/UBSan and in the
-`HEADER_ONLY_BUILD=ON` configuration on macOS arm64.
+1. the first decrement (`:712`) takes the refcount 1->0 and `LIST_REMOVE`s the node
+   from the container's `global_handler` list;
+2. the post-unlock "signal not installed" block (`:740-755`) then decrements **again**
+   (`:749`): 0->-1, so `0 == -1` is false and `free(*retp)` never runs.
 
-### 2.16 W5 [code-level, Windows] `stdc_raise` can never return `false`; an unclaimed raise terminates the process (High — documented-contract violation) **[FIXED 2026-08-12]**
-
-`thrd_signal_handle_windows.c.ipp:252-300` raises via `RaiseException` and always returns
-`true`. The header contract (`thrd_signal_handle.h:362-364`) promises "returning false if
-we have no decider installed for that signal". On Windows, a supported signo with no
-installed handler and no guard reaches the library's own `UnhandledExceptionFilter`
-(which returns `EXCEPTION_CONTINUE_SEARCH`) and Windows Error Reporting **terminates the
-process**; the same happens inside a `sigguarded` frame guarding a *different* signal.
-So the portable idiom `if(!stdc_raise(signo, ...)) { /* fall back */ }` is deadly on
-Windows. Distinct from V4 (which covers `abort()` on unsupported signos); this is the
-"no decider" path for *supported* signos.
-
-**Fixed 2026-08-12:** the Windows `stdc_raise` now returns `false` when the raised signal
-has no installed handler/decider, matching POSIX (and the documented contract), instead
-of letting WER terminate the process. Two new Windows-only fields on the per-thread
-state (`software_raise_in_progress`, `software_raise_unclaimed`,
-`thrd_signal_handle_common.ipp.ipp`) let the vectored exception function distinguish an
-*unclaimed library raise* from a *genuine fault*: `stdc_raise` sets `in_progress`
-immediately before `RaiseException` and clears it (and `unclaimed`) on every exit path,
-including the `setjmp`-return path taken when a global decider claims the raise; the
-vectored function's map-miss path ("we don't have a handler installed for that signal")
-now checks `software_raise_in_progress` and, for a library raise, sets `unclaimed` and
-returns `EXCEPTION_CONTINUE_EXECUTION` (so `RaiseException` returns normally and
-`stdc_raise` reports `false`), while genuine faults keep `EXCEPTION_CONTINUE_SEARCH`.
-The installed-but-unclaimed path (a decider returning `next_decider`) intentionally
-keeps `EXCEPTION_CONTINUE_SEARCH`, matching POSIX's fall-through-to-default behaviour
-(C14). **Verified:** the new regression test `test/stdc_raise_uninstalled_test.c`
-(registered as `stdc_raise_uninstalled_test`) checks that `stdc_raise(signo, NULL,
-NULL)` for an uninstalled signal returns `false` both bare and inside a `sigguarded()`
-frame guarding a different signal, and that an installed-and-claimed raise still returns
-`true`. On the Windows leg (CI) the first two checks crashed with WER before this fix.
-Full `ctest` suite (20 tests) passes under ASan/UBSan and in the `HEADER_ONLY_BUILD=ON`
-configuration on macOS arm64 (POSIX semantics of the two checks were already correct).
-**Regression-test correction 2026-08-14 (first Windows CI run):** the test raised
-`SIGILL` *before* any `siginstall`, but on Windows the vectored continue handler +
-unhandled exception filter that resolve an unclaimed software raise exist only after
-`siginstall()`, so the raise reached WER and the test process died with an illegal
-instruction (`***Exception: Illegal`). The test now `siginstall()`s a base set
-(containing only `OTHER_SIGNAL`) before the uninstalled-raise checks, keeping
-`SIGNAL_TO_USE` uninstalled while registering the Windows machinery, and installs
-`SIGNAL_TO_USE` separately for the installed-and-claimed sanity phase. The `siginstall`-free
-`stdc_raise` case on Windows (no machinery to resolve the raise) is out of contract.
-
-### 2.19 X3 [code-level, Windows, Medium-High] `sigguarded` on Windows never initialises the per-thread TSS (unlike POSIX) **[FIXED 2026-08-14]**
-
-`thrd_signal_handle_windows.c.ipp:219-249` — the Windows `sigguarded` performs no
-`sig_global_tss_state_init()` call; POSIX does (`thrd_signal_handle_posix.c.ipp:234`). A
-Windows thread whose only library interaction is `sigguarded()` has a NULL per-thread
-state; if a genuine fault then occurs and a global decider claims it, the vectored
-handler evaluates `tss->front` on the NULL state (`:357-361`) — a crash *inside the
-exception handler*. Extends V2.
-
-**Fixed 2026-08-14:** the Windows `sigguarded` (`thrd_signal_handle_windows.c.ipp`) now
-calls `sig_global_tss_state_init()` after the NULL-argument check and before the
-`__try`, returning a `stdc_siginfo_value` of `int_value = -1` on failure — exactly the
-setup the POSIX backend already performs (`thrd_signal_handle_posix.c.ipp:248-253`), so
-`sigguarded()` alone now sets up the calling thread's per-thread TSS on both backends.
-With the state non-NULL the vectored exception function's claiming-decider path
-(`:418-422`) safely reads `tss->front` (NULL for a `sigguarded`-only thread, so it
-returns `EXCEPTION_CONTINUE_EXECUTION` instead of dereferencing a NULL `tss`). **Verified:**
-the new regression test `test/sigguarded_tss_init_test.c` (registered as
-`sigguarded_tss_init_test`) installs a handler and a claiming global decider for the
-signal, then enters `sigguarded()` (the thread's only library interaction, deliberately
-no `stdc_raise(0, ...)` setup call) with a frame decider that declines and raises the
-signal — a `RaiseException(EXCEPTION_ACCESS_VIOLATION)` on Windows, `stdc_raise` on
-POSIX. The test asserts the raise is claimed by the global decider at least once
-(accepted `>= 1` rather than `== 1`: on Windows the claim is resolved via
-`EXCEPTION_CONTINUE_EXECUTION` and the vectored continue handler then runs the claiming
-decider a second time — the V5/C19 double invocation, analysis.md 3.15) and `sigguarded`
-returns the guarded function's value; on the Windows leg the exception handler would
-have NULL-deref'd the per-thread state before this fix. Full `ctest` suite (20 tests)
-passes under ASan/UBSan on macOS arm64, and both the X3 and W5 regression tests now pass
-on the Windows CI.
-
-### 2.20 Y1 [confirmed, High] `install_sighandler` leaks the global spinlock when `install_sighandler_impl` fails — a second instance of the global-spinlock-leak bug family (both backends) **[FIXED 2026-08-14]**
-
-`thrd_signal_handle_common.ipp.ipp:305-311`: when the backend installation fails (POSIX
-`sigaction` error; Windows `AddVectoredContinueHandler` returning NULL at
-`thrd_signal_handle_windows.c.ipp:417-422`), `install_sighandler` returns `false` with
-`state->lock` held forever. Every subsequent library call and any signal delivery
-through `raw_signal_handler` spins forever. Verified: with `install_sighandler_impl`
-forced to fail, the first `siginstall(NULL)` returns NULL and the second call busy-spins
-at ~99% CPU. On POSIX the path is effectively dead (`sigaction` cannot fail for the
-signals the loop visits), but on Windows `AddVectoredContinueHandler` failure is a rare
-resource-exhaustion event, converting a recoverable failure into a permanent
-whole-library deadlock. Fix: `UNLOCK(state->lock)` before the `return false`.
-
-**Fixed 2026-08-14:** `install_sighandler` (`thrd_signal_handle_common.ipp.ipp`) now
-executes `UNLOCK(state->lock)` before returning `false` on the
-`install_sighandler_impl` failure path, matching the `calloc`-failure path directly
-above it which already unlocked. The fix is in the common backend-shared code, so it
-covers both POSIX and Windows. **Verified:** the new regression test
-`test/install_sighandler_lock_test.c` (registered as `install_sighandler_lock_test`)
-is a white-box header-only TU (the `header_only_c_multi_test`/ideas.md 6.5 pattern)
-that drives the internal `install_sighandler(SIGKILL)` directly — `sigaction(SIGKILL)`
-is guaranteed to fail with `EINVAL` on every POSIX platform, deterministically
-exercising the exact failure branch — and then acquires `state->lock` again plus
-runs `siginstall(NULL)`/`siguninstall`. On the unfixed library the re-acquisition
-spins forever (reproduced: the test times out at 60 s); with the fix it passes, and
-the library stays usable. Full `ctest` suite (20 tests) passes under ASan/UBSan and in
-the `HEADER_ONLY_BUILD=ON` configuration on macOS arm64. The Windows leg cannot
-deterministically force `AddVectoredContinueHandler` failure, so the white-box trigger
-is `#ifndef _WIN32`-gated; the fix itself is in the shared code the POSIX leg covers.
-
-### 2.21 Z1 [confirmed standalone, Medium-High] the verstable-variant `signo_to_sighandler_map_t` is never initialised — NULL `metadata` dereference on every library operation (NSIG >= 1024 platforms) **[FIXED 2026-08-14]**
-
-`thrd_signal_handle_common.ipp.ipp:58-135` selects the verstable hash-map variant of
-`signo_to_sighandler_map_t` when `NSIG >= 1024`. Unlike `thread_id_to_tls_map_t` (which
-`tss_async_signal_safe_create` initialises), no call to `signo_to_sighandler_map_t_init`
-exists anywhere (grep confirmed). `sig_global_state()` returns a zero-initialised
-function-local `static` struct, so for the verstable variant `buckets == NULL` and
-`metadata == NULL`, and `_get`/`_insert` dereference `metadata[0]` immediately. Reproduced
-standalone (SIGSEGV). Every map-touching operation crashes on such a platform. Mainstream
-libcs never reach NSIG >= 1024, so no CI leg exercises this branch. Fix: call
-`signo_to_sighandler_map_t_init` once.
-
-**Fixed 2026-08-14:** `sig_global_state()` (`thrd_signal_handle_common.ipp.ipp`) now
-initialises the map once on first use, under `#if NSIG >= 1024`: if the table's `metadata`
-is still NULL (the zero-initialisation sentinel) it calls
-`signo_to_sighandler_map_t_init`, which points `metadata` at the empty-bucket placeholder
-so `_get` returns an end iterator on an empty table instead of dereferencing NULL. All
-map-touching operations funnel through `sig_global_state()`, so this covers every API and
-both backends; the guard keyed on `metadata == NULL` makes the init one-time and the
-writes are constant and idempotent on the still-empty table. **Verified:** the new
-regression test `test/signo_map_verstable_init_test.c` (registered as
-`signo_map_verstable_init_test`) forces the otherwise-unreachable branch by overriding
-`NSIG` to 1024 after `<signal.h>` and including the library in header-only mode, then
-checks `metadata != NULL` after `sig_global_state()` and drives `_get`/`_insert`/`_erase_itr`
-on an empty map. On the unfixed library the first `_get` crashes with a NULL-`metadata`
-dereference (reproduced: ASan SEGV at `verstable.h:1434`, `_get` on a read of address 0);
-with the fix the round-trip passes. Full `ctest` suite (21 tests) passes under ASan/UBSan
-and in the `HEADER_ONLY_BUILD=ON` configuration on macOS arm64.
-
-### 2.23 AA1 [confirmed, Medium-High] `signal_decider_destroy` crashes after a `siguninstall` -> `siginstall` cycle orphans the decider node (sequential, no concurrency) **[FIXED 2026-08-14]**
-
-`thrd_signal_handle_common.ipp.ipp:443-614`. `siguninstall` (via `uninstall_sighandler`,
-`:328-364`) frees the per-signal `sighandler_info` container as soon as its refcount hits
-zero, but it does **not** look at the container's `global_handler` list — any decider
-node still linked there survives with `prev`/`next` pointing into freed memory. A later
-`signal_decider_destroy(handle)` for that decider then finds the *reinstalled* signal's
-new container, decrements the node's refcount to 0, and executes `LIST_REMOVE` against
-the new (empty) list using the orphaned node's stale pointers — a NULL-pointer write
-(verified: ASan SEGV, WRITE to 0x0, at `:590`); with multiple orphaned nodes the
-neighbour pointers point into the freed container -> heap-use-after-free instead. The
-exact crash sequence is all public, documented API:
-
-```c
-h  = siginstall(&g);                  // g = {SIGUSR1}
-d  = signal_decider_create(&g, ...);  // node linked into SIGUSR1's global_handler
-siguninstall(h);                      // frees the container; node orphaned
-h2 = siginstall(&g);                  // new container for SIGUSR1
-signal_decider_destroy(d);            // LIST_REMOVE on orphaned node -> crash
-```
-
-Without the reinstall, `signal_decider_destroy` still frees the orphaned node cleanly.
-This is the sequential sibling of the concurrent container UAF: the common root
-cause — `uninstall_sighandler` freeing `sighandler_info` without accounting for nodes
-still linked in its `global_handler` list — should be fixed once for all three (C22).
-It also means `siguninstall` *silently orphans* any decider still registered for the
-uninstalled signal.
-
-**Fixed 2026-08-14:** three coordinated changes in `thrd_signal_handle_common.ipp.ipp` /
-`linked_list.h`:
-1. `sighandler_info_release` now **detaches** any decider node still linked in the
-   container's `global_handler` list before freeing the container (the node's `prev`/
-   `next` are reset so nothing dangles into freed memory); the node stays owned by its
-   `signal_decider_destroy()` handle and is freed when that handle is destroyed. This
-   also removes the *silent orphaning*: a decider for an uninstalled signal stays valid
-   and inert until destroyed.
-2. `signal_decider_destroy` only `LIST_REMOVE`s a node when it is actually linked in the
-   (possibly reinstalled) container's list (`sighandler_info_has_decider` walk); a
-   detached/orphaned node is just freed. Its map-miss path (signal uninstalled, no
-   container) now decrements the node's refcount and frees only at zero, so a node
-   pinned by an in-flight raise is retired via `deferred_frees` instead of being freed
-   from under the raise (the concurrent sibling).
-3. Root-cause fix in `linked_list.h`: `LIST_INSERT_FRONT`/`LIST_INSERT_BACK` never
-   re-linked the displaced neighbour (`front->prev`/`back->next`), so a multi-node
-   `global_handler` list had inconsistent `next`/`prev` links — the reason
-   `LIST_REMOVE` dereferenced a NULL pointer on any non-front/back removal and why a
-   multi-decider raise only ever visited the front decider. Both macros now maintain
-   the full doubly-linked list, restoring the documented "call order is in the order of
-   addition".
-
-**Verified:** the new regression test `test/decider_orphan_reinstall_test.c` (registered
-as `decider_orphan_reinstall_test`) runs the exact crash sequence above (single and two
-orphaned nodes, with and without reinstall, plus a normal cycle) and a two-decider raise
-to pin down the list-link fix. On the unfixed library the first `signal_decider_destroy`
-crashes (reproduced: ASan SEGV, WRITE to 0x0, in `signal_decider_destroy` at
-`thrd_signal_handle_common.ipp.ipp:682`); with the fix the full cycle passes. Full `ctest`
-suite (22 tests) passes under ASan/UBSan and in the `HEADER_ONLY_BUILD=ON` configuration
-on macOS arm64.
+The node is left unlinked, unreferenced and leaked, with its refcount corrupted to -1.
+**Verified:** with malloc/calloc interposition, 10,000 create->destroy cycles on one
+installed signal leak 10,000 nodes (~400 KB) — every destroy observed `refcount_before=1`
+in the first decrement and `refcount_before=0` (never freed) in the second. Before the
+AA1 fix the post-unlock block was `free(*retp)` with no second decrement (the node was
+freed exactly once); the AA1 fix changed it to `if(0 == --(*retp)->refcount) free(*retp)`
+to defer the free for the concurrent map-miss case, silently breaking the still-installed
+case. Invisible on the macOS CI legs (ASan on macOS has no LSan); the Linux CI legs would
+catch it. The mid-loop `calloc`-failure path of `signal_decider_create` (`:642-648`,
+which self-destroys the partial handle) leaks every node created so far via the same bug.
+Fix direction: make the second decrement run only on the map-miss path (restructure as
+`else` on "map entry absent"), or free the node inside the refcount-zero branch directly.
 
 ---
 
@@ -713,34 +513,6 @@ a strict build are invisible.
 `@PROJECT_NAME@SlExports.cmake`/`@PROJECT_NAME@DlExports.cmake`, which are never
 generated. Harmless (guarded by `EXISTS`), but misleading.
 
-### 5.6 V1 [confirmed] Installed package is unusable: no headers installed, `find_package` hard-fails (Critical, packaging) **[FIXED 2026-08-12]**
-
-`CMakeLists.txt` has no `install(DIRECTORY include/ ...)` rule — `cmake --install`
-produces only `lib/libwg14_signals.a` and `lib/cmake/wg14_signals/*`. Additionally,
-`ProjectConfig.cmake.in` is processed with plain `configure_file(... @ONLY)` instead of
-`configure_package_config_file()`, so `@PACKAGE_INIT@` never receives its definition:
-CMake >= 4.0 substitutes the undefined `@VAR@` with an empty string, so the installed
-config loses the `PACKAGE_INIT` macro block and `check_required_components(wg14_signals)`
-errors out ("Unknown CMake command"); CMake < 4.0 leaves the literal `@PACKAGE_INIT@` in
-the installed file and fails as an unknown command on include. Either way the documented
-consumption path is broken, and even after fixing the config the exported target's
-`INTERFACE_INCLUDE_DIRECTORIES` points at `<prefix>/include`, which does not exist. Pass 1
-(5.5) only noted the harmless `SlExports`/`DlExports` references and missed this.
-
-**Fixed 2026-08-12** (ported from the sibling `wg14_atomic_waits` CMake packaging):
-`install(DIRECTORY include/wg14_signals ...)` now installs the public headers;
-`configure_file(... @ONLY)` was replaced with `configure_package_config_file()`
-(`PACKAGE_INIT`/`check_required_components` now expand, config stays relocatable), a
-`write_basic_package_version_file()` `ConfigVersion.cmake` was added for versioned
-`find_package`, and the project gained `VERSION 1.0.0`. The regression-proofing
-`install_consumer_test` (ideas.md 1.2) now stages `cmake --install` into a scratch
-prefix, asserts the headers/Config/ConfigVersion/Exports land, and configures + builds +
-runs a `find_package(wg14_signals 1.0 EXACT CONFIG REQUIRED)` consumer linking
-`wg14_signals::wg14_signals`. **Verified:** all three CI configurations (Release,
-ASan/UBSan, `HEADER_ONLY_BUILD=ON`) pass the full `ctest` suite (18 tests), including
-`install_consumer_test`; a consumer exercising `siginstall(NULL)`,
-`current_thread_id()`, `siguninstall` builds and runs against the staged install.
-
 ### 5.7 W6 [build, Medium] `PROJECT_IS_TOP_LEVEL` requires CMake >= 3.21 while `cmake_minimum_required` is 3.15
 
 `CMakeLists.txt:1` declares `cmake_minimum_required(VERSION 3.15 FATAL_ERROR)`, but line
@@ -857,9 +629,11 @@ race — but the attribute is POSIX-only (C9), so the race is unmitigated on Win
 `thrd_signal_handle_posix.c.ipp:186-199` does not initialise `rsi->value`; the global
 decider loop always overwrites it (`:336`) and the frame path uses the frame's persistent
 `rsi`, so no read of the indeterminate value occurs today. **Correction (C8/W2):** the
-indeterminacy is not limited to `value` — `error_code`, `addr`, and `raw_info` are
+indeterminacy was not limited to `value` — `error_code`, `addr`, and `raw_info` were
 indeterminate (global path) or stale (frame path, repeat raises) whenever `info == NULL`
-(2.14, reproduced).
+(the former 2.14/W2). **Fixed 2026-08-12:** `prepare_rsi` now zeroes exactly those three
+fields on the NULL-info path, so only `value` (which is always overwritten before a
+decider runs) remains caller- or frame-supplied.
 
 ### 7.3 AA8 [code-level, Low] the `tss_async_signal_safe` per-thread ID cache uses plain `_Thread_local`, not the async-signal-safe attribute
 
@@ -1130,16 +904,10 @@ invite reading `error_code`.
 
 | ID | Severity | Issue | Location |
 |----|----------|-------|----------|
-| V1 | Critical | Installed package: no headers installed; `find_package` fails (PACKAGE_INIT never expanded) **[FIXED 2026-08-12]** | `CMakeLists.txt:50-70`, `cmake/ProjectConfig.cmake.in` |
-| W2 | High | deciders get indeterminate/stale `error_code`/`addr`/`raw_info` for `stdc_raise(signo,NULL,NULL)` (confirmed) **[FIXED 2026-08-12]** | `thrd_signal_handle_posix.c.ipp:186-199,327` |
-| W5 | High | Windows `stdc_raise` never returns false; unclaimed raises kill the process via WER **[FIXED 2026-08-12]** | `thrd_signal_handle_windows.c.ipp:252-300` |
-| Y1 | High | `install_sighandler` lock leak when `install_sighandler_impl` fails (confirmed) **[FIXED 2026-08-14]** | `thrd_signal_handle_common.ipp.ipp:305-311` |
+| AB1 | Med-High | `signal_decider_destroy` leaks every decider node on the normal destroy path — AA1 fix double-decrements the refcount (confirmed) | `thrd_signal_handle_common.ipp.ipp:708-755` |
 | V2 | High | Windows vectored handler NULL-derefs `tss->front` on fresh threads | `thrd_signal_handle_windows.c.ipp:357-361` |
 | V3 | High | Windows `sigismember(guarded, 0)` UB; C++ exceptions swallowed by `sigguarded` | `thrd_signal_handle_windows.c.ipp:200`, `thrd_signal_handle.h:52-63` |
 | V4 | High | Windows `stdc_raise` aborts for all unsupported signos | `thrd_signal_handle_windows.c.ipp:112-134` |
-| Z1 | Med-High | verstable `signo_to_sighandler_map_t` never initialised -> NULL-metadata crash (NSIG >= 1024) **[FIXED 2026-08-14]** | `thrd_signal_handle_common.ipp.ipp:58-135,174-179` |
-| X3 | Med-High | Windows `sigguarded` never inits per-thread TSS -> NULL-deref in vectored handler on fresh threads **[FIXED 2026-08-14]** | `thrd_signal_handle_windows.c.ipp:219-249` |
-| AA1 | Med-High | `signal_decider_destroy` NULL-deref/UAF after `siguninstall`->`siginstall` orphans the decider node (confirmed) **[FIXED 2026-08-14]** | `thrd_signal_handle_common.ipp.ipp:328-364,443-614` |
 | 2.5 | Med | `thread_init` returns success for NULL item | `tss_async_signal_safe.c.ipp:186-190` |
 | 2.6 | Med | `tss_async_signal_safe_*` NULL handle crash (also Z8, X8) | `tss_async_signal_safe.c.ipp:93-243` |
 | 3.1 | Med | Spinlock not async-signal-safe | `lock_unlock.h` |

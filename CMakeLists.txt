@@ -174,6 +174,11 @@ if(PROJECT_IS_TOP_LEVEL AND (NOT DEFINED BUILD_TESTING OR BUILD_TESTING))
   function(add_code_test target)
     add_code_example(${target} ${ARGN})
     add_test(NAME ${target} COMMAND $<TARGET_FILE:${target}>)
+    # A hang is then reported against the specific test instead of only after
+    # the CI-wide `ctest --timeout 300` expires (plans/ideas.md 1.3). Tests that
+    # need longer, or that bound a pathological hang, override TIMEOUT with
+    # their own set_tests_properties() in test/CMakeLists.txt.
+    set_tests_properties(${target} PROPERTIES TIMEOUT 60)
   endfunction()
 
   add_subdirectory("test")
