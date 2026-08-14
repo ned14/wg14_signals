@@ -17,6 +17,11 @@ add_code_test(stdc_raise_zero_test SOURCES "stdc_raise_zero_test.c" FEATURES c_s
 add_code_test(stdc_raise_null_info_test SOURCES "stdc_raise_null_info_test.c" FEATURES c_std_11)
 add_code_test(stdc_raise_uninstalled_test SOURCES "stdc_raise_uninstalled_test.c" FEATURES c_std_11)
 add_code_test(sigguarded_tss_init_test SOURCES "sigguarded_tss_init_test.c" FEATURES c_std_11)
+add_code_test(install_sighandler_lock_test SOURCES "install_sighandler_lock_test.c" FEATURES c_std_11)
+# Before analysis.md 2.20/Y1 was fixed, a failed install leaked the global
+# spinlock and this white-box test spun forever; bound it so the regression is
+# a fast failure instead of a hang.
+set_tests_properties(install_sighandler_lock_test PROPERTIES TIMEOUT 60)
 add_code_test(recovery_null_loop_test SOURCES "recovery_null_loop_test.c" FEATURES c_std_11)
 set_tests_properties(recovery_null_loop_test PROPERTIES TIMEOUT 60)
 

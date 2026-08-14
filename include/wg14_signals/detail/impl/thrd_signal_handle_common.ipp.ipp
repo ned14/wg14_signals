@@ -361,9 +361,13 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
       newitem->lifetime_refcount = 1;
       if(!WG14_SIGNALS_PREFIX(install_sighandler_impl)(newitem, signo))
       {
+        // Release the lock before returning failure: a leaked lock would make
+        // every subsequent library call (and any signal delivery through
+        // raw_signal_handler) spin forever (analysis.md 2.20/Y1).
         int errcode = errno;
         free(newitem);
         errno = errcode;
+        UNLOCK(state->lock);
         return false;
       }
       it = WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_insert)(

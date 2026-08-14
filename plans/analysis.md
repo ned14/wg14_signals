@@ -185,7 +185,7 @@ POSIX. The test asserts the raise is claimed by the global decider exactly once 
 handler would have NULL-deref'd the per-thread state before this fix. Full `ctest` suite
 (19 tests) passes under ASan/UBSan on macOS arm64.
 
-### 2.20 Y1 [confirmed, High] `install_sighandler` leaks the global spinlock when `install_sighandler_impl` fails — a second instance of the global-spinlock-leak bug family (both backends)
+### 2.20 Y1 [confirmed, High] `install_sighandler` leaks the global spinlock when `install_sighandler_impl` fails — a second instance of the global-spinlock-leak bug family (both backends) **[FIXED 2026-08-14]**
 
 `thrd_signal_handle_common.ipp.ipp:305-311`: when the backend installation fails (POSIX
 `sigaction` error; Windows `AddVectoredContinueHandler` returning NULL at
@@ -197,6 +197,23 @@ at ~99% CPU. On POSIX the path is effectively dead (`sigaction` cannot fail for 
 signals the loop visits), but on Windows `AddVectoredContinueHandler` failure is a rare
 resource-exhaustion event, converting a recoverable failure into a permanent
 whole-library deadlock. Fix: `UNLOCK(state->lock)` before the `return false`.
+
+**Fixed 2026-08-14:** `install_sighandler` (`thrd_signal_handle_common.ipp.ipp`) now
+executes `UNLOCK(state->lock)` before returning `false` on the
+`install_sighandler_impl` failure path, matching the `calloc`-failure path directly
+above it which already unlocked. The fix is in the common backend-shared code, so it
+covers both POSIX and Windows. **Verified:** the new regression test
+`test/install_sighandler_lock_test.c` (registered as `install_sighandler_lock_test`)
+is a white-box header-only TU (the `header_only_c_multi_test`/ideas.md 6.5 pattern)
+that drives the internal `install_sighandler(SIGKILL)` directly — `sigaction(SIGKILL)`
+is guaranteed to fail with `EINVAL` on every POSIX platform, deterministically
+exercising the exact failure branch — and then acquires `state->lock` again plus
+runs `siginstall(NULL)`/`siguninstall`. On the unfixed library the re-acquisition
+spins forever (reproduced: the test times out at 60 s); with the fix it passes, and
+the library stays usable. Full `ctest` suite (20 tests) passes under ASan/UBSan and in
+the `HEADER_ONLY_BUILD=ON` configuration on macOS arm64. The Windows leg cannot
+deterministically force `AddVectoredContinueHandler` failure, so the white-box trigger
+is `#ifndef _WIN32`-gated; the fix itself is in the shared code the POSIX leg covers.
 
 ### 2.21 Z1 [confirmed standalone, Medium-High] the verstable-variant `signo_to_sighandler_map_t` is never initialised — NULL `metadata` dereference on every library operation (NSIG >= 1024 platforms)
 
@@ -1048,7 +1065,7 @@ invite reading `error_code`.
 | V1 | Critical | Installed package: no headers installed; `find_package` fails (PACKAGE_INIT never expanded) **[FIXED 2026-08-12]** | `CMakeLists.txt:50-70`, `cmake/ProjectConfig.cmake.in` |
 | W2 | High | deciders get indeterminate/stale `error_code`/`addr`/`raw_info` for `stdc_raise(signo,NULL,NULL)` (confirmed) **[FIXED 2026-08-12]** | `thrd_signal_handle_posix.c.ipp:186-199,327` |
 | W5 | High | Windows `stdc_raise` never returns false; unclaimed raises kill the process via WER **[FIXED 2026-08-12]** | `thrd_signal_handle_windows.c.ipp:252-300` |
-| Y1 | High | `install_sighandler` lock leak when `install_sighandler_impl` fails (confirmed) | `thrd_signal_handle_common.ipp.ipp:305-311` |
+| Y1 | High | `install_sighandler` lock leak when `install_sighandler_impl` fails (confirmed) **[FIXED 2026-08-14]** | `thrd_signal_handle_common.ipp.ipp:305-311` |
 | V2 | High | Windows vectored handler NULL-derefs `tss->front` on fresh threads | `thrd_signal_handle_windows.c.ipp:357-361` |
 | V3 | High | Windows `sigismember(guarded, 0)` UB; C++ exceptions swallowed by `sigguarded` | `thrd_signal_handle_windows.c.ipp:200`, `thrd_signal_handle.h:52-63` |
 | V4 | High | Windows `stdc_raise` aborts for all unsupported signos | `thrd_signal_handle_windows.c.ipp:112-134` |
