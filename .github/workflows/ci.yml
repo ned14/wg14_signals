@@ -10,7 +10,7 @@ on:
 
 jobs:
   Linux:
-    name: Linux
+    name: Linux (${{ matrix.compiler }}, ${{ matrix.debug }}, C${{ matrix.standard }}, shared=${{ matrix.shared }}, fallback=${{ matrix.fallback }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -19,8 +19,15 @@ jobs:
         debug: [Debug, Release]
         standard: [11, 23]
         shared: [OFF, ON]
+        # WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS (plans/ideas.md 2.1, 3.4): Linux natively
+        # takes the async-signal-safe TLS path, so the OFF legs are the default
+        # build and the ON legs force the tss_async_signal_safe hash-table
+        # fallback under ASan/UBSan here — the platform with the strongest
+        # tooling. macOS runs the fallback natively (config.h autodetects 0 on
+        # Apple), so its ON legs just re-verify the option plumbing.
+        fallback: [OFF, ON]
     env:
-      NAME: Linux-${{ matrix.compiler }}-${{ matrix.debug }}-${{ matrix.standard }}-${{ matrix.shared }}
+      NAME: Linux-${{ matrix.compiler }}-${{ matrix.debug }}-C${{ matrix.standard }}-shared=${{ matrix.shared }}-fallback=${{ matrix.fallback }}
       CC: ${{ matrix.compiler }}
           
     steps:
@@ -31,7 +38,7 @@ jobs:
       run: |
         mkdir build && cd build
         export CXX=${CC/cc/}++
-        cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.debug }} -DCMAKE_C_STANDARD=${{ matrix.standard }} -DBUILD_SHARED_LIBS=${{ matrix.shared }}  -DCMAKE_TOOLCHAIN_FILE=$PWD/../cmake/sanitize-toolchain.cmake
+        cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.debug }} -DCMAKE_C_STANDARD=${{ matrix.standard }} -DBUILD_SHARED_LIBS=${{ matrix.shared }} -DWG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=${{ matrix.fallback }} -DCMAKE_TOOLCHAIN_FILE=$PWD/../cmake/sanitize-toolchain.cmake
 
     - name: Build Linux
       shell: bash
@@ -42,7 +49,7 @@ jobs:
       run: cd build && ctest --output-on-failure --timeout 300 -E benchmark
       
   MacOS:
-    name: Mac OS
+    name: Mac OS (${{ matrix.debug }}, C${{ matrix.standard }}, shared=${{ matrix.shared }}, fallback=${{ matrix.fallback }})
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -50,8 +57,9 @@ jobs:
         debug: [Debug, Release]
         standard: [11, 23]
         shared: [OFF, ON]
+        fallback: [OFF, ON]
     env:
-      NAME: MacOS-${{ matrix.debug }}-${{ matrix.standard }}-${{ matrix.shared }}
+      NAME: MacOS-${{ matrix.debug }}-C${{ matrix.standard }}-shared=${{ matrix.shared }}-fallback=${{ matrix.fallback }}
           
     steps:
     - uses: actions/checkout@v4
@@ -60,7 +68,7 @@ jobs:
       shell: bash
       run: |
         mkdir build && cd build
-        cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.debug }} -DCMAKE_C_STANDARD=${{ matrix.standard }} -DBUILD_SHARED_LIBS=${{ matrix.shared }} -DCMAKE_TOOLCHAIN_FILE=$PWD/../cmake/sanitize-toolchain.cmake
+        cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.debug }} -DCMAKE_C_STANDARD=${{ matrix.standard }} -DBUILD_SHARED_LIBS=${{ matrix.shared }} -DWG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=${{ matrix.fallback }} -DCMAKE_TOOLCHAIN_FILE=$PWD/../cmake/sanitize-toolchain.cmake
 
     - name: Build Mac OS
       shell: bash
@@ -71,7 +79,7 @@ jobs:
       run: cd build && ctest --output-on-failure --timeout 300 -E benchmark
       
   Windows:
-    name: Windows VS2022
+    name: Windows VS2022 (${{ matrix.debug }}, C${{ matrix.standard }}, shared=${{ matrix.shared }})
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -80,7 +88,7 @@ jobs:
         standard: [11, 17]
         shared: [OFF, ON]
     env:
-      NAME: Windows-${{ matrix.debug }}-${{ matrix.standard }}-${{ matrix.shared }}
+      NAME: Windows-${{ matrix.debug }}-C${{ matrix.standard }}-shared=${{ matrix.shared }}
           
     steps:
     - uses: actions/checkout@v4
@@ -248,8 +256,9 @@ jobs:
     # later runs so pkg install runs once. release "15" tracks the newest 15.x
     # point release. This leg compiles the FreeBSD-only pthread_getthreadid_np
     # branch of current_thread_id.c.ipp and the libstdthreads C11-threads link
-    # (plans/ideas.md 3.2, 2.4). The fallback hash-table TLS path is still
-    # exercised only by the macOS legs (analysis.md 5.4).
+    # (plans/ideas.md 3.2, 2.4). The fallback hash-table TLS path is exercised
+    # natively on the macOS legs and, since plans/ideas.md 3.4, under
+    # ASan/UBSan on the Linux WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=ON legs.
     - name: FreeBSD VM
       uses: vmactions/freebsd-vm@v1
       with:

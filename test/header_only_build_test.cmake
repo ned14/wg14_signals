@@ -38,12 +38,19 @@ set(_work "${BINARY_DIR}/header_only_build_test")
 file(REMOVE_RECURSE "${_work}")
 file(MAKE_DIRECTORY "${_work}")
 
+# WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS (plans/ideas.md 2.1) is forwarded to both sub-builds
+# so a fallback-forced configure exercises the hash-table TLS path here too.
+set(_fallback_args)
+if(WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS)
+  list(APPEND _fallback_args -DWG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=ON)
+endif()
+
 # 1) -DHEADER_ONLY_BUILD=ON must build the library (analysis.md 1.8).
 set(_dir "${_work}/ho_build")
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -S "${SRC_DIR}" -B "${_dir}"
           -DHEADER_ONLY_BUILD=ON -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Debug
-          ${_gen}
+          ${_gen} ${_fallback_args}
   RESULT_VARIABLE _rcfg OUTPUT_QUIET ERROR_QUIET)
 if(NOT _rcfg EQUAL 0)
   message(FATAL_ERROR "HEADER_ONLY_BUILD=ON configure failed "
@@ -72,7 +79,7 @@ if(WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT)
 endif()
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -S "${SRC_DIR}/test/header_only_c_consumer"
-          -B "${_dir}" -DCMAKE_BUILD_TYPE=Debug ${_gen} ${_consumer_args}
+          -B "${_dir}" -DCMAKE_BUILD_TYPE=Debug ${_gen} ${_consumer_args} ${_fallback_args}
   RESULT_VARIABLE _rcfg OUTPUT_QUIET ERROR_QUIET)
 if(NOT _rcfg EQUAL 0)
   message(FATAL_ERROR "C header-only consumer configure failed "

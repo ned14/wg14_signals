@@ -494,8 +494,11 @@ a strict build are invisible.
 
 ### 5.4 CI gaps
 
-- No CI runs with `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0` on Linux (the fallback
-  path is only exercised on macOS).
+- ~~No CI runs with `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0` on Linux (the fallback
+  path is only exercised on macOS).~~ **Fixed 2026-08-14:** the Linux and MacOS CI jobs
+  gained the `WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS` OFF/ON matrix dimension (ideas.md 2.1/3.4), so the
+  `tss_async_signal_safe` hash-table fallback now runs under ASan/UBSan on Linux — the
+  platform with the strongest tooling.
 - The Windows CI runs with `-DCMAKE_C_STANDARD` in {11,17} but MSVC ignores the C-standard
   option for `/experimental:c11atomics` in some versions.
 - No CI runs the benchmark targets at all (`-E benchmark`), so the performance claims in

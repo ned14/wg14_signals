@@ -100,6 +100,7 @@ add_test(NAME header_only_build_test
                  -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
                  -DWG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT=${WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT}
                  -DWG14_SIGNALS_CXA_THREAD_ATEXIT_LIB=${WG14_SIGNALS_CXA_THREAD_ATEXIT_LIB}
+                 -DWG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=${WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS}
                  -P "${CMAKE_CURRENT_SOURCE_DIR}/header_only_build_test.cmake")
 set_tests_properties(header_only_build_test PROPERTIES TIMEOUT 600)
 
@@ -121,7 +122,9 @@ add_test(NAME header_only_c_multi_test COMMAND $<TARGET_FILE:header_only_c_multi
 
 # The header-only targets above do not link the library, so propagate the
 # __cxa_thread_atexit() discovery (compile definition + supplying library)
-# made by the top-level configure test.
+# made by the top-level configure test, and the WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS choice
+# (plans/ideas.md 2.1) so a fallback-forced build exercises the hash-table TLS
+# path in the header-only consumers too.
 set(_header_only_extra_targets header_only_test header_only_c_multi_test)
 if(WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT)
   foreach(_t IN LISTS _header_only_extra_targets)
@@ -131,5 +134,11 @@ endif()
 if(WG14_SIGNALS_CXA_THREAD_ATEXIT_LIB)
   foreach(_t IN LISTS _header_only_extra_targets)
     target_link_libraries(${_t} PRIVATE ${WG14_SIGNALS_CXA_THREAD_ATEXIT_LIB})
+  endforeach()
+endif()
+if(WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS)
+  foreach(_t IN LISTS _header_only_extra_targets)
+    target_compile_definitions(${_t} PUBLIC
+      WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0)
   endforeach()
 endif()

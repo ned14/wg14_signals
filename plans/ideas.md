@@ -2,7 +2,7 @@
 
 Review date: 2026-08-06 (concretised against the `wg14_signals` implementation source);
 2026-08-14 status reconciliation (done items removed, the new analysis.md AB1 finding
-folded in) and §1.3 implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+folded in) and §1.3 implemented; 2026-08-14 §2.1 + §3.4 + §3.5 implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
 would have caught the defect). Sibling references are cited as
@@ -45,7 +45,7 @@ passes under ASan/UBSan on macOS arm64.
 
 ## 2. Build-system changes
 
-### 2.1 Backend-override option (exercise the fallback TLS path everywhere)
+### 2.1 Backend-override option (exercise the fallback TLS path everywhere) **[DONE 2026-08-14]**
 
 **Why.** `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL` is auto-detected in `config.h:41-51`;
 Linux always takes the native TLS path, so the `tss_async_signal_safe` hash-table
@@ -56,8 +56,8 @@ dispatch (`../wg14_atomic_waits/CMakeLists.txt:26-32`).
 **Concrete change.** Add to `CMakeLists.txt`:
 
 ```cmake
-option(ALWAYS_USE_FALLBACK_TLS "Force the tss_async_signal_safe hash-table TLS path on all platforms" OFF)
-if(ALWAYS_USE_FALLBACK_TLS)
+option(WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS "Force the tss_async_signal_safe hash-table TLS path on all platforms" OFF)
+if(WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS)
   target_compile_definitions(${PROJECT_NAME} PUBLIC WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0)
 endif()
 ```
@@ -67,9 +67,26 @@ The PUBLIC define propagates to consumers so header-only consumers select the sa
 done by `#ifdef _WIN32` in the headers — so no generator-expression source dispatch is
 needed here.)
 
-**Verification.** `-DALWAYS_USE_FALLBACK_TLS=ON` on Linux exercises the fallback map, the
+**Verification.** `-DWG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=ON` on Linux exercises the fallback map, the
 `thread_atexit` path, and the `sig_global_tss_state_*` functions (analysis.md 2.6) on the
 platform with the strongest sanitizers.
+
+**Done 2026-08-14:** the `option(WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS ...)` and the PUBLIC
+`WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0` compile definition were added to
+`CMakeLists.txt` exactly as sketched. The define is PUBLIC, so it is baked into the
+installed package's exported `INTERFACE_COMPILE_DEFINITIONS` — verified: with the option
+ON the staged-install `wg14_signalsExports.cmake` carries
+`WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0`, so `find_package` consumers
+(`install_consumer_test`) select the fallback path automatically. The header-only
+consumers that do not link the library (`header_only_test`, `header_only_c_multi_test`,
+and the single-TU C consumer driven by `header_only_build_test`) get the define
+propagated from `test/CMakeLists.txt` / `test/header_only_c_consumer/CMakeLists.txt`
+(the `header_only_build_test` step-1 and step-2 sub-builds forward the option).
+**Verified:** `-DWG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=ON` under ASan/UBSan passes the full `ctest`
+suite (22 tests, including `header_only_test`, `header_only_c_multi_test`,
+`header_only_build_test` and `install_consumer_test`), and the option OFF default build
+is byte-for-byte unchanged; the define was confirmed present in the compile flags of the
+library and all header-only targets. CI coverage is §3.4 (below).
 
 ### 2.2 Feature-test macro discipline
 
@@ -129,17 +146,35 @@ about.
 adapted to this repo (branch `main`, no `ALWAYS_USE_PTHREADS` dimension, tests use
 `thrd_*`).
 
-### 3.4 Fallback-TLS matrix dimension
+### 3.4 Fallback-TLS matrix dimension **[DONE 2026-08-14]**
 
-After §2.1, add `-DALWAYS_USE_FALLBACK_TLS=OFF/ON` to the Linux and macOS matrix — the
+After §2.1, add `-DWG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=OFF/ON` to the Linux and macOS matrix — the
 analogue of the sibling's `pthreads` dimension. This is what puts the fallback path under
 ASan/UBSan on Linux, where the strongest tooling is.
 
-### 3.5 Matrix hygiene (trivial)
+**Done 2026-08-14:** the `fallback: [OFF, ON]` matrix dimension was added to the Linux
+job (now 32 legs) and the MacOS job (now 16 legs) in `.github/workflows/ci.yml`, with
+`-DWG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=${{ matrix.fallback }}` passed to both configure steps and the
+matrix leg included in each job's `NAME`. The job names follow the sibling's convention
+(`../wg14_atomic_waits/.github/workflows/ci.yml`: `Linux (clang, Debug, C11, shared=OFF,
+fallback=ON)`), with the `NAME` env using the `-C<standard>`/`shared=`/`fallback=`
+prefixes. Linux is where the option actually changes behaviour (config.h autodetects the
+native TLS path there, so the ON legs run the `tss_async_signal_safe` hash-table fallback
+under ASan/UBSan with both clang and gcc); on macOS the fallback is already the native
+autodetected path, so its ON legs re-verify the option plumbing only. The FreeBSD leg's
+comment was updated (it no longer describes the fallback as "exercised only by the macOS
+legs"). Windows is deliberately not given the dimension: forcing the fallback there
+exercises `tss_async_signal_safe` under MSVC's `/experimental:c11atomics` (see §8).
+
+### 3.5 Matrix hygiene (trivial) **[DONE 2026-08-14]**
 
 Add `fail-fast: false` to the Linux job (`ci.yml:16` — macOS and Windows jobs already
 have it); `-E benchmark` is already excluded everywhere; ensure the Windows job keeps
 `--config`/`-C` for multi-config generators (it does).
+
+**Done 2026-08-14:** the Linux job already carries `fail-fast: false`, `-E benchmark`
+was already excluded on every leg, and the Windows job already passes
+`--config`/`-C` — no CI change was required; §3.4's matrix edits preserved all three.
 
 ---
 
@@ -242,7 +277,7 @@ NULL` -> `memcpy` crash, `attr->create == NULL` crashes later in `thread_init`; 
 
 **Verification.** On the fallback path, `stdc_raise(0, NULL, NULL)` and a bare
 `sigguarded(...)` after a full install->uninstall cycle must not crash; also run on Linux
-under `-DALWAYS_USE_FALLBACK_TLS=ON` (§2.1).
+under `-DWG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=ON` (§2.1).
 
 ### 5.3 `tss_async_signal_safe_thread_init`: re-check under the lock (fixes analysis.md 3.13, 3.14, 2.5)
 
@@ -468,7 +503,7 @@ Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattributes`).
   the guard); don't copy the sibling's latent defect.
 - **The sibling's `ALWAYS_USE_PTHREADS_BACKEND` cannot build on Windows/MSVC** (no
   `<pthread.h>`); their docs still claim "every platform". For the §2.1
-  `ALWAYS_USE_FALLBACK_TLS` option there is no such problem (it is pure
+  `WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS` option there is no such problem (it is pure
   compile-definition), but note that forcing the fallback on Windows exercises
   `tss_async_signal_safe` with MSVC's `/experimental:c11atomics`.
 - **The hash-table proxy engine is tuned for wait/notify**; adopt the *techniques*

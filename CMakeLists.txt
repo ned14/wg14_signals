@@ -5,6 +5,14 @@ set(CMAKE_C_VISIBILITY_PRESET "hidden" CACHE STRING "Only make explicitly export
 set(CMAKE_CXX_VISIBILITY_PRESET "hidden" CACHE STRING "Only make explicitly exported symbols visible")
 set(CMAKE_C_STANDARD "11" CACHE STRING "C standard to use")
 option(HEADER_ONLY_BUILD "Build using header only (unity build)" OFF)
+# Force the tss_async_signal_safe hash-table TLS path on every platform instead
+# of the platform-native async-signal-safe TLS (plans/ideas.md 2.1). config.h
+# auto-selects the native path on Linux, so without this option the fallback is
+# only ever exercised on macOS; this option lets CI run the fallback under the
+# strongest sanitizers everywhere. PUBLIC so consumers (and the installed
+# package's exported target) select the same path.
+option(WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS
+  "Force the tss_async_signal_safe hash-table TLS path on all platforms" OFF)
 set(WG14_SIGNALS_CXA_THREAD_ATEXIT_LIB "" CACHE STRING
   "Library that supplies __cxa_thread_atexit() (empty if the C runtime does)")
 
@@ -85,6 +93,11 @@ set(LIBRARY_SOURCES
 add_library(${PROJECT_NAME} ${LIBRARY_SOURCES})
 if(HEADER_ONLY_BUILD)
   target_compile_definitions(${PROJECT_NAME} PUBLIC WG14_SIGNALS_ENABLE_HEADER_ONLY)
+endif()
+if(WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS)
+  target_compile_definitions(${PROJECT_NAME}
+                             PUBLIC WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0)
+  message(STATUS "WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=ON: forcing the tss_async_signal_safe hash-table TLS path")
 endif()
 if(WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT)
   target_compile_definitions(${PROJECT_NAME} PUBLIC WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT)
