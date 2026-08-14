@@ -162,6 +162,17 @@ if(NOT MSVC)
     message(WARNING "Feature-test macros: no tested define set exposes NSIG and the signal set on this toolchain; compiling with none")
   endif()
 endif()
+# Windows SDK floor (plans/ideas.md 2.3): the Windows backend uses
+# AddVectoredContinueHandler / SetUnhandledExceptionFilter (Vista-and-later SDK
+# declarations) and thread_atexit() uses the IMAGE_TLS_DIRECTORY mechanism.
+# Enforce the floor consistently — PUBLIC so consumers and header-only builds of
+# the .ipp implementations get the same declarations; a too-low _WIN32_WINNT
+# explicitly set by a consumer is rejected by the guard in
+# thrd_signal_handle_windows.c.ipp.
+if(WIN32)
+  target_compile_definitions(${PROJECT_NAME}
+    PUBLIC _WIN32_WINNT=0x0600 WINVER=0x0600)
+endif()
 if(LIBC_HAS__SETJMP)
   target_compile_definitions(${PROJECT_NAME} PRIVATE WG14_SIGNALS_HAVE__SETJMP)
 endif()

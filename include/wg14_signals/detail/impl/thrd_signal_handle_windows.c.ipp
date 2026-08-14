@@ -20,6 +20,16 @@ limitations under the License.
 #ifndef WG14_SIGNALS_THRD_SIGNAL_HANDLE_WINDOWS_IPP
 #define WG14_SIGNALS_THRD_SIGNAL_HANDLE_WINDOWS_IPP
 
+// Windows SDK floor (plans/ideas.md 2.3): the backend relies on
+// AddVectoredContinueHandler / SetUnhandledExceptionFilter (Vista-and-later SDK
+// declarations). The library build defines _WIN32_WINNT/WINVER as 0x0600
+// (CMakeLists.txt, PUBLIC); reject an explicitly lower floor here, so a
+// consumer that sets _WIN32_WINNT < 0x0600 fails loudly instead of compiling
+// against a silently reduced API surface.
+#if defined(_WIN32_WINNT) && (_WIN32_WINNT < 0x0600)
+#error "wg14_signals requires _WIN32_WINNT >= 0x0600 (Windows Vista or later)"
+#endif
+
 #include "../../thrd_signal_handle.h"
 
 #ifndef WIN32_LEAN_AND_MEAN

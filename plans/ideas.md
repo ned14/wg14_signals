@@ -3,7 +3,8 @@
 Review date: 2026-08-06 (concretised against the `wg14_signals` implementation source);
 2026-08-14 status reconciliation (done items removed, the new analysis.md AB1 finding
 folded in) and §1.3 implemented; 2026-08-14 §2.1 + §3.4 + §3.5 implemented;
-2026-08-14 §2.2 (feature-test macro discipline) implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+2026-08-14 §2.2 (feature-test macro discipline) implemented; 2026-08-14 §2.3 (Windows
+SDK floor) implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
 would have caught the defect). Sibling references are cited as
@@ -137,7 +138,7 @@ being added; the escalation control flow (non-empty level selection and the no-m
 warning) was verified with a standalone CMake simulation. The non-empty ladder levels
 are exercised by the Linux CI legs (glibc strict mode picks `_GNU_SOURCE`).
 
-### 2.3 Windows SDK floor
+### 2.3 Windows SDK floor **[DONE 2026-08-14]**
 
 **Concrete change.** The Windows backend uses `AddVectoredContinueHandler` /
 `SetUnhandledExceptionFilter` (available since XP) and `RaiseException`; decide the floor
@@ -156,6 +157,23 @@ and at the top of `thrd_signal_handle_windows.c.ipp`:
 #error "wg14_signals requires _WIN32_WINNT >= 0x0600"
 #endif
 ```
+
+**Done 2026-08-14:** the floor was set at 0x0600 (Windows Vista). `CMakeLists.txt`
+gains the `if(WIN32)` block defining `_WIN32_WINNT=0x0600 WINVER=0x0600` **PUBLIC** (so
+consumers, the installed package's exported target, and header-only compilations of the
+`.ipp` implementations all get the same declarations), placed after the feature-test
+macro block; `thrd_signal_handle_windows.c.ipp` gains the guard immediately after its
+include guard, before the header include. The guard deliberately fires only when
+`_WIN32_WINNT` is *defined and too low* (not when undefined): the library build always
+defines it at 0x0600, and when undefined the Windows SDK default (>= 0x0600 on any
+modern SDK) applies, so header-only consumers that never set `_WIN32_WINNT` are not
+rejected. The chosen floor covers every API the backend uses (`AddVectoredContinueHandler`,
+`SetUnhandledExceptionFilter`, `RaiseException`, and the `IMAGE_TLS_DIRECTORY` mechanism
+in thread_atexit() — all Vista-and-earlier), and matches the sibling's structure.
+**Verified:** macOS arm64 build is unaffected (the block is `WIN32`-gated) and the full
+`ctest` suite (22 tests) passes; the guard's three scenarios (0x0501 -> `#error`,
+0x0600 -> ok, undefined -> ok) were verified with a standalone preprocessor probe; the
+Windows CI legs build the library with `_WIN32_WINNT=0x0600` defined PUBLIC.
 
 ### 2.5 Test `-Werror` (fixes analysis.md 5.3)
 
