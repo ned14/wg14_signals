@@ -122,45 +122,94 @@ document.addEventListener('DOMContentLoaded',() => { initNavTree('index.html',''
 <p>(C) 2024 - 2026 Niall Douglas <a href="http://www.nedproductions.biz/">http://www.nedproductions.biz/</a></p>
 <p>CI: <a href="https://github.com/ned14/wg14_signals/actions/workflows/ci.yml"><img src="https://github.com/ned14/wg14_signals/actions/workflows/ci.yml/badge.svg" alt="CI" style="pointer-events: none;" class="inline"/></a></p>
 <p>Reference API docs: <a href="https://ned14.github.io/wg14_signals/">https://ned14.github.io/wg14_signals/</a></p>
-<p>Can be configured to be a standard library implementation for your standard C library runtime. Licensed permissively. Features:</p>
+<p>This is a reference implementation of the WG14 proposal (currently N3924 revision 4) for improved C signals handling. It can be configured to be a standard library implementation for your standard C library runtime. Licensed permissively. Features:</p>
 <ul>
-<li>Standardises thread local signal handling across all platforms, being a thin wrapper of platform specific facilities on platforms with thread local signal handling (e.g. Structured Exception Handling on Win32)</li>
-<li>Can be configured as a header-only library (unity build) which has headers also include their source files. This also works from C++, if desired.</li>
+<li>Thread local signal handling, standardised across all platforms: a thin wrapper of platform specific facilities on platforms with thread local signal handling (e.g. Structured Exception Handling on Win32), and a thread-local frame stack of guarded sections on POSIX.</li>
+<li><span class="tt"><a class="el" href="thrd__signal__handle_8h.html#ab2b1d51eae8da17b873ef9d21538d1f5" title="THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal guard for the calling thread,...">sigguarded()</a></span> which invokes a function with a thread-local signal guard: any raise of a guarded signal during that function calls a decider function which may request recovery, in which case execution resumes as-if a <span class="tt">longjmp()</span> to just before the guarded function ran, with a recovery function then invoked. Guards can be stacked.</li>
+<li><span class="tt"><a class="el" href="thrd__signal__handle_8h.html#a82f7a98c9c71e3af4eacac3ffcf32036" title="THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Call OUR currently installed signal decider for a signal (POSIX)...">stdc_raise()</a></span> which raises a signal into the library's own handler chain, so the library's thread-local and global deciders run for a user raise exactly as they would for a real hardware fault. On Windows this raises a Win32 structured exception; on POSIX it runs the decider chain in-process and hands off to the previously installed handler if nothing claims it.</li>
+<li>Global signal handlers installed by <span class="tt"><a class="el" href="thrd__signal__handle_8h.html#a128c97aa82f563ae4cbb89ec005e592b" title="THREADSAFE Installs, and potentially enables, the global signal handlers for the signals specified by...">siginstall()</a></span> (threadsafe and reference counted), with global continuation deciders registered by <span class="tt"><a class="el" href="thrd__signal__handle_8h.html#a755e828cc662387f3a80769f9b1b7cf1" title="THREADSAFE NOT REENTRANT Create a global signal continuation decider. Threadsafe with respect to othe...">signal_decider_create()</a></span> that are consulted when no thread-local guard claims a signal.</li>
+<li>Platform signal-set fillers <span class="tt"><a class="el" href="thrd__signal__handle_8h.html#aa05e597cf899864a642582cddb2d54f9" title="THREADSAFE ASYNC-SIGNAL-SAFE Fills the set of synchronous signals for this platform.">sigfillset_synchronous()</a></span>, <span class="tt"><a class="el" href="thrd__signal__handle_8h.html#a03ae7667f515b1bf531cb35c1a12c33e" title="THREADSAFE ASYNC-SIGNAL-SAFE Fills the set of non-debug asynchronous signals for this platform.">sigfillset_asynchronous_nondebug()</a></span> and <span class="tt"><a class="el" href="thrd__signal__handle_8h.html#a7e430853e028d0f71b45f2e22015c909" title="THREADSAFE ASYNC-SIGNAL-SAFE Fille the set of debug asynchronous signals for this platform.">sigfillset_asynchronous_debug()</a></span>.</li>
+<li><span class="tt"><a class="el" href="thrd__signal__handle_8h.html#a4c49302e8279e42dc1bf9a6fac4c3a97" title="A compiler-only memory barrier, including for local variables in the argument list....">sigfence()</a></span>: a compiler-only memory barrier over a list of local variables, so the guarded function can force its locals out to memory where the recovery machinery can observe them.</li>
+<li><span class="tt"><a class="el" href="tss__async__signal__safe_8h.html#add336d9f16c318f00b666e0b3d228bf6" title="The type of an async signal safe thread local.">tss_async_signal_safe</a></span>: async-signal-safe thread local storage, backed by a hash table, or by native async-signal-safe thread locals where the platform provides them (much faster).</li>
+<li><span class="tt">current_thread_id()</span>: an async-signal-safe way to retrieve the current thread's identifier.</li>
+<li>Can be configured as a header-only library (unity build) where the headers also include their source files. This also works from C++, if desired.</li>
 </ul>
 <h1 class="doxsection"><a class="anchor" id="autotoc_md2"></a>
 Example of use</h1>
-<div class="fragment"><div class="line"><span class="comment">/* Invoke `func` passing it `user_value`. If `SIGILL` is raised during the</span></div>
-<div class="line"><span class="comment">execution of `func`, call `decider_func` as a filter to decide what to do.</span></div>
-<div class="line"><span class="comment">If `decider_func` chooses to initiate recovery, perform as-if a `longjmp()`</span></div>
-<div class="line"><span class="comment">back to before `func` was called, and invoke `recovery_func` to recover.</span></div>
+<div class="fragment"><div class="line"><span class="comment">/* Once per process, install the library&#39;s global signal handlers. Passing</span></div>
+<div class="line"><span class="comment">   NULL installs handlers for all standard signals; without this no real</span></div>
+<div class="line"><span class="comment">   fault can ever reach a sigguarded() guard. */</span></div>
+<div class="line"><span class="keywordtype">void</span> *handlers = <a class="code hl_function" href="thrd__signal__handle_8h.html#a128c97aa82f563ae4cbb89ec005e592b">siginstall</a>(NULL);</div>
+<div class="line"> </div>
+<div class="line"><span class="comment">/* Invoke `func` passing it `user_value`. If `SIGILL` is raised during the</span></div>
+<div class="line"><span class="comment">   execution of `func`, call `decider_func` as a filter to decide what to do.</span></div>
+<div class="line"><span class="comment">   If `decider_func` chooses to initiate recovery, perform as-if a `longjmp()`</span></div>
+<div class="line"><span class="comment">   back to before `func` was called, and invoke `recovery_func` to recover.</span></div>
 <div class="line"><span class="comment"></span> </div>
-<div class="line"><span class="comment">`sigguarded()` can be stacked i.e. `func` can invoke subfunctions</span></div>
-<div class="line"><span class="comment">with their own signal raise filter functions.</span></div>
+<div class="line"><span class="comment">   `sigguarded()` can be stacked i.e. `func` can invoke subfunctions</span></div>
+<div class="line"><span class="comment">   with their own signal raise filter functions.</span></div>
 <div class="line"><span class="comment">*/</span></div>
 <div class="line">sigset_t guarded;</div>
 <div class="line">sigemptyset(&amp;guarded);</div>
 <div class="line">sigaddset(&amp;guarded, SIGILL);</div>
 <div class="line"><a class="code hl_function" href="thrd__signal__handle_8h.html#ab2b1d51eae8da17b873ef9d21538d1f5">sigguarded</a>(&amp;guarded, func, recovery_func, decider_func, user_value);</div>
+<div class="line"> </div>
+<div class="line"><span class="comment">/* Remove the installed handlers when done. */</span></div>
+<div class="line"><a class="code hl_function" href="thrd__signal__handle_8h.html#a6f675ba55ae9c18eb65566bfaa10bcd6">siguninstall</a>(handlers);</div>
+<div class="ttc" id="athrd__signal__handle_8h_html_a128c97aa82f563ae4cbb89ec005e592b"><div class="ttname"><a href="thrd__signal__handle_8h.html#a128c97aa82f563ae4cbb89ec005e592b">siginstall</a></div><div class="ttdeci">void * siginstall(const sigset_t *guarded)</div><div class="ttdoc">THREADSAFE Installs, and potentially enables, the global signal handlers for the signals specified by...</div></div>
+<div class="ttc" id="athrd__signal__handle_8h_html_a6f675ba55ae9c18eb65566bfaa10bcd6"><div class="ttname"><a href="thrd__signal__handle_8h.html#a6f675ba55ae9c18eb65566bfaa10bcd6">siguninstall</a></div><div class="ttdeci">int siguninstall(void *i)</div><div class="ttdoc">THREADSAFE Uninstall a previously installed signal guard.</div></div>
 <div class="ttc" id="athrd__signal__handle_8h_html_ab2b1d51eae8da17b873ef9d21538d1f5"><div class="ttname"><a href="thrd__signal__handle_8h.html#ab2b1d51eae8da17b873ef9d21538d1f5">sigguarded</a></div><div class="ttdeci">union stdc_siginfo_value sigguarded(const sigset_t *signals, sig_func_t guarded, sig_recover_t recovery, sig_decide_t decider, union stdc_siginfo_value value)</div><div class="ttdoc">THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal guard for the calling thread,...</div></div>
 </div><!-- fragment --><h1 class="doxsection"><a class="anchor" id="autotoc_md3"></a>
 Supported targets</h1>
 <p>This library should work well on any POSIX implementation, as well as Microsoft Windows. You will need a minimum of C 11 in your toolchain. Every architecture supporting C 11 atomics should work.</p>
-<p>Current CI test targets:</p>
-<ul>
-<li>Ubuntu Linux, x64.</li>
-<li>Mac OS, AArch64.</li>
-<li>Microsoft Windows, x64.</li>
-</ul>
+<p>Current CI test matrix (see <span class="tt">.github/workflows/ci.yml</span>):</p>
+<table class="markdownTable">
+<tr class="markdownTableHead">
+<th class="markdownTableHeadNone">Job  </th><th class="markdownTableHeadNone">Compilers  </th><th class="markdownTableHeadNone">Standards  </th><th class="markdownTableHeadNone">Notes  </th></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">Linux  </td><td class="markdownTableBodyNone">gcc, clang  </td><td class="markdownTableBodyNone">C11, C23  </td><td class="markdownTableBodyNone">Debug and Release; static and shared; ASan/UBSan  </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">macOS  </td><td class="markdownTableBodyNone">clang  </td><td class="markdownTableBodyNone">C11, C23  </td><td class="markdownTableBodyNone">Debug and Release; static and shared; ASan/UBSan  </td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">Windows VS2022  </td><td class="markdownTableBodyNone">MSVC  </td><td class="markdownTableBodyNone">C11, C17  </td><td class="markdownTableBodyNone">Debug and Release; static and shared; ASan  </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">Header-only  </td><td class="markdownTableBodyNone">gcc/clang/MSVC  </td><td class="markdownTableBodyNone">C11, C17, C23  </td><td class="markdownTableBodyNone">ubuntu, macOS and Windows; <span class="tt">HEADER_ONLY_BUILD=ON</span>  </td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">TSan  </td><td class="markdownTableBodyNone">gcc, clang  </td><td class="markdownTableBodyNone">C11, C23  </td><td class="markdownTableBodyNone">Ubuntu and macOS; ThreadSanitizer  </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone">FreeBSD  </td><td class="markdownTableBodyNone">clang  </td><td class="markdownTableBodyNone">C11, C23  </td><td class="markdownTableBodyNone">Real FreeBSD 15 kernel under a VM  </td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone">Fil-C  </td><td class="markdownTableBodyNone">Fil-C  </td><td class="markdownTableBodyNone">C11  </td><td class="markdownTableBodyNone">The Fil-C memory-safe C compiler, Linux x64  </td></tr>
+</table>
 <p>Current compilers:</p>
 <ul>
 <li>GCC</li>
 <li>clang</li>
 <li>MSVC</li>
+<li>Fil-C</li>
 </ul>
 <p>Mingw does not work due to lack of <span class="tt">__try ... __except</span> support. Donations of a suitable workaround are welcome.</p>
 <h1 class="doxsection"><a class="anchor" id="autotoc_md4"></a>
 Configuration</h1>
-<p>You can find a number of user definable macros to override in <span class="tt"><a class="el" href="config_8h.html">config.h</a></span>. They have sensible defaults on the major platforms and toolchains.</p>
+<p>The CMake options are:</p>
+<table class="markdownTable">
+<tr class="markdownTableHead">
+<th class="markdownTableHeadNone">Option  </th><th class="markdownTableHeadNone">Default  </th><th class="markdownTableHeadNone">Description  </th></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"><span class="tt">BUILD_SHARED_LIBS</span>  </td><td class="markdownTableBodyNone"><span class="tt">OFF</span>  </td><td class="markdownTableBodyNone">Build a shared library instead of a static one  </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"><span class="tt">HEADER_ONLY_BUILD</span>  </td><td class="markdownTableBodyNone"><span class="tt">OFF</span>  </td><td class="markdownTableBodyNone">Build using header-only (unity) mode; defines <span class="tt"><a class="el" href="config_8h.html#ae1516695ebe120941386e98ff67ed4e6">WG14_SIGNALS_ENABLE_HEADER_ONLY</a></span> for consumers  </td></tr>
+<tr class="markdownTableRowOdd">
+<td class="markdownTableBodyNone"><span class="tt">CMAKE_C_STANDARD</span>  </td><td class="markdownTableBodyNone"><span class="tt">11</span>  </td><td class="markdownTableBodyNone">The C standard to compile against  </td></tr>
+<tr class="markdownTableRowEven">
+<td class="markdownTableBodyNone"><span class="tt">WG14_SIGNALS_CXA_THREAD_ATEXIT_LIB</span>  </td><td class="markdownTableBodyNone">(auto)  </td><td class="markdownTableBodyNone">Library supplying <span class="tt">__cxa_thread_atexit()</span>, left empty if the C runtime supplies it itself  </td></tr>
+</table>
+<p>You can find a number of user definable macros to override in <span class="tt"><a class="el" href="config_8h.html">config.h</a></span>. They have sensible defaults on the major platforms and toolchains. The most important ones are:</p>
+<ul>
+<li><span class="tt">WG14_SIGNALS_PREFIX(x)</span>: prefixes every exported symbol, defaulting to no prefix.</li>
+<li><span class="tt"><a class="el" href="config_8h.html#ae1516695ebe120941386e98ff67ed4e6">WG14_SIGNALS_ENABLE_HEADER_ONLY</a></span>: set to <span class="tt">1</span> to use the header-only mode, where each header also includes its <span class="tt">.ipp</span> implementation file.</li>
+<li><span class="tt">WG14_SIGNALS_DISABLE_SIGFENCE_MACRO</span>: set to <span class="tt">1</span> to disable the <span class="tt"><a class="el" href="thrd__signal__handle_8h.html#a4c49302e8279e42dc1bf9a6fac4c3a97" title="A compiler-only memory barrier, including for local variables in the argument list....">sigfence()</a></span> macro.</li>
+</ul>
 <p>The only one to be especially aware of is <span class="tt"><a class="el" href="config_8h.html#a2cff741f25ff4df0861b34254f221b51">WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL</a></span>. If your platform and toolchain has async signal safe thread local storage, it can be used instead of a hash table which is much, much faster. Current platform status for this support can be read all about at <a href="https://maskray.me/blog/2021-02-14-all-about-thread-local-storage">https://maskray.me/blog/2021-02-14-all-about-thread-local-storage</a>, but to summarise:</p>
 <ul>
 <li>Most ELF platforms require the <span class="tt">initial-exec</span> TLS attribute, which we turn on for all GNU toolchains except on Apple ones. <b>IF</b> your libc reserves static TLS space for runtime loaded shared libraries (e.g. glibc), you can incorporate this library into runtime loaded shared libraries without issue. If it does not, runtime loading a shared library will fail. In this case, either place this library in a process bootstrap shared library or the program library, or force disable off use of async safe thread locals.</li>
@@ -175,10 +224,16 @@ On my Threadripper 5975WX which is a 3.6Ghz processor bursting to 4.5Ghz on Linu
 <li><span class="tt"><a class="el" href="tss__async__signal__safe_8h.html#a8fd7beb001b06936be5994a39be21a9f" title="THREADSAFE ASYNC-SIGNAL-SAFE Get the thread local value for the current thread.">tss_async_signal_safe_get()</a></span> which implements an async signal safe thread local storage using a hash table costs about 8 nanoseconds, so maybe 29 clock cycles.</li>
 </ul>
 <p>With <span class="tt"><a class="el" href="config_8h.html#a2cff741f25ff4df0861b34254f221b51">WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL</a>=1</span> (the default on Linux, Windows, and other ELF based platforms): </p><pre class="fragment">- `sigguarded()` which invokes a function which thread locally
-</pre><p> handles any signals raised costs about 16 nanoseconds (31 clock cycles) for the happy case (most of this is the cost of <span class="tt">_setjmp()</span> on this platform and glibc). </p><pre class="fragment">- A globally installed signal decider takes about 8 nanoseconds (29
-</pre><p> clock cycles) to reach (there is a CAS lock-unlock sequence needed).</p>
-<p>With <span class="tt"><a class="el" href="config_8h.html#a2cff741f25ff4df0861b34254f221b51">WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL</a>=0</span>: </p><pre class="fragment">- `sigguarded()` which invokes a function which thread locally
-</pre><p> handles any signals raised costs about 25 nanoseconds for the happy case. </p><pre class="fragment">- A globally installed signal decider takes about 10 nanoseconds to reach.
+  handles any signals raised costs about 16 nanoseconds (31 clock cycles)
+  for the happy case (most of this is the cost of `_setjmp()` on this
+  platform and glibc).
+
+- A globally installed signal decider takes about 8 nanoseconds (29
+  clock cycles) to reach (there is a CAS lock-unlock sequence needed).
+</pre><p>With <span class="tt"><a class="el" href="config_8h.html#a2cff741f25ff4df0861b34254f221b51">WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL</a>=0</span>: </p><pre class="fragment">- `sigguarded()` which invokes a function which thread locally
+  handles any signals raised costs about 25 nanoseconds for the happy case.
+
+- A globally installed signal decider takes about 10 nanoseconds to reach.
 </pre><h2 class="doxsection"><a class="anchor" id="autotoc_md7"></a>
 On a MacBook Pro M3 running ARM64</h2>
 <ul>
@@ -195,9 +250,13 @@ On a MacBook Pro M3 running ARM64 Windows within a VM</h2>
 <li><span class="tt"><a class="el" href="thrd__signal__handle_8h.html#ab2b1d51eae8da17b873ef9d21538d1f5" title="THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal guard for the calling thread,...">sigguarded()</a></span> which invokes a function which thread locally handles any signals raised costs about 17 nanoseconds (this is Windows Structured Exception Handling, not our library code).</li>
 <li>A globally installed signal decider takes about 7,372 nanoseconds to reach (this is also Windows code, not our library code, shame it is so slow).</li>
 </ul>
+<p>The benchmark targets are <span class="tt">benchmark_async_signal_safe_tls_test</span> and <span class="tt">benchmark_thrd_signal_handle_test</span>, and are excluded from the default CI test run via <span class="tt">ctest -E benchmark</span>.</p>
 <h1 class="doxsection"><a class="anchor" id="autotoc_md9"></a>
-Known bugs/issues</h1>
+Known issues and limitations</h1>
 <ul>
+<li>Recalling <span class="tt"><a class="el" href="thrd__signal__handle_8h.html#ab2b1d51eae8da17b873ef9d21538d1f5" title="THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal guard for the calling thread,...">sigguarded()</a></span> recovery: like any <span class="tt">setjmp()</span>/<span class="tt">longjmp()</span> pair, after recovery any non-volatile automatic objects which were modified between the guard's <span class="tt">setjmp</span> and the <span class="tt">longjmp</span> can have indeterminate values (C11 7.13.2.1), though there is specifically a new proposed macro <span class="tt"><a class="el" href="thrd__signal__handle_8h.html#a4c49302e8279e42dc1bf9a6fac4c3a97" title="A compiler-only memory barrier, including for local variables in the argument list....">sigfence()</a></span> to remedy this issue. To be safe, the recovery function should rely on the <span class="tt"><a class="el" href="structstdc__siginfo.html" title="A platform independent subset of siginfo_t.">stdc_siginfo</a></span> passed to it (and on the signal's own fault address), not on the guarded function's locals.</li>
+<li>Under the Fil-C memory-safe C compiler, <span class="tt">sigaction()</span> for <span class="tt">SIGILL</span>/<span class="tt">SIGTRAP</span>/<span class="tt">SIGBUS</span>/<span class="tt">SIGSEGV</span>/<span class="tt">SIGFPE</span> returns <span class="tt">ENOSYS</span>: Fil-C reserves those signals for its own memory-safety machinery, so the library cannot install fault handlers for them and synchronous-fault recovery is not possible on Fil-C. Everything else works.</li>
+<li>A global decider returning <span class="tt"><a class="el" href="thrd__signal__handle_8h.html#a70fb8ac86d13728a595708c1353f56faabe7327aa8a52aa1fe85b5457683f0635" title="Thread local signal deciders only: reset the stack and local state to entry to sigguarded(),...">sig_decision_invoke_recovery</a></span> is only meaningful for thread-local guards. For global deciders POSIX claims the raise without performing any recovery, whereas Windows unwinds to the top guard frame: use <span class="tt"><a class="el" href="thrd__signal__handle_8h.html#a70fb8ac86d13728a595708c1353f56faac58287ed641b62e0fbe6d43c804dc5dd" title="We have decided to do nothing.">sig_decision_next_decider</a></span> or <span class="tt"><a class="el" href="thrd__signal__handle_8h.html#a70fb8ac86d13728a595708c1353f56faa70106dc7123ac841eb873d9994ce1c85" title="We have fixed the cause of the signal, please resume execution.">sig_decision_resume_execution</a></span> for global deciders.</li>
 <li>We should have <span class="tt">pcpp</span> generate an edition of this library suitable for direct drop into a C standard library. </li>
 </ul>
 </div></div><!-- PageDoc -->

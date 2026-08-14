@@ -230,6 +230,7 @@ Functions</h2></td></tr>
 </div><div class="memdoc">
 
 <p>Destroy an async signal safe thread local instance. </p>
+<p>All threads that initialised this instance must have exited (e.g. been joined) before this is called: a thread's exit-time deinitialisation handler may still access the instance otherwise. </p>
 
 </div>
 </div>

@@ -5,6 +5,7 @@ var searchData=
   ['a_20macbook_20pro_20m3_20running_20arm64_20windows_20within_20a_20vm_2',['On a MacBook Pro M3 running ARM64 Windows within a VM',['../index.html#autotoc_md8',1,'']]],
   ['a_20vm_3',['On a MacBook Pro M3 running ARM64 Windows within a VM',['../index.html#autotoc_md8',1,'']]],
   ['addr_4',['addr',['../structstdc__siginfo.html#ac3f2e508c485d43344d8d332b24ae90a',1,'stdc_siginfo']]],
-  ['arm64_5',['On a MacBook Pro M3 running ARM64',['../index.html#autotoc_md7',1,'']]],
-  ['arm64_20windows_20within_20a_20vm_6',['On a MacBook Pro M3 running ARM64 Windows within a VM',['../index.html#autotoc_md8',1,'']]]
+  ['and_20limitations_5',['Known issues and limitations',['../index.html#autotoc_md9',1,'']]],
+  ['arm64_6',['On a MacBook Pro M3 running ARM64',['../index.html#autotoc_md7',1,'']]],
+  ['arm64_20windows_20within_20a_20vm_7',['On a MacBook Pro M3 running ARM64 Windows within a VM',['../index.html#autotoc_md8',1,'']]]
 ];

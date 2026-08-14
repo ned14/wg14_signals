@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['known_20bugs_20issues_0',['Known bugs/issues',['../index.html#autotoc_md9',1,'']]]
+  ['known_20issues_20and_20limitations_0',['Known issues and limitations',['../index.html#autotoc_md9',1,'']]]
 ];

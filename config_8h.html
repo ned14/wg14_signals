@@ -149,6 +149,8 @@ This graph shows which files directly or indirectly include this file:</div>
 <tr class="heading"><td colspan="2"><h2 id="header-define-members" class="groupheader"><a id="define-members" name="define-members"></a>
 Macros</h2></td></tr>
 <tr class="memitem:a35e3fd56ef3a9b15642e7728907cd16b" id="r_a35e3fd56ef3a9b15642e7728907cd16b"><td class="memItemLeft">#define&#160;</td><td class="memItemRight"><a class="el" href="#a35e3fd56ef3a9b15642e7728907cd16b">WG14_SIGNALS_INLINE</a>&#160;&#160;&#160;inline</td></tr>
+<tr class="memitem:a87cfdcf84077cfef9ad875ad89009699" id="r_a87cfdcf84077cfef9ad875ad89009699"><td class="memItemLeft">#define&#160;</td><td class="memItemRight"><a class="el" href="#a87cfdcf84077cfef9ad875ad89009699">WG14_SIGNALS_STATIC_ASSERT</a>(cond,  msg)</td></tr>
+<tr class="memdesc:a87cfdcf84077cfef9ad875ad89009699"><td class="mdescLeft">&#160;</td><td class="mdescRight">Compile-time assertion, spelled _Static_assert in C11 and static_assert in C++11 (plans/ideas.md 4.2).  <br /></td></tr>
 <tr class="memitem:ab27772320946e79d32cf27f28d8cbb7b" id="r_ab27772320946e79d32cf27f28d8cbb7b"><td class="memItemLeft">#define&#160;</td><td class="memItemRight"><a class="el" href="#ab27772320946e79d32cf27f28d8cbb7b">WG14_SIGNALS_THREAD_LOCAL</a>&#160;&#160;&#160;_Thread_local</td></tr>
 <tr class="memitem:a2cff741f25ff4df0861b34254f221b51" id="r_a2cff741f25ff4df0861b34254f221b51"><td class="memItemLeft">#define&#160;</td><td class="memItemRight"><a class="el" href="#a2cff741f25ff4df0861b34254f221b51">WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL</a>&#160;&#160;&#160;0</td></tr>
 <tr class="memitem:a2cfe524bf0a702560fa348ed9e612646" id="r_a2cfe524bf0a702560fa348ed9e612646"><td class="memItemLeft">#define&#160;</td><td class="memItemRight"><a class="el" href="#a2cfe524bf0a702560fa348ed9e612646">WG14_SIGNALS_NULLPTR</a>&#160;&#160;&#160;NULL</td></tr>
@@ -172,7 +174,7 @@ Macros</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00089">89</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00099">99</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
 
 </div>
 </div>
@@ -188,7 +190,7 @@ Macros</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00094">94</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00104">104</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
 
 </div>
 </div>
@@ -204,7 +206,7 @@ Macros</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00113">113</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00128">128</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
 
 </div>
 </div>
@@ -220,7 +222,7 @@ Macros</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00105">105</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00115">115</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
 
 </div>
 </div>
@@ -236,7 +238,7 @@ Macros</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00049">49</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00059">59</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
 
 </div>
 </div>
@@ -252,7 +254,7 @@ Macros</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00081">81</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00091">91</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
 
 </div>
 </div>
@@ -284,7 +286,33 @@ Macros</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00073">73</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00083">83</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
+
+</div>
+</div>
+<a id="a87cfdcf84077cfef9ad875ad89009699" name="a87cfdcf84077cfef9ad875ad89009699"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a87cfdcf84077cfef9ad875ad89009699">&#9670;&#160;</a></span>WG14_SIGNALS_STATIC_ASSERT</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">#define WG14_SIGNALS_STATIC_ASSERT</td>
+          <td>(</td>
+          <td class="paramtype"></td>          <td class="paramname"><span class="paramname"><em>cond</em></span>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"></td>          <td class="paramname"><span class="paramname"><em>msg</em></span>&#160;)</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+<b>Value:</b><div class="fragment"><div class="line"><span class="keyword">_Static_assert</span>((cond), msg)</div>
+</div><!-- fragment -->
+<p>Compile-time assertion, spelled _Static_assert in C11 and static_assert in C++11 (plans/ideas.md 4.2). </p>
+
+<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00039">39</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
 
 </div>
 </div>
@@ -304,7 +332,7 @@ Macros</h2></td></tr>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line">fprintf(stderr, __VA_ARGS__)</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00119">119</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00134">134</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
 
 </div>
 </div>
@@ -320,7 +348,7 @@ Macros</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00037">37</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="config_8h_source.html#l00047">47</a> of file <a class="el" href="config_8h_source.html">config.h</a>.</p>
 
 </div>
 </div>

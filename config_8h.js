@@ -8,6 +8,7 @@ var config_8h =
     [ "WG14_SIGNALS_IGNORE_MULTIPLE_DEFINITIONS", "config_8h.html#afbb9bfc8040eac133af119ef51a06f11", null ],
     [ "WG14_SIGNALS_INLINE", "config_8h.html#a35e3fd56ef3a9b15642e7728907cd16b", null ],
     [ "WG14_SIGNALS_NULLPTR", "config_8h.html#a2cfe524bf0a702560fa348ed9e612646", null ],
+    [ "WG14_SIGNALS_STATIC_ASSERT", "config_8h.html#a87cfdcf84077cfef9ad875ad89009699", null ],
     [ "WG14_SIGNALS_STDERR_PRINTF", "config_8h.html#a0d270aa278b5ab279205778f558f8039", null ],
     [ "WG14_SIGNALS_THREAD_LOCAL", "config_8h.html#ab27772320946e79d32cf27f28d8cbb7b", null ]
 ];
