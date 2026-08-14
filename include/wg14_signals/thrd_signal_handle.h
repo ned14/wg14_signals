@@ -62,6 +62,13 @@ extern "C"
     return (*ss & (1u << (signo - 1))) != 0;
   }
 
+  // The 32-signal bit-set scheme above (sigfillset == UINT32_MAX, shifts
+  // 1..32, plans/ideas.md 4.3) requires the redefinition to be at least 32
+  // bits wide; fail the build if it ever shrinks (plans/ideas.md 4.2).
+  WG14_SIGNALS_STATIC_ASSERT((sizeof(sigset_t) >= sizeof(uint32_t)),
+                             "wg14_signals: Windows sigset_t must be at least "
+                             "32 bits to hold the 32-signal bit set");
+
 // MSVC appears to follow the Linux signal numbering
 #ifndef SIGBUS
 #define SIGBUS (7)
@@ -94,6 +101,21 @@ extern "C"
   WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO(                                        \
   name, WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(__VA_ARGS__)),                   \
   (__VA_ARGS__))
+
+  // The arg counting above depends on __VA_OPT__ (C23/C++20, supported as a
+  // GNU/Clang/MSVC extension in older modes). Verify at compile time that the
+  // counting machinery returns the right counts: on a compiler without
+  // __VA_OPT__ the expansion below is a hard preprocessing error, and on a
+  // compiler whose counting is broken the assertion fails — either way the
+  // defect surfaces instead of silently mis-dispatching. (The zero-argument
+  // path — the comma-suppression case __VA_OPT__ exists for — is exercised by
+  // test/sigfence_fence_test.c, whose TU suppresses the -Wpedantic diagnostic
+  // that an empty variadic-macro call triggers; a public header must not.)
+  WG14_SIGNALS_STATIC_ASSERT(
+  ((WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(a, b, c) == 3) &&
+   (WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(a, b, c, d, e) == 5)),
+  "wg14_signals: sigfence() requires __VA_OPT__ argument counting (C23, or the "
+  "GNU/Clang/MSVC extension)");
 
 #if (defined(__GNUC__) || defined(__clang__)) && !defined(DISABLE_INLINE_ASM)
 // On compilers with extended inline asm, we can tell the compiler that a

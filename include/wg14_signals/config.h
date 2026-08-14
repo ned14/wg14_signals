@@ -30,6 +30,16 @@ limitations under the License.
 #define WG14_SIGNALS_INLINE inline
 #endif
 
+//! \brief Compile-time assertion, spelled _Static_assert in C11 and
+//! static_assert in C++11 (plans/ideas.md 4.2).
+#ifndef WG14_SIGNALS_STATIC_ASSERT
+#ifdef __cplusplus
+#define WG14_SIGNALS_STATIC_ASSERT(cond, msg) static_assert((cond), msg)
+#else
+#define WG14_SIGNALS_STATIC_ASSERT(cond, msg) _Static_assert((cond), msg)
+#endif
+#endif
+
 #ifndef WG14_SIGNALS_THREAD_LOCAL
 #ifdef __cplusplus
 #define WG14_SIGNALS_THREAD_LOCAL thread_local

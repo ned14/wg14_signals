@@ -5,7 +5,7 @@ Review date: 2026-08-06 (concretised against the `wg14_signals` implementation s
 folded in) and §1.3 implemented; 2026-08-14 §2.1 + §3.4 + §3.5 implemented;
 2026-08-14 §2.2 (feature-test macro discipline) implemented; 2026-08-14 §2.3 (Windows
 SDK floor) implemented; 2026-08-14 §2.5 (test `-Werror`, incl. analysis.md AA3)
-implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+implemented; 2026-08-14 §4.2 (`WG14_SIGNALS_STATIC_ASSERT` helper) implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
 would have caught the defect). Sibling references are cited as
@@ -272,7 +272,7 @@ Delete the local definition from `lock_unlock.h`, and rewrite the
 (analysis.md 4.9) and guarantees the `extern "C"` declarations in the headers are
 genuinely compiled from C++ TUs.
 
-### 4.2 `_WG14_SIGNALS_STATIC_ASSERT` helper
+### 4.2 `_WG14_SIGNALS_STATIC_ASSERT` helper **[DONE 2026-08-14]**
 
 **Concrete change.** Add to `config.h` (port of `../wg14_atomic_waits/atomic_wait.h:146-150`):
 
@@ -291,6 +291,28 @@ guarantee belongs — e.g. a `sizeof(sigset_t) <= UINT32_MAX` check for the Wind
 `sigset_t` redefinition (`thrd_signal_handle.h:43-63`, see 4.3) and for the
 `WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8` `__VA_OPT__` requirement (`thrd_signal_handle.h:85-86`).
 These become the targets of the compile-fail suite (§6.7).
+
+**Done 2026-08-14:** the helper `WG14_SIGNALS_STATIC_ASSERT(cond, msg)` (C11
+`_Static_assert` / C++11 `static_assert`, user-overridable via `#ifndef`) was added to
+`config.h`, and both suggested uses were added to `thrd_signal_handle.h`:
+- The Windows `sigset_t` block asserts `sizeof(sigset_t) >= sizeof(uint32_t)` — the
+  32-signal bit-set scheme (`sigfillset == UINT32_MAX`, shifts 1..32, plans/ideas.md 4.3)
+  requires the redefinition to stay at least 32 bits wide. (The plan's literal
+  `sizeof(sigset_t) <= UINT32_MAX` condition is dimensionally vacuous — `sizeof` in bytes
+  compared to the max value — so it was interpreted as the meaningful lower-bound check.)
+- The sigfence macro block asserts the `__VA_OPT__`-based counting machinery returns the
+  right counts: `WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(a,b,c) == 3 && ...(a,b,c,d,e) == 5`.
+  On a compiler without `__VA_OPT__` the expansion is a hard preprocessing error; on a
+  compiler with broken counting the assertion fails. **Deviation:** the zero-argument
+  path is deliberately *not* asserted in the header — calling the variadic macro with an
+  empty argument list triggers clang/gcc's `-Wvariadic-macro-arguments-omitted` /
+  `-Wvariadic-macros` `-Wpedantic` diagnostic, and a public header must not ship a pragma
+  suppression for it; the zero-arg path stays exercised by `test/sigfence_fence_test.c`
+  (whose TU suppresses the diagnostic). **Verified:** the header compiles cleanly under
+  `-std=c11` and C++11 with `-Wall -Wextra -Wpedantic -Werror`; the helper fails loudly on
+  a false condition (`static assertion failed ... wg14_signals: ...`) and passes on true
+  conditions in both C and C++; the full `ctest` suite (22 tests) passes. The two asserts
+  are the natural targets for the §6.7 compile-fail suite.
 
 ### 4.3 Windows `sigset_t`: bound-check the bit shifts
 
