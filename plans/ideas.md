@@ -13,7 +13,9 @@ comma-list form there, after a wrong `/Zc:__VAOPT__` flag attempt was reverted);
 2026-08-14 FreeBSD CI build-failure pass (clang 19 renamed the zero-arg variadic-macro
 warning to `-Wc23-extensions`; the sigfence test now suppresses all three names);
 2026-08-14 fix pass (analysis.md 2.5 recorded in §5.3; analysis.md 2.10/V2 — the Windows
-vectored-handler NULL-tss guard — recorded in §5.8, done). Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+vectored-handler NULL-tss guard — recorded in §5.8, done; analysis.md 2.12/V4 — the
+Windows `stdc_raise` user-defined exception-code mapping — recorded in §5.8, done).
+Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
 would have caught the defect). Sibling references are cited as
@@ -167,6 +169,19 @@ the "ASYNC-SIGNAL-SAFE" claim.
   "generally end the process" path instead of NULL-deref'ing inside the exception
   handler. Verified: guard logic compiles/behaves correctly; full `ctest` suite passes on
   Linux and macOS.
+
+- **`stdc_raise` aborts for unsupported signos (V4)** — `win32_exception_code_from_signal`
+  hit `default: abort()` for SIGINT/SIGTERM/SIGPIPE/SIGUSR1 etc. **Fixed 2026-08-14:** the
+  default case now maps the signo into the user-defined exception-code range
+  (`0x40000000`-`0x7FFFFFFF`, mask `(DWORD) signo & 0x3FFFFFFF`), and
+  `signal_from_win32_exception_code` reverses it (high-bit check: user codes are
+  `>= 0x40000000` and `< 0x80000000`, all genuine system codes are `>= 0x80000000`).
+  `stdc_raise(SIGINT)` now raises a valid SEH exception; the vectored handler dispatches a
+  decider installed for it, or returns false via the software-raise-unclaimed path —
+  POSIX parity. Negative signos round-trip as large positive values that the map
+  bounds-checks as absent, so `stdc_raise(-1)` no-ops instead of aborting or reaching
+  Windows Error Reporting. Verified: round-trip probe + full `ctest` suite on Linux and
+  macOS.
 
 ### 5.9 `siguninstall`/`signal_decider_destroy` locking hygiene
 

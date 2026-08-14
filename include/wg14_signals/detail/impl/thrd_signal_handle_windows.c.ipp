@@ -128,12 +128,20 @@ extern "C"
   }
 
 
+// User-defined exception-code base for stdc_raise() of signals that have no
+// native Win32 exception code (SIGINT, SIGTERM, SIGPIPE, SIGUSR1, ...).
+// 0x40000000-0x7FFFFFFF is the documented user-defined exception-code range;
+// no real Windows exception code (all are >= 0x80000000) collides with it,
+// and signal_from_win32_exception_code() reverses the offset so a decider
+// installed for such a signal dispatches. stdc_raise() of an unsupported
+// signo therefore raises a valid SEH exception and returns false when no
+// decider claims it, instead of abort()ing (analysis.md 2.12/V4).
+#define WG14_SIGNALS_USER_RAISE_BASE ((DWORD) 0x40000000)
+
   static DWORD WG14_SIGNALS_PREFIX(win32_exception_code_from_signal)(int c)
   {
     switch(c)
     {
-    default:
-      abort();
     case SIGABRT:
       return (
       (unsigned long) 0xC0000025L) /*EXCEPTION_NONCONTINUABLE_EXCEPTION*/;
@@ -149,6 +157,18 @@ extern "C"
       return ((unsigned long) 0xC0000005L) /*EXCEPTION_ACCESS_VIOLATION*/;
     case SIGFPE:
       return ((unsigned long) 0xC0000090L) /*EXCEPTION_FLT_INVALID_OPERATION*/;
+    default:
+      // No native Win32 code for this signal: use a user-defined code that
+      // round-trips through signal_from_win32_exception_code(). The vectored
+      // handler then dispatches any decider installed for it, or the
+      // software-raise-unclaimed path returns false -- POSIX parity for
+      // stdc_raise(SIGINT) etc. (analysis.md 2.12/V4). The signo is masked
+      // into the user range's low bits so a negative signo (analysis.md
+      // 4.15/Z4) also round-trips: it recovers as a large positive signo that
+      // the signo-to-sighandler map's get() bounds-checks and treats as
+      // absent, so stdc_raise() returns false instead of aborting or reaching
+      // Windows Error Reporting.
+      return WG14_SIGNALS_USER_RAISE_BASE | ((DWORD) c & 0x3FFFFFFF);
     }
   }
   static int WG14_SIGNALS_PREFIX(signal_from_win32_exception_code)(DWORD c)
@@ -178,6 +198,16 @@ extern "C"
     case((unsigned long) 0xC0000095L) /*EXCEPTION_INT_OVERFLOW*/:
       return SIGFPE;
     default:
+      // Reverse of win32_exception_code_from_signal()'s user-defined mapping:
+      // recover the signo for a raise of a signal with no native exception
+      // code, and report "not a supported exception code" for anything else.
+      // User-defined codes live in 0x40000000-0x7FFFFFFF; all genuine
+      // hardware/OS exception codes are >= 0x80000000, so the high-bit check
+      // cleanly separates a library raise from a real exception.
+      if((c & 0x80000000) == 0 && c >= WG14_SIGNALS_USER_RAISE_BASE)
+      {
+        return (int) (c - WG14_SIGNALS_USER_RAISE_BASE);
+      }
       return 0;
     }
   }

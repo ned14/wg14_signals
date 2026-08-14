@@ -14,7 +14,8 @@ pass (one new finding — AC4 — fixed, in the sigfence volatile-sink fallback)
 19 renamed the zero-arg variadic-macro warning to `-Wc23-extensions`; added to the
 sigfence test's suppression); 2026-08-14 fix pass (2.5 — `thread_init` now reports
 failure when `create` returns 0 with NULL; 2.10/V2 — the Windows vectored handler now
-guards a NULL per-thread state). Original
+guards a NULL per-thread state; 2.12/V4 — Windows `stdc_raise` no longer aborts for
+unsupported signos). Original
 revision reviewed: `f48e95e` ("Implement all the changes as per N3924 WIP wording for
 'Thread-safe signals handling rev 4'"), plus one uncommitted whitespace/`nullptr`-for-C++
 change in `config.h`.
@@ -130,7 +131,7 @@ deref; in-guard case still longjmps); the full `ctest` suite (22 tests) passes o
 (clang, native + fallback TLS) and macOS (the shared common `.ipp` is untouched, so
 POSIX behaviour is unchanged).
 
-### 2.12 V4 [code-level, Windows] `stdc_raise` aborts for every unsupported signo (High)
+### 2.12 V4 [code-level, Windows] `stdc_raise` aborts for every unsupported signo (High) **[FIXED 2026-08-14]**
 
 `win32_exception_code_from_signal` (`thrd_signal_handle_windows.c.ipp:131-153`) handles
 only SIGABRT/SIGBUS/SIGILL/SIGSEGV/SIGFPE;
@@ -138,6 +139,24 @@ only SIGABRT/SIGBUS/SIGILL/SIGSEGV/SIGFPE;
 On POSIX the same calls are harmless no-ops when no decider is installed. The header
 documents `stdc_raise` as usable for "OUR currently installed signal decider" for
 arbitrary signals.
+
+**Fixed 2026-08-14:** `win32_exception_code_from_signal` no longer aborts for unsupported
+signos. Instead it maps them to a user-defined exception-code range
+(`0x40000000`-`0x7FFFFFFF`, the documented user-defined range; all genuine Windows
+exception codes are `>= 0x80000000`, so there is no collision), and
+`signal_from_win32_exception_code` reverses the mapping. `stdc_raise(SIGINT)` now raises a
+valid SEH exception: the vectored handler maps it back to SIGINT, and either dispatches a
+decider installed for it (`siginstall` + `signal_decider_create`) or, with none installed,
+takes the software-raise-unclaimed path and returns false — POSIX parity. The signo is
+masked into the low 30 bits of the user range, so a negative signo (analysis.md 4.15/Z4)
+also round-trips: it recovers as a large positive value that the signo-to-sighandler
+map's `get()` bounds-checks as absent, so `stdc_raise(-1)` returns false instead of
+aborting or reaching Windows Error Reporting. **Verified:** a standalone round-trip probe
+confirms unsupported signos (SIGINT, SIGTERM, SIGPIPE, SIGUSR1, 25, 64) and negative
+signos map to a user code and recover correctly, while genuine system codes still map to
+their signals (AV→SIGSEGV, INT_DIV0→SIGFPE) or 0 (stack overflow, breakpoint); the full
+`ctest` suite (22 tests) passes on Linux (clang, native + fallback TLS) and macOS (the
+shared common `.ipp` is untouched, so POSIX behaviour is unchanged).
 
 ### 2.24 AB1 [confirmed, Medium-High] `signal_decider_destroy` leaks every decider node on the normal destroy path — the AA1 fix (65322dd) double-decrements the node refcount (regression) **[FIXED 2026-08-14]**
 
@@ -564,13 +583,17 @@ with `NSIG` undefined the loops never execute and `siginstall` **returns success
 installed nothing**. All CI platforms define NSIG, so this is exotic-POSIX-only, but the
 failure is silent.
 
-### 4.15 Z4 [code-level, Low, extends X7/V4] negative `signo` in `stdc_raise` is UB on the POSIX frame walk and `abort()`s on Windows
+### 4.15 Z4 [code-level, Low, extends X7/V4] negative `signo` in `stdc_raise` is UB on the POSIX frame walk and was an `abort()` on Windows
 
 `thrd_signal_handle_posix.c.ipp:312`: `sigismember(frame->guarded, signo)` with a negative
 `signo` expands (macOS/BSD macro form) to `1u << (signo - 1)` — a negative/oversized shift
-count, i.e. UB, whenever any frame exists. On Windows, `stdc_raise(-1, ...)` ->
-`win32_exception_code_from_signal` `default: abort()`. Three platforms give three
-different behaviours for the same invalid input.
+count, i.e. UB, whenever any frame exists. On Windows, `stdc_raise(-1, ...)` used to reach
+`win32_exception_code_from_signal` `default: abort()`. **(Windows half fixed 2026-08-14,
+with V4:** unsupported signos now map to the user-defined exception-code range, and a
+negative signo round-trips as a large positive value that the signo-to-sighandler map
+bounds-checks as absent, so `stdc_raise(-1)` returns false instead of aborting or reaching
+Windows Error Reporting.) Three platforms give three different behaviours for the same
+invalid input; the POSIX UB remains open.
 
 ### 4.16 X7 [code-level, Low] out-of-range `signo` reaches `sigismember` without bounds checks (UB on BSD/macOS)
 
@@ -579,8 +602,9 @@ different behaviours for the same invalid input.
 `sigismember` is a macro expanding to `(*(set) & (1u << (signo - 1)))` (verified via
 `-dM`); `stdc_raise(64, ...)` is a shift-count UB. On glibc, `sigismember` is a function
 that returns 0 for out-of-range values, so the bug is invisible there. The same call on
-Windows either `abort()`s (V4) or silently no-ops — three different behaviours for the
-same invalid input across platforms.
+Windows now silently no-ops (V4 fixed 2026-08-14 — out-of-range signos raise a user
+exception code and return false when unclaimed) — two different behaviours for the same
+invalid input across platforms.
 
 ### 4.17 Z6 [code-level, Linux/glibc, Low] `siginstall(NULL)` installs handlers for glibc-internal signals 32/33 and realtime signals 34-64
 
@@ -1024,7 +1048,6 @@ invite reading `error_code`.
 
 | ID | Severity | Issue | Location |
 |----|----------|-------|----------|
-| V4 | High | Windows `stdc_raise` aborts for all unsupported signos | `thrd_signal_handle_windows.c.ipp:131-153` |
 | 2.6 | Med | `tss_async_signal_safe_*` NULL handle crash (also Z8, X8) | `tss_async_signal_safe.c.ipp:96-272` |
 | 3.1 | Med | Spinlock not async-signal-safe | `lock_unlock.h` |
 | 3.3 | Med | `SA_NOCLDWAIT`/`SA_NODEFER`/no `SA_RESTART` semantics | `thrd_signal_handle_posix.c.ipp:400-412` |
@@ -1055,7 +1078,7 @@ invite reading `error_code`.
 | Y5 | Low | no `pthread_atfork`; stale TID caches/map across `fork()` | `current_thread_id.c.ipp:64-70,92-102`, `tss_async_signal_safe.c.ipp:84-94` |
 | Y6 | Low | missing `NSIG` -> zero-length array + silently no-op `siginstall` | `thrd_signal_handle_common.ipp.ipp:61-62,503` |
 | Y9 | Low | forced `HAVE_ASYNC_SAFE_THREAD_LOCAL=1` on Apple compiles silently (refines 4.2) | `config.h:51-77` |
-| Z4 | Low | negative `signo` -> UB frame-walk shift / Windows `abort()` (extends X7/V4) | `thrd_signal_handle_posix.c.ipp:312`, `thrd_signal_handle_windows.c.ipp:131-153` |
+| Z4 | Low | negative `signo` -> UB frame-walk shift (Windows half fixed with V4) | `thrd_signal_handle_posix.c.ipp:312` |
 | Z5 | Low | Windows `siguninstall` clobbers an app filter installed after `siginstall` | `thrd_signal_handle_windows.c.ipp:516-519` |
 | Z6 | Low | `siginstall(NULL)` on glibc installs over `SIGCANCEL`/`SIGSETXID` (32/33) and realtime 34-64 | `thrd_signal_handle_posix.c.ipp:400-412,162-184` |
 | Z7 | Low | `sigfillset_*` NULL `set` -> `memcpy` NULL-deref | both backends |
