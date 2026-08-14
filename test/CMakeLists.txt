@@ -22,6 +22,9 @@ add_code_test(install_sighandler_lock_test SOURCES "install_sighandler_lock_test
 # spinlock and this white-box test spun forever; bound it so the regression is
 # a fast failure instead of a hang.
 set_tests_properties(install_sighandler_lock_test PROPERTIES TIMEOUT 60)
+# White-box regression test for analysis.md 2.21/Z1: forces the verstable
+# signo_to_sighandler_map_t branch (NSIG >= 1024) which no CI libc reaches.
+add_code_test(signo_map_verstable_init_test SOURCES "signo_map_verstable_init_test.c" FEATURES c_std_11)
 add_code_test(recovery_null_loop_test SOURCES "recovery_null_loop_test.c" FEATURES c_std_11)
 set_tests_properties(recovery_null_loop_test PROPERTIES TIMEOUT 60)
 

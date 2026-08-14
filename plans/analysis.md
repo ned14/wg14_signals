@@ -228,7 +228,7 @@ the `HEADER_ONLY_BUILD=ON` configuration on macOS arm64. The Windows leg cannot
 deterministically force `AddVectoredContinueHandler` failure, so the white-box trigger
 is `#ifndef _WIN32`-gated; the fix itself is in the shared code the POSIX leg covers.
 
-### 2.21 Z1 [confirmed standalone, Medium-High] the verstable-variant `signo_to_sighandler_map_t` is never initialised — NULL `metadata` dereference on every library operation (NSIG >= 1024 platforms)
+### 2.21 Z1 [confirmed standalone, Medium-High] the verstable-variant `signo_to_sighandler_map_t` is never initialised — NULL `metadata` dereference on every library operation (NSIG >= 1024 platforms) **[FIXED 2026-08-14]**
 
 `thrd_signal_handle_common.ipp.ipp:58-135` selects the verstable hash-map variant of
 `signo_to_sighandler_map_t` when `NSIG >= 1024`. Unlike `thread_id_to_tls_map_t` (which
@@ -239,6 +239,23 @@ function-local `static` struct, so for the verstable variant `buckets == NULL` a
 standalone (SIGSEGV). Every map-touching operation crashes on such a platform. Mainstream
 libcs never reach NSIG >= 1024, so no CI leg exercises this branch. Fix: call
 `signo_to_sighandler_map_t_init` once.
+
+**Fixed 2026-08-14:** `sig_global_state()` (`thrd_signal_handle_common.ipp.ipp`) now
+initialises the map once on first use, under `#if NSIG >= 1024`: if the table's `metadata`
+is still NULL (the zero-initialisation sentinel) it calls
+`signo_to_sighandler_map_t_init`, which points `metadata` at the empty-bucket placeholder
+so `_get` returns an end iterator on an empty table instead of dereferencing NULL. All
+map-touching operations funnel through `sig_global_state()`, so this covers every API and
+both backends; the guard keyed on `metadata == NULL` makes the init one-time and the
+writes are constant and idempotent on the still-empty table. **Verified:** the new
+regression test `test/signo_map_verstable_init_test.c` (registered as
+`signo_map_verstable_init_test`) forces the otherwise-unreachable branch by overriding
+`NSIG` to 1024 after `<signal.h>` and including the library in header-only mode, then
+checks `metadata != NULL` after `sig_global_state()` and drives `_get`/`_insert`/`_erase_itr`
+on an empty map. On the unfixed library the first `_get` crashes with a NULL-`metadata`
+dereference (reproduced: ASan SEGV at `verstable.h:1434`, `_get` on a read of address 0);
+with the fix the round-trip passes. Full `ctest` suite (21 tests) passes under ASan/UBSan
+and in the `HEADER_ONLY_BUILD=ON` configuration on macOS arm64.
 
 ### 2.23 AA1 [confirmed, Medium-High] `signal_decider_destroy` crashes after a `siguninstall` -> `siginstall` cycle orphans the decider node (sequential, no concurrency)
 
@@ -1089,7 +1106,7 @@ invite reading `error_code`.
 | V2 | High | Windows vectored handler NULL-derefs `tss->front` on fresh threads | `thrd_signal_handle_windows.c.ipp:357-361` |
 | V3 | High | Windows `sigismember(guarded, 0)` UB; C++ exceptions swallowed by `sigguarded` | `thrd_signal_handle_windows.c.ipp:200`, `thrd_signal_handle.h:52-63` |
 | V4 | High | Windows `stdc_raise` aborts for all unsupported signos | `thrd_signal_handle_windows.c.ipp:112-134` |
-| Z1 | Med-High | verstable `signo_to_sighandler_map_t` never initialised -> NULL-metadata crash (NSIG >= 1024) | `thrd_signal_handle_common.ipp.ipp:58-135,174-179` |
+| Z1 | Med-High | verstable `signo_to_sighandler_map_t` never initialised -> NULL-metadata crash (NSIG >= 1024) **[FIXED 2026-08-14]** | `thrd_signal_handle_common.ipp.ipp:58-135,174-179` |
 | X3 | Med-High | Windows `sigguarded` never inits per-thread TSS -> NULL-deref in vectored handler on fresh threads **[FIXED 2026-08-14]** | `thrd_signal_handle_windows.c.ipp:219-249` |
 | AA1 | Med-High | `signal_decider_destroy` NULL-deref/UAF after `siguninstall`->`siginstall` orphans the decider node (confirmed) | `thrd_signal_handle_common.ipp.ipp:328-364,443-614` |
 | 2.5 | Med | `thread_init` returns success for NULL item | `tss_async_signal_safe.c.ipp:186-190` |

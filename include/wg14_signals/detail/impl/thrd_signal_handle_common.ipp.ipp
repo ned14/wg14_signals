@@ -204,6 +204,19 @@ extern "C"
   WG14_SIGNALS_PREFIX(sig_global_state)(void)
   {
     static struct WG14_SIGNALS_PREFIX(sig_global_state_t) v;
+#if NSIG >= 1024
+    // The verstable-variant signo_to_sighandler_map_t is not self-initialising:
+    // a zero-initialised table has metadata == NULL, which _get/_insert
+    // dereference, crashing every map-touching library operation on an NSIG
+    // >= 1024 platform (analysis.md 2.21/Z1). Initialise it once: _init()
+    // points metadata at the empty-bucket placeholder, and all its writes are
+    // constant and idempotent on the still-empty table.
+    if(v.signo_to_sighandler_map.metadata == WG14_SIGNALS_NULLPTR)
+    {
+      WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_init)(
+      &v.signo_to_sighandler_map);
+    }
+#endif
     return &v;
   }
 
