@@ -489,11 +489,15 @@ unresolved C++ runtime symbols. (Fixed 2026-08-10 on `__cxa_thread_atexit()` pla
 `src/wg14_signals/thread_atexit.c` is compiled instead and the C++ file is neither
 compiled nor linked — the library is all-C with no C++ runtime dependency there.)
 
-### 5.3 CMake `CMAKE_C_STANDARD` cache variable is unused for consumers and the header-only test lacks `-Werror`
+### 5.3 CMake `CMAKE_C_STANDARD` cache variable is unused for consumers and the header-only test lacks `-Werror` **[PARTIALLY FIXED 2026-08-14]**
 
 The library compiles with `-Werror` (`CMakeLists.txt:47`) but the tests and the
 `header_only_test` target do not (`test/CMakeLists.txt:12`), so warnings that would break
-a strict build are invisible.
+a strict build are invisible. **Fixed 2026-08-14:** the tests, `header_only_test`,
+`header_only_c_multi_test` and the install-consumer all now build with `-Wall -Wextra
+-Wpedantic -Werror` (ideas.md 2.5), so test-only warnings surface. Still open: the
+`CMAKE_C_STANDARD` cache variable is not propagated to consumers of the installed
+package.
 
 ### 5.4 CI gaps
 
@@ -587,7 +591,7 @@ proceeds as if the join succeeded. `thrd_create` (`:43-48`) dereferences the unc
 `calloc` result (NULL deref on OOM). The benchmark and handle tests rely on this shim; the
 harness masks real failures.
 
-### 6.6 AA3 [confirmed, build-config, Low] `WG14_SIGNALS_DISABLE_SIGFENCE_MACRO` breaks the test suite
+### 6.6 AA3 [confirmed, build-config, Low] `WG14_SIGNALS_DISABLE_SIGFENCE_MACRO` breaks the test suite **[FIXED 2026-08-14]**
 
 `thrd_signal_handle.h:77` gates the whole `sigfence` macro behind
 `#ifndef WG14_SIGNALS_DISABLE_SIGFENCE_MACRO`, but `test/thrd_sigfpe_test.c:64` calls
@@ -595,6 +599,16 @@ harness masks real failures.
 config knob) makes the test fail to compile (verified: `call to undeclared function
 'sigfence'`). There is no CI configuration that tests the macro, and `config.h` does not
 document it.
+
+**Fixed 2026-08-14:** the sigfence-dependent test code is now guarded. `thrd_sigfpe_test.c`
+calls `sigfence(result)` only under `#ifndef WG14_SIGNALS_DISABLE_SIGFENCE_MACRO`, and
+`sigfence_fence_test.c` (whose whole purpose is the macro) is a vacuous `main` returning 0
+when the knob is set. This was required before adding `-Werror` to the tests (ideas.md
+2.5), and also lets the zero-arg `sigfence()` overload's `-Wpedantic` diagnostic (a
+GNU-extension variadic-macro call, `-Wvariadic-macro-arguments-omitted` on clang /
+`-Wvariadic-macros` on gcc) be suppressed around exactly that one call. **Verified:** both
+tests compile with `-DWG14_SIGNALS_DISABLE_SIGFENCE_MACRO` under `-Werror`, and the full
+`ctest` suite (22 tests) passes with the tests built with `-Werror`.
 
 ---
 
@@ -952,7 +966,7 @@ invite reading `error_code`.
 | Z8 | Low | `tss_async_signal_safe` NULL/double destroy + post-destroy `get`/`thread_init` unguarded | `tss_async_signal_safe.c.ipp:111-134,226-243` |
 | Z9 | Low | `thread_init`'s unlocked `attr.create` breaks THREADSAFE claim for concurrent first-use | `tss_async_signal_safe.c.ipp:184-191` |
 | Z10 | Low | Windows nondebug set omits documented signals, includes `SIGKILL`/`SIGSTOP` (extends X9) | `thrd_signal_handle_windows.c.ipp:73-89` |
-| AA3 | Low | `WG14_SIGNALS_DISABLE_SIGFENCE_MACRO` breaks the test build (confirmed) | `thrd_signal_handle.h:77`, `test/thrd_sigfpe_test.c:64` |
+| AA3 | Low | `WG14_SIGNALS_DISABLE_SIGFENCE_MACRO` breaks the test build (confirmed) **[FIXED 2026-08-14]** | `thrd_signal_handle.h:77`, `test/thrd_sigfpe_test.c:64` |
 | AA4 | Low | `siguninstall` (POSIX) discards post-`siginstall` app handler changes (Z5 sibling) | `thrd_signal_handle_posix.c.ipp:385-390` |
 | AA5 | Low | global decider `invoke_recovery`: POSIX claims-without-recovery vs Windows unwinds-to-frame | `thrd_signal_handle_posix.c.ipp:357-361`, `thrd_signal_handle_windows.c.ipp:354-366` |
 | AA6 | Low | Windows user `EXCEPTION_RECORD` params leak into `rsi->addr`/`error_code` | `thrd_signal_handle_windows.c.ipp:186-191` |

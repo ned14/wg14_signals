@@ -4,7 +4,8 @@ Review date: 2026-08-06 (concretised against the `wg14_signals` implementation s
 2026-08-14 status reconciliation (done items removed, the new analysis.md AB1 finding
 folded in) and §1.3 implemented; 2026-08-14 §2.1 + §3.4 + §3.5 implemented;
 2026-08-14 §2.2 (feature-test macro discipline) implemented; 2026-08-14 §2.3 (Windows
-SDK floor) implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+SDK floor) implemented; 2026-08-14 §2.5 (test `-Werror`, incl. analysis.md AA3)
+implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
 would have caught the defect). Sibling references are cited as
@@ -175,7 +176,7 @@ in thread_atexit() — all Vista-and-earlier), and matches the sibling's structu
 0x0600 -> ok, undefined -> ok) were verified with a standalone preprocessor probe; the
 Windows CI legs build the library with `_WIN32_WINNT=0x0600` defined PUBLIC.
 
-### 2.5 Test `-Werror` (fixes analysis.md 5.3)
+### 2.5 Test `-Werror` (fixes analysis.md 5.3) **[DONE 2026-08-14]**
 
 **Why.** Library builds with `-Werror`; tests with only `-Wall -Wextra -Wpedantic`, so
 test-only warnings are invisible.
@@ -186,6 +187,22 @@ test-only warnings are invisible.
 is exercised in tests and its `__VA_OPT__` counting trips `-Wpedantic`). Add
 compile-fail tests (§6.7) so intended diagnostics are proven rather than just warned
 about.
+
+**Done 2026-08-14:** `-Werror` is now applied to every test target's non-MSVC branch:
+`add_code_example` in `CMakeLists.txt` (covers all `add_code_test` targets including the
+benchmarks), the `header_only_test` and `header_only_c_multi_test` targets in
+`test/CMakeLists.txt`, and the install-consumer's `install_consumer_app` in
+`test/install_consumer/CMakeLists.txt` (the consumer's job is to prove the installed
+package compiles cleanly). The required AA3 prerequisite was done first: the
+sigfence-dependent tests are now guarded by `#ifndef WG14_SIGNALS_DISABLE_SIGFENCE_MACRO`
+(analysis.md 6.6, fixed), and the zero-arg `sigfence()` overload's `-Wpedantic`
+diagnostic (`-Wvariadic-macro-arguments-omitted` on clang — which `sigfence_fence_test.c`
+already suppressed — plus the gcc equivalent `-Wvariadic-macros`) is suppressed around
+exactly that call. The §6.7 compile-fail suite remains a separate item. **Verified:**
+clean rebuild with `-Werror` produces zero warnings on macOS arm64 (library, all 20 test
+executables, both header-only targets, and the install consumer), the full `ctest` suite
+(22 tests) passes, and both sigfence tests compile with the knob defined under `-Werror`.
+The gcc legs of the Linux CI exercise the gcc-specific warning set.
 
 ---
 

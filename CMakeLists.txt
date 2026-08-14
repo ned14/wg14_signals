@@ -235,7 +235,10 @@ if(PROJECT_IS_TOP_LEVEL AND (NOT DEFINED BUILD_TESTING OR BUILD_TESTING))
     if(MSVC)
       target_compile_options(${target} PRIVATE /W4 /experimental:c11atomics)
     else()
-      target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+      # Tests build with -Werror like the library (plans/ideas.md 2.5,
+      # analysis.md 5.3), so test-only warnings surface instead of being
+      # invisible.
+      target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     target_compile_features(${target} PRIVATE ${ADD_EXAMPLE_FEATURES})
     target_link_libraries(${target} PRIVATE ${PROJECT_NAME})

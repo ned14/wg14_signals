@@ -26,7 +26,9 @@ if(MSVC)
   target_compile_options(install_consumer_app PRIVATE /W4
                          /experimental:c11atomics)
 else()
-  target_compile_options(install_consumer_app PRIVATE -Wall -Wextra -Wpedantic)
+  # -Werror like the in-tree tests (plans/ideas.md 2.5): the consumer's job is
+  # to prove the installed package compiles cleanly.
+  target_compile_options(install_consumer_app PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 target_link_libraries(install_consumer_app PRIVATE
                       wg14_signals::wg14_signals)

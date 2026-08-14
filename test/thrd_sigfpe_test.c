@@ -92,8 +92,11 @@ sigfpe_func(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
   /* This should trigger SIGFPE */
   volatile int result = 42 / divisor;
 #endif
-  /* Not necessary, only here so we're unit testing sigfence() */
+#ifndef WG14_SIGNALS_DISABLE_SIGFENCE_MACRO
+  /* Not necessary, only here so we're unit testing sigfence(). Guarded for the
+     WG14_SIGNALS_DISABLE_SIGFENCE_MACRO config knob (analysis.md AA3). */
   sigfence(result);
+#endif
   /* If we get here, this architecture doesn't trap integer divide by zero */
   WG14_SIGNALS_PREFIX(stdc_raise)(SIGFPE, WG14_SIGNALS_NULLPTR,
                                   WG14_SIGNALS_NULLPTR);
