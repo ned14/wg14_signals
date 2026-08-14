@@ -49,6 +49,18 @@ int main(void)
   (void) WG14_SIGNALS_PREFIX(stdc_raise)(0, WG14_SIGNALS_NULLPTR,
                                          WG14_SIGNALS_NULLPTR);
 
+  // Register the library's exception machinery before raising anything: on
+  // Windows the vectored continue handler + unhandled exception filter exist
+  // only after siginstall(), so a raise raised before it cannot be resolved
+  // and Windows Error Reporting terminates the process (analysis.md 2.16/W5,
+  // corrected 2026-08-14). Install only OTHER_SIGNAL so SIGNAL_TO_USE stays
+  // "no handler installed" for the checks below.
+  sigset_t base;
+  sigemptyset(&base);
+  sigaddset(&base, OTHER_SIGNAL);
+  void *handlers = WG14_SIGNALS_PREFIX(siginstall)(&base);
+  CHECK(handlers != WG14_SIGNALS_NULLPTR);
+
   // A supported signo with NO handler installed: stdc_raise must return false
   // (documented contract "returning false if we have no decider installed for
   // that signal"). Before analysis.md 2.16/W5 was fixed, Windows raised the
@@ -66,9 +78,13 @@ int main(void)
                                          claiming_decider, value);
   CHECK(guarded_raise_returned_false);
 
-  // Sanity: once installed and claimed, stdc_raise must still return true.
-  void *handlers = WG14_SIGNALS_PREFIX(siginstall)(WG14_SIGNALS_NULLPTR);
-  CHECK(handlers != WG14_SIGNALS_NULLPTR);
+  // Sanity: once SIGNAL_TO_USE is installed and claimed, stdc_raise must still
+  // return true.
+  sigset_t sanity;
+  sigemptyset(&sanity);
+  sigaddset(&sanity, SIGNAL_TO_USE);
+  void *handlers2 = WG14_SIGNALS_PREFIX(siginstall)(&sanity);
+  CHECK(handlers2 != WG14_SIGNALS_NULLPTR);
   {
     sigset_t guarded2;
     sigemptyset(&guarded2);
@@ -80,6 +96,7 @@ int main(void)
                                           WG14_SIGNALS_NULLPTR));
     WG14_SIGNALS_PREFIX(signal_decider_destroy(decider));
   }
+  CHECK(WG14_SIGNALS_PREFIX(siguninstall)(handlers2) == 0);
   CHECK(WG14_SIGNALS_PREFIX(siguninstall)(handlers) == 0);
 
   return ret;

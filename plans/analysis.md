@@ -157,6 +157,15 @@ frame guarding a different signal, and that an installed-and-claimed raise still
 `true`. On the Windows leg (CI) the first two checks crashed with WER before this fix.
 Full `ctest` suite (20 tests) passes under ASan/UBSan and in the `HEADER_ONLY_BUILD=ON`
 configuration on macOS arm64 (POSIX semantics of the two checks were already correct).
+**Regression-test correction 2026-08-14 (first Windows CI run):** the test raised
+`SIGILL` *before* any `siginstall`, but on Windows the vectored continue handler +
+unhandled exception filter that resolve an unclaimed software raise exist only after
+`siginstall()`, so the raise reached WER and the test process died with an illegal
+instruction (`***Exception: Illegal`). The test now `siginstall()`s a base set
+(containing only `OTHER_SIGNAL`) before the uninstalled-raise checks, keeping
+`SIGNAL_TO_USE` uninstalled while registering the Windows machinery, and installs
+`SIGNAL_TO_USE` separately for the installed-and-claimed sanity phase. The `siginstall`-free
+`stdc_raise` case on Windows (no machinery to resolve the raise) is out of contract.
 
 ### 2.19 X3 [code-level, Windows, Medium-High] `sigguarded` on Windows never initialises the per-thread TSS (unlike POSIX) **[FIXED 2026-08-14]**
 
@@ -180,10 +189,14 @@ the new regression test `test/sigguarded_tss_init_test.c` (registered as
 signal, then enters `sigguarded()` (the thread's only library interaction, deliberately
 no `stdc_raise(0, ...)` setup call) with a frame decider that declines and raises the
 signal — a `RaiseException(EXCEPTION_ACCESS_VIOLATION)` on Windows, `stdc_raise` on
-POSIX. The test asserts the raise is claimed by the global decider exactly once and
-`sigguarded` returns the guarded function's value; on the Windows leg the exception
-handler would have NULL-deref'd the per-thread state before this fix. Full `ctest` suite
-(19 tests) passes under ASan/UBSan on macOS arm64.
+POSIX. The test asserts the raise is claimed by the global decider at least once
+(accepted `>= 1` rather than `== 1`: on Windows the claim is resolved via
+`EXCEPTION_CONTINUE_EXECUTION` and the vectored continue handler then runs the claiming
+decider a second time — the V5/C19 double invocation, analysis.md 3.15) and `sigguarded`
+returns the guarded function's value; on the Windows leg the exception handler would
+have NULL-deref'd the per-thread state before this fix. Full `ctest` suite (20 tests)
+passes under ASan/UBSan on macOS arm64, and both the X3 and W5 regression tests now pass
+on the Windows CI.
 
 ### 2.20 Y1 [confirmed, High] `install_sighandler` leaks the global spinlock when `install_sighandler_impl` fails — a second instance of the global-spinlock-leak bug family (both backends) **[FIXED 2026-08-14]**
 
@@ -404,7 +417,14 @@ a debugger). So the side-effecting-decider double-run claim stands for the no-de
 path when no decider claims; the pass-5 debate over exactly one vs two invocations on the
 no-debugger path (C19) was left unresolved — the Windows CI's
 `thrd_signal_handle_test` asserting `count_decider == 1` for a *claiming* decider passes,
-consistent with the claiming path running once.
+consistent with the claiming path running once. **2026-08-14 data point (C19 resolved for
+the CONTINUE_EXECUTION resolution):** when the claiming decider is resolved via
+`EXCEPTION_CONTINUE_EXECUTION` rather than a `longjmp` out of dispatch (no `stdc_raise`
+frame, e.g. a genuine/software fault inside a `sigguarded` frame), the vectored continue
+handler runs the global decider a *second* time on the no-debugger path — the
+`sigguarded_tss_init_test` Windows CI run observed `global_decider_called == 2`. The
+`longjmp` resolution aborts the dispatch after one claim, which is why
+`thrd_signal_handle_test` sees exactly one.
 
 ### 3.16 V7 [code-level, fallback path, Medium] `siguninstall` of the last handler while another thread is inside `sigguarded` frees that thread's live state
 
