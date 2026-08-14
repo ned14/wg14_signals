@@ -23,8 +23,11 @@ endif()
 
 add_executable(install_consumer_app app.c)
 if(MSVC)
+  # /Zc:__VAOPT__ for sigfence()'s __VA_OPT__ argument counting
+  # (plans/analysis.md 4.10) — MSVC only defaults it on for
+  # /std:c11/c17/c++20+, not C++14/17.
   target_compile_options(install_consumer_app PRIVATE /W4
-                         /experimental:c11atomics)
+                         /experimental:c11atomics /Zc:__VAOPT__)
 else()
   # -Werror like the in-tree tests (plans/ideas.md 2.5): the consumer's job is
   # to prove the installed package compiles cleanly.

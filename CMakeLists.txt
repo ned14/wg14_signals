@@ -186,7 +186,14 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 if(MSVC)
+  # sigfence()'s argument-counting macro requires __VA_OPT__ (thrd_signal_handle.h,
+  # plans/analysis.md 4.10). MSVC only enables __VA_OPT__ by default for
+  # /std:c11, /std:c17 and /std:c++20+ (VS 2022 17.9+); C++14/17 builds need the
+  # explicit opt-in, and the public header may be compiled from C++ by any
+  # consumer. PUBLIC so find_package consumers inherit it. /experimental:c11atomics
+  # is only needed by the library's own C11-atomics usage, so it stays PRIVATE.
   target_compile_options(${PROJECT_NAME} PRIVATE /W4 /experimental:c11atomics)
+  target_compile_options(${PROJECT_NAME} PUBLIC /Zc:__VAOPT__)
 else()
   target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
@@ -233,7 +240,10 @@ if(PROJECT_IS_TOP_LEVEL AND (NOT DEFINED BUILD_TESTING OR BUILD_TESTING))
     cmake_parse_arguments(ADD_EXAMPLE "" "" "SOURCES;FEATURES;PROPERTIES" ${ARGN})
     add_executable(${target} ${ADD_EXAMPLE_SOURCES})
     if(MSVC)
-      target_compile_options(${target} PRIVATE /W4 /experimental:c11atomics)
+      # /Zc:__VAOPT__ for sigfence()'s __VA_OPT__ argument counting
+      # (plans/analysis.md 4.10) — MSVC only defaults it on for
+      # /std:c11/c17/c++20+, not C++14/17.
+      target_compile_options(${target} PRIVATE /W4 /experimental:c11atomics /Zc:__VAOPT__)
     else()
       # Tests build with -Werror like the library (plans/ideas.md 2.5,
       # analysis.md 5.3), so test-only warnings surface instead of being

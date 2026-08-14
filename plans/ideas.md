@@ -5,7 +5,10 @@ Review date: 2026-08-06 (concretised against the `wg14_signals` implementation s
 folded in); 2026-08-14 second status reconciliation (the eleven `[DONE 2026-08-14]`
 items — 1.3, 2.1, 2.2, 2.3, 2.5, 3.4, 3.5, 4.2, 4.3, 4.4, 6.3 — removed from this file,
 their verification notes moving with the analysis.md findings they fixed, plus the new
-analysis.md AC2 finding folded into §5.10). Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+analysis.md AC2 finding folded into §5.10); 2026-08-14 Linux LSan pass (analysis.md AB1
+and AC3 fixed, recorded in §5.9); 2026-08-14 Fil-C build-failure pass (analysis.md AC4
+fixed in §5.11); 2026-08-14 Windows CI build-failure pass (analysis.md 4.10 fixed — MSVC
+C++ needs `/Zc:__VAOPT__` for the sigfence argument counting). Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
 would have caught the defect). Sibling references are cited as
@@ -190,6 +193,20 @@ Concrete change: probe at configure time whether the platform's `__cxa_thread_at
 return is trustworthy (extend the existing `WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT` probe),
 propagate the return where trustworthy, and keep the ignore behaviour for macOS only.
 
+### 5.11 `sigfence` volatile-sink fallback: explicitly cast away qualifiers (fixes analysis.md 2.9/AC4)
+
+`thrd_signal_handle.h:193` — `WG14_SIGNALS_SIGFENCE_ESCAPE(a, i)` assigns `&(a)` into the
+`void *volatile sigfence_sink[]`. When the argument is a `volatile` or `const`-qualified
+lvalue (`volatile int result`, as in `test/thrd_sigfpe_test.c:98`), the implicit
+conversion discards qualifiers and fails under `-Werror` on the volatile-sink path —
+exactly the Fil-C CI leg, whose toolchain forces `DISABLE_INLINE_ASM=1`
+(`cmake/filc-toolchain.cmake:32`). **Fixed 2026-08-14:** cast explicitly,
+`sigfence_sink[(i)] = (void *) &(a)`; the sink's only purpose is to force the address to
+escape into observable memory, so the cast is semantically correct. Verified with
+`-DDISABLE_INLINE_ASM=1` under clang 18 `-Werror` for `volatile`/`const`/`volatile const`
+arguments, plus the full 22-test `ctest` suite on Linux; the inline-asm path (`+m`
+operands) accepts qualified lvalues and is unchanged.
+
 ---
 
 ## 6. Testing techniques (concrete designs)
@@ -260,6 +277,10 @@ into `test/CMakeLists.txt`. Targets (each a `.c` + `.cpp` pair):
   no-op rather than a compile error, so instead make this a
   `WG14_SIGNALS_STATIC_ASSERT`-backed compile-fail for the `sizeof(sigset_t) <= 4` contract
   (the static-assert helper added in 2026-08-14, formerly §4.2) on Windows.
+- MSVC C++ note: the sigfence argument-counting static assert requires `__VA_OPT__`,
+  which MSVC only enables by default for `/std:c11`/`c17`/`c++20+`. The build now passes
+  `/Zc:__VAOPT__` on every MSVC target (analysis.md 4.10, fixed 2026-08-14); the
+  compile-fail suite must use the same flag on MSVC.
 
 The `expect_compile_fail.cmake` script matches the *literal* namespaced diagnostic text (no
 regexes) and echoes build output, so failures are visible in ctest logs.

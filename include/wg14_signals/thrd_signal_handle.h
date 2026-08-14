@@ -190,7 +190,7 @@ extern "C"
 #define WG14_SIGNALS_SIGFENCE_ESCAPE(a, i)                                     \
   do                                                                           \
   {                                                                            \
-    WG14_SIGNALS_PREFIX(sigfence_sink)[(i)] = &(a);                            \
+    WG14_SIGNALS_PREFIX(sigfence_sink)[(i)] = (void *) &(a);                   \
     (void) *(volatile unsigned char *) &(a);                                   \
   } while(0)
 #define WG14_SIGNALS_SIGFENCE_IMPL_0() WG14_SIGNALS_SIGFENCE_BARRIER()

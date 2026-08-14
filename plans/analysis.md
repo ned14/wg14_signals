@@ -6,7 +6,10 @@ findings removed, one new finding — AB1 — added); 2026-08-14 second status
 reconciliation against the current tree (fixed findings removed: V3, 4.5, 6.6/AA3, 7.2,
 and the fixed portions of 4.6, 5.2, 5.3, 5.4; one new finding — AC2 — added); 2026-08-14
 Linux LSan pass against the current tree (fixed: AB1 and one new fallback-path finding
-AC3; one new finding — AC1 docs-hygiene — added to §9). Original
+AC3; one new finding — AC1 docs-hygiene — added to §9); 2026-08-14 Fil-C build-failure
+pass (one new finding — AC4 — fixed, in the sigfence volatile-sink fallback);
+2026-08-14 Windows CI build-failure pass (fixed analysis.md 4.10 — MSVC C++ needs
+`/Zc:__VAOPT__`). Original
 revision reviewed: `f48e95e` ("Implement all the changes as per N3924 WIP wording for
 'Thread-safe signals handling rev 4'"), plus one uncommitted whitespace/`nullptr`-for-C++
 change in `config.h`.
@@ -60,6 +63,30 @@ error. Verified (`error: invalid lvalue in asm output`); the 0-arg form compiles
 header now documents the requirement ("Any variable in the argument list MUST be a
 lvalue", `thrd_signal_handle.h:248-249`), so the failure is documented if still a bare
 compiler error.
+
+### 2.9 AC4 [confirmed, Low] `sigfence` volatile-sink fallback (`DISABLE_INLINE_ASM`) rejects `volatile`/`const` arguments under `-Werror`
+
+`thrd_signal_handle.h:193`: `WG14_SIGNALS_SIGFENCE_ESCAPE(a, i)` does
+`sigfence_sink[(i)] = &(a)` — an implicit conversion from `volatile int *` (or `const
+int *`, `volatile const int *`, etc.) to the `void *volatile` sink element, which
+discards qualifiers. That is `-Wincompatible-pointer-types-discards-qualifiers`, an error
+under the `-Werror` test build, whenever a qualifier-carrying lvalue is passed to
+`sigfence` on a compiler using the volatile-sink fallback. This is exactly the Fil-C CI
+leg: `cmake/filc-toolchain.cmake:32` defines `DISABLE_INLINE_ASM=1` (Fil-C cannot compile
+the `+m` asm forms, analysis.md AA2), and `test/thrd_sigfpe_test.c:98` calls
+`sigfence(result)` with `volatile int result` — the Fil-C job fails to build. Reproduced
+with plain clang: `clang -Werror -DDISABLE_INLINE_ASM=1` on `sigfence(volatile_int)` gives
+the same diagnostic. The asm path (`+m`) accepts qualified operands, so only the fallback
+is affected.
+
+**Fixed 2026-08-14:** the macro now casts explicitly: `sigfence_sink[(i)] = (void *)
+&(a)`. The sink exists only to force the variable's address to escape into observable
+memory, so the explicit qualifier-discarding cast is semantically correct. **Verified:**
+`-DDISABLE_INLINE_ASM=1` builds of the full `ctest` suite (22 tests) pass on Linux
+(clang 18, ASan/UBSan), including `sigfence_fence_test` whose volatile-sink escape check
+(`sigfence_sink[0] != (void *) &a`) still passes, and `sigfence(volatile int / const int /
+volatile const int)` combinations compile cleanly; the normal inline-asm path is
+unchanged.
 
 ### 2.10 V2 [code-level, Windows] `win32_vectored_exception_function` NULL-derefs the per-thread state on fresh threads (High)
 
@@ -433,12 +460,27 @@ first of several Mingw incompatibilities.
 always use `setjmp` (saving/restoring the signal mask) even when `_setjmp` is available.
 Not a correctness bug but a silent performance/behaviour split between the two modes.
 
-### 4.10 `__VA_OPT__` dependency
+### 4.10 `__VA_OPT__` dependency **[FIXED 2026-08-14]**
 
 `WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8` (`thrd_signal_handle.h:86`) requires `__VA_OPT__`
 (C23 / C++20, or the GCC>=8 / Clang>=12 extension). Verified: GCC and Clang accept it
 silently in C11 mode with `-Wpedantic`, so this works on current toolchains, but it is a
 latent portability break for older compilers or strict MSVC C modes.
+
+**Fixed 2026-08-14:** the Windows CI (VS2022) failed the C++ header-only test
+(`header_only_test`) with `error C2338: static assertion failed: ... sigfence()
+requires __VA_OPT__ argument counting`: MSVC only enables `__VA_OPT__` by default for
+`/std:c11`, `/std:c17` and `/std:c++20+` (VS 2022 17.9+); C++14/17 needs the explicit
+`/Zc:__VAOPT__` opt-in (available since VS 2019 16.10). The C test targets pass because
+they compile with `c_std_11` (`/std:c11`). Fixed by adding `/Zc:__VAOPT__` to every MSVC
+target's compile options: the library target (`CMakeLists.txt`, PUBLIC so `find_package`
+consumers inherit it), `add_code_example` (all C test targets), `header_only_test` and
+`header_only_c_multi_test` (`test/CMakeLists.txt`), the install consumer
+(`test/install_consumer/CMakeLists.txt`) and the header-only C consumer
+(`test/header_only_c_consumer/CMakeLists.txt`). **Verified:** clang-cl accepts
+`/Zc:__VAOPT__` as a no-op (harmless for non-MSVC), GCC/Clang on Linux and macOS are
+unaffected by the MSVC-only flag and the full 22-test `ctest` suite passes on Linux
+(native + fallback TLS) and macOS.
 
 ### 4.11 X10 [code-level, Medium-Low] musl (Alpine etc.) fails to compile: wrong `siginfo_t` fallback spelling
 
@@ -982,6 +1024,7 @@ invite reading `error_code`.
 | Z10 | Low | Windows nondebug set omits documented signals, includes `SIGKILL`/`SIGSTOP` (extends X9) | `thrd_signal_handle_windows.c.ipp:92-108` |
 | AC2 | Low | C `thread_atexit` swallows a failed `__cxa_thread_atexit()` registration (returns 0 unconditionally) | `thread_atexit.c.ipp:66-76` |
 | AC3 | Low | fallback path: `sig_global_tss_state_create` overwrites and leaks an existing TSS | `thrd_signal_handle_common.ipp.ipp:342-359` |
+| AC4 | Low | `sigfence` volatile-sink fallback rejects `volatile`/`const` args under `-Werror` (fixed) | `thrd_signal_handle.h:193` |
 | AA4 | Low | `siguninstall` (POSIX) discards post-`siginstall` app handler changes (Z5 sibling) | `thrd_signal_handle_posix.c.ipp:414-419` |
 | AA5 | Low | global decider `invoke_recovery`: POSIX claims-without-recovery vs Windows unwinds-to-frame | `thrd_signal_handle_posix.c.ipp:384-389`, `thrd_signal_handle_windows.c.ipp:430-443` |
 | AA6 | Low | Windows user `EXCEPTION_RECORD` params leak into `rsi->addr`/`error_code` | `thrd_signal_handle_windows.c.ipp:207-216` |

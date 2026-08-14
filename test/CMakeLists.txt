@@ -50,7 +50,11 @@ set_tests_properties(sigfence_codegen_test PROPERTIES TIMEOUT 300)
 
 add_executable(header_only_test "header_only_test1.cpp" "header_only_test2.cpp" "header_only_test.cpp")
 if(MSVC)
-  target_compile_options(header_only_test PRIVATE /W4 /experimental:c11atomics)
+  # /Zc:__VAOPT__: sigfence()'s argument counting needs __VA_OPT__, which MSVC
+  # does not enable by default for C++14/17 (only /std:c11/c17/c++20+; see
+  # plans/analysis.md 4.10). The header-only C++ test compiles the header from
+  # C++ without linking the library, so it must opt in itself.
+  target_compile_options(header_only_test PRIVATE /W4 /experimental:c11atomics /Zc:__VAOPT__)
 else()
   target_compile_options(header_only_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
@@ -109,7 +113,7 @@ set_tests_properties(header_only_build_test PROPERTIES TIMEOUT 600)
 add_executable(header_only_c_multi_test
   "header_only_c_multi_test1.c" "header_only_c_multi_test2.c" "header_only_c_multi_test.c")
 if(MSVC)
-  target_compile_options(header_only_c_multi_test PRIVATE /W4 /experimental:c11atomics)
+  target_compile_options(header_only_c_multi_test PRIVATE /W4 /experimental:c11atomics /Zc:__VAOPT__)
 else()
   target_compile_options(header_only_c_multi_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()

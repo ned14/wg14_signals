@@ -67,7 +67,9 @@ if(COMPILER_ID STREQUAL "MSVC")
   # (next to the source), not where this script reads it back (Windows CI,
   # 2026-08-10).
   set(_asm_ext "asm")
-  set(_asm_flags "/FAsc /c /O2 /std:c11 /experimental:c11atomics")
+  # /Zc:__VAOPT__ (plans/analysis.md 4.10): sigfence()'s argument counting needs
+  # __VA_OPT__, which pre-17.9 MSVC only enables with the flag even in C11 mode.
+  set(_asm_flags "/FAsc /c /O2 /std:c11 /experimental:c11atomics /Zc:__VAOPT__")
   set(_asm_out_flag "/Fa")
 else()
   # gnu11, not strict c11: the library and its consumers are built by CMake's
