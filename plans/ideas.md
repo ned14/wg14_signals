@@ -17,7 +17,9 @@ vectored-handler NULL-tss guard — recorded in §5.8, done; analysis.md 2.12/V4
 Windows `stdc_raise` user-defined exception-code mapping — recorded in §5.8, done;
 analysis.md 3.7 — `stdc_raise` now reports TSS-setup failure via errno; analysis.md 3.8 —
 a partial `siginstall` now rolls back its already-installed signals, with a new
-`--wrap=calloc` white-box regression test). Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+`--wrap=calloc` white-box regression test; analysis.md 3.15/V5 — the Windows vectored
+function now dedups the global-decider pass across the unhandled-filter + continue-handler
+pair, recorded in §5.8). Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
 would have caught the defect). Sibling references are cited as
@@ -184,6 +186,18 @@ the "ASYNC-SIGNAL-SAFE" claim.
   bounds-checks as absent, so `stdc_raise(-1)` no-ops instead of aborting or reaching
   Windows Error Reporting. Verified: round-trip probe + full `ctest` suite on Linux and
   macOS.
+
+- **Global deciders run twice per exception (V5)** — the same vectored function is
+  registered as both the unhandled exception filter and the vectored continue handler, so
+  on the no-debugger path Windows invokes it twice per exception (filter, then continue
+  handler) and every side-effecting global decider runs twice. **Fixed 2026-08-14:** the
+  function carries a per-thread dedup marker — the `EXCEPTION_RECORD` whose global-decider
+  pass just ran and the decision it produced — and a second invocation for the same record
+  returns the recorded decision immediately instead of re-running the deciders. The marker
+  is `_Thread_local` (async-signal-safe on MSVC); each dispatch has its own record, so a
+  nested exception runs the pass fresh; under a debugger only the continue handler runs,
+  so the pass executes exactly once. Verified: `sigguarded_tss_init_test`'s Windows
+  assertion tightened from `>= 1` to `== 1`; full `ctest` suite passes on Linux and macOS.
 
 ### 5.9 `siguninstall`/`signal_decider_destroy` locking hygiene
 

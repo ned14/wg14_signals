@@ -16,7 +16,9 @@ sigfence test's suppression); 2026-08-14 fix pass (2.5 — `thread_init` now rep
 failure when `create` returns 0 with NULL; 2.10/V2 — the Windows vectored handler now
 guards a NULL per-thread state; 2.12/V4 — Windows `stdc_raise` no longer aborts for
 unsupported signos; 3.7 — `stdc_raise` now reports TSS-setup failure via errno; 3.8 —
-a partial `siginstall` now rolls back its already-installed signals). Original
+a partial `siginstall` now rolls back its already-installed signals; 3.15/V5 — the
+Windows vectored function now dedups the global-decider pass across the unhandled
+filter + continue handler pair). Original
 revision reviewed: `f48e95e` ("Implement all the changes as per N3924 WIP wording for
 'Thread-safe signals handling rev 4'"), plus one uncommitted whitespace/`nullptr`-for-C++
 change in `config.h`.
@@ -376,7 +378,7 @@ async-safe TLS path, `sig_global_tss_state_init` has the same pattern — it set
 mem` *before* `thread_atexit(free, mem)`; on registration failure the pointer stays set
 and the next call silently succeeds with a leaked `mem`, M2.)
 
-### 3.15 V5 [code-level, Windows, Medium] Global deciders can be invoked two or three times per single exception
+### 3.15 V5 [code-level, Windows, Medium] Global deciders can be invoked two or three times per single exception **[FIXED 2026-08-14]**
 
 The same function is registered both as `AddVectoredContinueHandler` and as the
 unhandled exception filter (`install_sighandler_impl`, `:486-505`). **Correction (C15/C16):**
@@ -396,6 +398,20 @@ handler runs the global decider a *second* time on the no-debugger path — the
 `sigguarded_tss_init_test` Windows CI run observed `global_decider_called == 2`. The
 `longjmp` resolution aborts the dispatch after one claim, which is why
 `thrd_signal_handle_test` sees exactly one.
+
+**Fixed 2026-08-14:** the vectored function now carries a per-thread dedup marker — the
+`EXCEPTION_RECORD` of the exception whose global-decider pass just ran, plus the decision
+that pass produced. A second invocation for the *same* record (the continue handler
+re-invoking us after the unhandled filter on the no-debugger path) returns the recorded
+decision immediately instead of re-running every side-effecting decider. The marker is
+per-thread (`_Thread_local`), so it is async-signal-safe on MSVC; each exception dispatch
+has its own `EXCEPTION_RECORD`, so a nested exception raised by a decider has a different
+record and runs the pass fresh, and under a debugger only the continue handler runs so
+the pass executes exactly once. **Verified:** the `sigguarded_tss_init_test` Windows
+assertion was tightened from `global_decider_called >= 1` to `== 1`; the full `ctest`
+suite (23 tests on Linux, 22 on macOS) passes, and a standalone harness confirms the
+dedup logic (same record -> recorded decision returned; different record -> pass runs
+again).
 
 ### 3.16 V7 [code-level, fallback path, Medium] `siguninstall` of the last handler while another thread is inside `sigguarded` frees that thread's live state
 
@@ -1081,7 +1097,6 @@ invite reading `error_code`.
 | 3.1 | Med | Spinlock not async-signal-safe | `lock_unlock.h` |
 | 3.3 | Med | `SA_NOCLDWAIT`/`SA_NODEFER`/no `SA_RESTART` semantics | `thrd_signal_handle_posix.c.ipp:400-412` |
 | 8.1 | Low | Post-longjmp access to modified non-volatile locals | `thrd_signal_handle_posix.c.ipp:264-287` |
-| V5 | Med | Windows global deciders run twice per exception (once under a debugger) | `thrd_signal_handle_windows.c.ipp:486-519` |
 | V6 | Med | setjmp-buffer race: frame published before setjmp completes | `thrd_signal_handle_posix.c.ipp:271-272`, `thrd_signal_handle_windows.c.ipp:315-316` |
 | V7 | Med | `siguninstall` during another thread's `sigguarded` frees live TSS (fallback path) | `thrd_signal_handle_common.ipp.ipp:479-482` |
 | W3 | Med | nested delivery overwrites the frame `rsi` mid-decider (SA_NODEFER re-entrancy) | `thrd_signal_handle_posix.c.ipp:312-315` |

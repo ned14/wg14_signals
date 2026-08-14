@@ -401,15 +401,43 @@ extern "C"
     return (unclaimed) ? false : true;
   }
 
+  // The same vectored function is registered BOTH as the unhandled exception
+  // filter and as a vectored continue handler (install_sighandler_impl below):
+  // the unhandled filter runs on the no-debugger path, the continue handler is
+  // what runs under a debugger (the OS does not call the installed filter
+  // there). On the no-debugger path Windows invokes the continue handler AFTER
+  // the unhandled filter for the SAME exception, so without this marker the
+  // global deciders would run twice per exception — a double invocation of
+  // every side-effecting decider (analysis.md 3.15/V5). We record the exact
+  // EXCEPTION_RECORD the global-decider pass last ran for and the decision it
+  // produced; a second invocation for the same record returns the recorded
+  // decision instead of re-running the deciders. Per-thread: exception
+  // dispatch is per-thread, each dispatch has its own EXCEPTION_RECORD (so a
+  // nested exception raised by a decider has a different record and runs the
+  // pass fresh), and under a debugger only the continue handler runs so the
+  // pass executes exactly once.
+  static WG14_SIGNALS_THREAD_LOCAL const EXCEPTION_RECORD
+  *wg14_last_global_decider_record;
+  static WG14_SIGNALS_THREAD_LOCAL LONG wg14_last_global_decider_result;
+
   static long __stdcall WG14_SIGNALS_PREFIX(win32_vectored_exception_function)(
   EXCEPTION_POINTERS *ptrs)
   {
+    const EXCEPTION_RECORD *record = ptrs->ExceptionRecord;
     const int signo = WG14_SIGNALS_PREFIX(signal_from_win32_exception_code)(
-    ptrs->ExceptionRecord->ExceptionCode);
+    record->ExceptionCode);
     if(signo == 0)
     {
       // Not a supported exception code
       return EXCEPTION_CONTINUE_SEARCH;
+    }
+    // V5 dedup: if the global-decider pass already ran for this exact
+    // exception record (the continue handler re-invoking us after the unhandled
+    // filter on the no-debugger path), return its recorded decision instead of
+    // re-running every side-effecting decider a second time (analysis.md 3.15).
+    if(record == wg14_last_global_decider_record)
+    {
+      return wg14_last_global_decider_result;
     }
     struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
     WG14_SIGNALS_PREFIX(sig_global_state)();
@@ -487,13 +515,19 @@ extern "C"
           {
             longjmp(tss->front->buf, 1);
           }
-          // This will generally end the process
+          // This will generally end the process. Record the decision so the
+          // continue handler's second invocation of this function for the
+          // same exception reuses it (analysis.md 3.15/V5).
+          wg14_last_global_decider_record = record;
+          wg14_last_global_decider_result = EXCEPTION_CONTINUE_EXECUTION;
           return EXCEPTION_CONTINUE_EXECUTION;
         }
       } while(current != WG14_SIGNALS_NULLPTR);
     }
     // None of our deciders want this, so call previously installed signal
-    // handler
+    // handler. Record the decision for the V5 dedup (analysis.md 3.15).
+    wg14_last_global_decider_record = record;
+    wg14_last_global_decider_result = EXCEPTION_CONTINUE_SEARCH;
     WG14_SIGNALS_PREFIX(sighandler_info_release)(item);
     UNLOCK(state->lock);
     return EXCEPTION_CONTINUE_SEARCH;
