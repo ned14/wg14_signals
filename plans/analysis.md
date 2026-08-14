@@ -12,7 +12,8 @@ pass (one new finding — AC4 — fixed, in the sigfence volatile-sink fallback)
 `__VA_OPT__`; the header now falls back to plain argument counting, after a wrong
 `/Zc:__VAOPT__` attempt was reverted); 2026-08-14 FreeBSD CI build-failure pass (clang
 19 renamed the zero-arg variadic-macro warning to `-Wc23-extensions`; added to the
-sigfence test's suppression). Original
+sigfence test's suppression); 2026-08-14 fix pass (2.5 — `thread_init` now reports
+failure when `create` returns 0 with NULL). Original
 revision reviewed: `f48e95e` ("Implement all the changes as per N3924 WIP wording for
 'Thread-safe signals handling rev 4'"), plus one uncommitted whitespace/`nullptr`-for-C++
 change in `config.h`.
@@ -32,12 +33,20 @@ AB = pass 8); corrections from later passes are folded into the finding they aff
 
 ## 2. High-severity issues (static analysis and verified)
 
-### 2.5 `tss_async_signal_safe_thread_init` returns success when `create` yields NULL
+### 2.5 `tss_async_signal_safe_thread_init` returns success when `create` yields NULL **[FIXED 2026-08-14]**
 
 `tss_async_signal_safe.c.ipp:209-217`: a `create` callback that returns 0 but leaves
 `*dest` NULL makes `thread_init` return success (0) without inserting the TID into the
 map, so a later `tss_async_signal_safe_get` on that thread returns NULL — the failure
 is indistinguishable from success.
+
+**Fixed 2026-08-14:** the error path now distinguishes the two cases: a non-zero `create`
+return propagates the callback's error code as before, while a `create` that returns 0 but
+leaves `*dest` NULL is reported as failure (`errno = EINVAL`, return -1) instead of
+silently returning success. **Verified:** a `create` callback stubbed to `return 0` without
+writing `*dest` now makes `tss_async_signal_safe_thread_init` return -1 with `errno ==
+EINVAL` and no map entry inserted; the full `ctest` suite (22 tests) still passes on Linux
+(clang/gcc, native + fallback TLS) and macOS.
 
 ### 2.6 `tss_async_signal_safe_destroy(NULL)` dereferences NULL
 
@@ -1002,7 +1011,6 @@ invite reading `error_code`.
 |----|----------|-------|----------|
 | V2 | High | Windows vectored handler NULL-derefs `tss->front` on fresh threads | `thrd_signal_handle_windows.c.ipp:434-441` |
 | V4 | High | Windows `stdc_raise` aborts for all unsupported signos | `thrd_signal_handle_windows.c.ipp:131-153` |
-| 2.5 | Med | `thread_init` returns success for NULL item | `tss_async_signal_safe.c.ipp:209-217` |
 | 2.6 | Med | `tss_async_signal_safe_*` NULL handle crash (also Z8, X8) | `tss_async_signal_safe.c.ipp:96-272` |
 | 3.1 | Med | Spinlock not async-signal-safe | `lock_unlock.h` |
 | 3.3 | Med | `SA_NOCLDWAIT`/`SA_NODEFER`/no `SA_RESTART` semantics | `thrd_signal_handle_posix.c.ipp:400-412` |

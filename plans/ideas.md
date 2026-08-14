@@ -68,20 +68,20 @@ NULL` -> `memcpy` crash, `attr->create == NULL` crashes later in `thread_init`; 
 under `-DWG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=ON` (the backend-override option added in
 2026-08-14, formerly §2.1).
 
-### 5.3 `tss_async_signal_safe_thread_init`: re-check under the lock (fixes analysis.md 3.13, 3.14, 2.5)
+### 5.3 `tss_async_signal_safe_thread_init`: re-check under the lock (fixes analysis.md 3.13, 3.14; 2.5 done)
 
 **Why.** `:209-249`: the user `create` callback runs outside `mem->lock`, then the map is
 inserted without re-checking. Two racing threads both run `create` (leak of the loser's
 value, double `count`, double atexit registration — 3.13); a `create` returning 0 with
-NULL leaves `errno`/state inconsistent (2.5); a failed `thread_atexit` leaves a committed
-entry and count (3.14).
+NULL now reports failure (`-1`, `errno = EINVAL` — analysis.md 2.5, fixed 2026-08-14); a
+failed `thread_atexit` leaves a committed entry and count (3.14).
 
 **Concrete change.** Port the sibling's "capture/check under the lock" idiom
 (`../wg14_atomic_waits/atomic_wait_common.ipp.ipp:556-589`): run `create` unlocked, then
 re-lock, re-`get` the map, and if another thread won the race discard the copy (call
-`mem->attr.destroy(newitem)`); treat `ret == 0 && newitem == NULL` as failure (`-1`,
-`errno = EINVAL`); register `thread_atexit` LAST, and if it fails roll back the insert and
-count before returning -1.
+`mem->attr.destroy(newitem)`); register `thread_atexit` LAST, and if it fails roll back the
+insert and count before returning -1. (The `ret == 0 && newitem == NULL` failure case is
+already handled: analysis.md 2.5, fixed 2026-08-14.)
 
 ### 5.4 `tss_async_signal_safe_get`: lock-free read via a per-thread cached pointer
 
@@ -354,7 +354,7 @@ Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattributes`).
 |---|--------|----------|--------------------|--------|
 | 1 | Fallback-path setup: NULL-safe tss API | `tss_async_signal_safe.c.ipp:96-272` | 2.6 | Small |
 | 2 | Windows NULL-tss guard (V2) | `thrd_signal_handle_windows.c.ipp:357-367` | V2 | Small |
-| 3 | `tss_async_signal_safe`: lock-free `get` via cached TLS value; init re-check | `tss_async_signal_safe.c.ipp:136-243` | 3.1, 3.13, 3.14, 2.5 | Medium |
+| 3 | `tss_async_signal_safe`: lock-free `get` via cached TLS value; init re-check | `tss_async_signal_safe.c.ipp:136-243` | 3.1, 3.13, 3.14 | Medium |
 | 4 | `install_sighandler` flags: drop `SA_NOCLDWAIT`, add `SA_RESTART` | `thrd_signal_handle_posix.c.ipp:371-383` | 3.3 | Small |
 | 5 | Remaining regression tests (tss NULL, lock whitebox, decider-destroy leak) | `test/*` | 2.6, 3.1 | Medium |
 | 6 | Compile-fail suite (`expect_compile_fail.cmake` + sigfence targets) | `test/` | 5.3, 2.8, X11 | Medium |

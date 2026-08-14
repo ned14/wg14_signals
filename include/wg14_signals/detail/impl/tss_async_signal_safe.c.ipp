@@ -211,9 +211,19 @@ extern "C"
       UNLOCK(mem->lock);
       void *newitem = WG14_SIGNALS_NULLPTR;
       int ret = mem->attr.create(&newitem);
-      if(ret != 0 || newitem == WG14_SIGNALS_NULLPTR)
+      if(ret != 0)
       {
+        // The create callback reported failure; propagate its error code.
         return ret;
+      }
+      if(newitem == WG14_SIGNALS_NULLPTR)
+      {
+        // A create callback that returns 0 but leaves *dest NULL is broken: it
+        // would otherwise report success while no TID is inserted into the map,
+        // and a later get() on this thread would return NULL indistinguishably
+        // (plans/analysis.md 2.5). Report failure explicitly.
+        errno = EINVAL;
+        return -1;
       }
       LOCK(mem->lock);
       it = WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_insert)(
