@@ -15,7 +15,8 @@ pass (one new finding — AC4 — fixed, in the sigfence volatile-sink fallback)
 sigfence test's suppression); 2026-08-14 fix pass (2.5 — `thread_init` now reports
 failure when `create` returns 0 with NULL; 2.10/V2 — the Windows vectored handler now
 guards a NULL per-thread state; 2.12/V4 — Windows `stdc_raise` no longer aborts for
-unsupported signos). Original
+unsupported signos; 3.7 — `stdc_raise` now reports TSS-setup failure via errno).
+Original
 revision reviewed: `f48e95e` ("Implement all the changes as per N3924 WIP wording for
 'Thread-safe signals handling rev 4'"), plus one uncommitted whitespace/`nullptr`-for-C++
 change in `config.h`.
@@ -280,12 +281,24 @@ failing), the map retains the entry under that TID. A later thread that reuses t
 TID will observe the *previous* thread's value (never its own), and destruction may run
 with stale state. There is no TID-generation counter.
 
-### 3.7 `sig_global_state_tss_state_init` failure inside `stdc_raise` hides the real error
+### 3.7 `sig_global_state_tss_state_init` failure inside `stdc_raise` hides the real error **[FIXED 2026-08-14]**
 
 `stdc_raise` returns `false` both for "no handler installed for this signal" and for
 "TSS init failed" (`thrd_signal_handle_posix.c.ipp:297-300`). The POSIX `signo == 0`
 setup call also returns false on init failure, so the documented setup call gives no
 diagnostic when setup actually failed.
+
+**Fixed 2026-08-14:** `stdc_raise` (both backends) now reports setup failure via `errno`.
+The init chain already set errno on its own failure paths (calloc → ENOMEM,
+`tss_async_signal_safe_thread_init` → ENOMEM/EINVAL); the async-safe path's
+`sig_global_tss_state_init` now also sets `errno = ENOMEM` explicitly on its calloc
+failure, and `stdc_raise` preserves a set errno or defaults to `ENOMEM` if the lower
+layer left it at 0. A caller of the documented setup form `stdc_raise(0, NULL, NULL)`
+can now detect that setup actually failed by checking errno. The header documents this
+contract. **Verified:** with a `--wrap=calloc` interposer failing the per-thread TSS
+state allocation, `stdc_raise(0, NULL, NULL)` returns false with `errno == ENOMEM` on
+both the async-safe TLS path and the fallback hash-table path (Linux, clang); the full
+`ctest` suite (22 tests) passes on Linux (native + fallback TLS) and macOS.
 
 ### 3.8 Partial install failure in `siginstall` leaves handlers installed (no rollback)
 

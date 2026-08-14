@@ -555,7 +555,11 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   has been called from the called from the calling thread, this is async signal
   safe. If you need to set up this library for a calling thread without doing
   anything else, specify zero for `signo`, this will ensure the calling thread's
-  thread local state is set up and return immediately doing nothing else.
+  thread local state is set up and return immediately doing nothing else. The
+  call returns `false` both when no decider claims the signal and when the
+  per-thread setup fails; on setup failure `errno` is set (e.g. `ENOMEM`) so a
+  caller of the setup form (`signo == 0`) can detect that setup actually failed
+  (plans/analysis.md 3.7).
   */
   WG14_SIGNALS_EXTERN bool WG14_SIGNALS_PREFIX(stdc_raise)(
   int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * raw_info,

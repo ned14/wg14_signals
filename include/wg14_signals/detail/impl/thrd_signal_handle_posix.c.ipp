@@ -296,6 +296,18 @@ static void __attribute__((noreturn)) default_abort(void)
     // library
     if(0 != WG14_SIGNALS_PREFIX(sig_global_tss_state_init)())
     {
+      // The per-thread TSS setup failed (e.g. OOM). The return value alone
+      // cannot distinguish this from "no decider installed for this signal"
+      // (both are false), so report the failure via errno: the init chain
+      // already sets errno on its own failure paths (calloc -> ENOMEM,
+      // tss_async_signal_safe_thread_init -> ENOMEM/EINVAL), and we guarantee
+      // a diagnostic even if a lower layer forgot (plans/analysis.md 3.7).
+      // In particular the documented setup call stdc_raise(0, NULL, NULL)
+      // then lets the caller detect that setup actually failed.
+      if(errno == 0)
+      {
+        errno = ENOMEM;
+      }
       return false;
     }
     if(signo == 0)

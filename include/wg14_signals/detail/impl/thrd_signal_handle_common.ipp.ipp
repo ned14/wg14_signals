@@ -306,6 +306,10 @@ extern "C"
     1, sizeof(struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t)));
     if(mem == WG14_SIGNALS_NULLPTR)
     {
+      // calloc() usually sets ENOMEM itself, but set it explicitly so the
+      // failure is always observable via errno by stdc_raise()'s callers
+      // (plans/analysis.md 3.7).
+      errno = ENOMEM;
       return -1;
     }
     *state = mem;
