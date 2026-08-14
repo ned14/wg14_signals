@@ -5,7 +5,9 @@ Review date: 2026-08-06 (concretised against the `wg14_signals` implementation s
 folded in) and §1.3 implemented; 2026-08-14 §2.1 + §3.4 + §3.5 implemented;
 2026-08-14 §2.2 (feature-test macro discipline) implemented; 2026-08-14 §2.3 (Windows
 SDK floor) implemented; 2026-08-14 §2.5 (test `-Werror`, incl. analysis.md AA3)
-implemented; 2026-08-14 §4.2 (`WG14_SIGNALS_STATIC_ASSERT` helper) implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+implemented; 2026-08-14 §4.2 (`WG14_SIGNALS_STATIC_ASSERT` helper) implemented;
+2026-08-14 §4.3 (Windows `sigset_t` bounds-checked bit shifts, fixing analysis.md 4.5)
+implemented. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
 would have caught the defect). Sibling references are cited as
@@ -314,7 +316,7 @@ These become the targets of the compile-fail suite (§6.7).
   conditions in both C and C++; the full `ctest` suite (22 tests) passes. The two asserts
   are the natural targets for the §6.7 compile-fail suite.
 
-### 4.3 Windows `sigset_t`: bound-check the bit shifts
+### 4.3 Windows `sigset_t`: bound-check the bit shifts **[DONE 2026-08-14]**
 
 **Why.** `thrd_signal_handle.h:52-63` compute `1u << (signo - 1)` with no range check;
 `signo > 32` is UB (analysis.md 4.5), and `sigaddset`/`sigismember` are also called from
@@ -332,6 +334,18 @@ static inline void sigaddset(sigset_t *ss, const int signo)
 
 and keep `sigismember` total (return false out of range) so the Windows `sigfillset_*`
 lazy checks don't read a torn set.
+
+**Done 2026-08-14:** the three shifting helpers (`sigaddset`, `sigdelset`,
+`sigismember`; `sigemptyset`/`sigfillset` don't shift) now bounds-check `signo` against
+`[1, 32]` in `thrd_signal_handle.h`. `sigaddset`/`sigdelset` are no-ops out of range;
+`sigismember` short-circuits to `false` out of range, keeping it total so the Windows
+`sigfillset_*` lazy-init checks (`sigismember(&v, signos[0])`) never read a torn set. The
+helpers run in signal-handler context, so the choice is silent no-op / total false rather
+than error reporting. The `32` bound is backed by the §4.2 static assert (the set is at
+least `uint32_t`-wide). **Verified:** a standalone ASan/UBSan probe exercising signo
+{-1, 0, 1, 2, 15, 31, 32, 33, 64} confirmed out-of-range adds/dels are no-ops,
+`sigismember` is false out of range with no shift UB, and in-range behaviour is
+unchanged; the full `ctest` suite (22 tests) passes.
 
 ### 4.4 Backend `.ipp` include guards + platform `#error` guards [partially DONE]
 

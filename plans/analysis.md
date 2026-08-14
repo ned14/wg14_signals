@@ -360,13 +360,22 @@ exceptions (access violations, integer overflow traps on x86, explicit `RaiseExc
 are handled. A substantial functional gap on Windows versus POSIX, and it is not
 documented.
 
-### 4.5 32-bit sigset_t on Windows overflows for signals >32
+### 4.5 32-bit sigset_t on Windows overflows for signals >32 **[FIXED 2026-08-14]**
 
 `thrd_signal_handle.h:52-63`: `sigaddset` computes `1u << (signo - 1)` on `uint32_t`.
 Any signal number >32 (e.g. realtime 34-64) is undefined behaviour. Currently only
 numbers up to 22 are used, but the header's comment claims "MSVC appears to follow the
 Linux signal numbering" — with `SIGSYS`(31) this is just inside the limit; realtime
 signals would overflow.
+
+**Fixed 2026-08-14:** `sigaddset`/`sigdelset`/`sigismember` now bounds-check `signo`
+against `[1, 32]` before shifting (ideas.md 4.3): `sigaddset`/`sigdelset` are no-ops out
+of range, and `sigismember` is total — it returns `false` out of range, so the Windows
+`sigfillset_*` lazy-init checks never read a torn set. The bounds are backed by the §4.2
+static assert (`sizeof(sigset_t) >= sizeof(uint32_t)`). **Verified:** a standalone
+ASan/UBSan probe exercising signo values {-1, 0, 1, 2, 15, 31, 32, 33, 64} confirms
+out-of-range adds/dels are no-ops, `sigismember` returns false out of range with no shift
+UB, and the full `ctest` suite (22 tests) still passes.
 
 ### 4.6 Missing `SIGSYS`/`SIGXCPU`/`SIGXFSZ` guards
 

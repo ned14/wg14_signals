@@ -49,17 +49,29 @@ extern "C"
   {
     *ss = UINT32_MAX;
   }
+  // The shifts below are bounds-checked against the 32-signal bit set
+  // (analysis.md 4.5): for signo outside [1, 32], 1u << (signo - 1) is
+  // undefined behaviour. sigaddset/sigdelset become no-ops out of range;
+  // sigismember is kept total (returns false) so the Windows sigfillset_*
+  // lazy-init checks never read a torn set (plans/ideas.md 4.3). These
+  // helpers run in signal-handler context too, so no error reporting.
   static inline void sigaddset(sigset_t *ss, const int signo)
   {
-    *ss |= (1u << (signo - 1));
+    if(signo >= 1 && signo <= 32)
+    {
+      *ss |= (1u << (signo - 1));
+    }
   }
   static inline void sigdelset(sigset_t *ss, const int signo)
   {
-    *ss &= ~(1u << (signo - 1));
+    if(signo >= 1 && signo <= 32)
+    {
+      *ss &= ~(1u << (signo - 1));
+    }
   }
   static inline bool sigismember(const sigset_t *ss, const int signo)
   {
-    return (*ss & (1u << (signo - 1))) != 0;
+    return (signo >= 1 && signo <= 32) && (*ss & (1u << (signo - 1))) != 0;
   }
 
   // The 32-signal bit-set scheme above (sigfillset == UINT32_MAX, shifts
