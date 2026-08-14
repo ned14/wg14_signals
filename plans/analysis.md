@@ -4,7 +4,9 @@ Review dates: 2026-08-05 and 2026-08-06 (seven full review passes, all against t
 revision); 2026-08-14 status reconciliation pass against the current tree (fixed
 findings removed, one new finding — AB1 — added); 2026-08-14 second status
 reconciliation against the current tree (fixed findings removed: V3, 4.5, 6.6/AA3, 7.2,
-and the fixed portions of 4.6, 5.2, 5.3, 5.4; one new finding — AC2 — added). Original
+and the fixed portions of 4.6, 5.2, 5.3, 5.4; one new finding — AC2 — added); 2026-08-14
+Linux LSan pass against the current tree (fixed: AB1 and one new fallback-path finding
+AC3; one new finding — AC1 docs-hygiene — added to §9). Original
 revision reviewed: `f48e95e` ("Implement all the changes as per N3924 WIP wording for
 'Thread-safe signals handling rev 4'"), plus one uncommitted whitespace/`nullptr`-for-C++
 change in `config.h`.
@@ -83,7 +85,7 @@ On POSIX the same calls are harmless no-ops when no decider is installed. The he
 documents `stdc_raise` as usable for "OUR currently installed signal decider" for
 arbitrary signals.
 
-### 2.24 AB1 [confirmed, Medium-High] `signal_decider_destroy` leaks every decider node on the normal destroy path — the AA1 fix (65322dd) double-decrements the node refcount (regression)
+### 2.24 AB1 [confirmed, Medium-High] `signal_decider_destroy` leaks every decider node on the normal destroy path — the AA1 fix (65322dd) double-decrements the node refcount (regression) **[FIXED 2026-08-14]**
 
 `thrd_signal_handle_common.ipp.ipp:708-755`. In `signal_decider_destroy`, for a signal
 that is still installed (map entry present) whose node has the base refcount of 1 (the
@@ -105,8 +107,35 @@ to defer the free for the concurrent map-miss case, silently breaking the still-
 case. Invisible on the macOS CI legs (ASan on macOS has no LSan); the Linux CI legs would
 catch it. The mid-loop `calloc`-failure path of `signal_decider_create` (`:642-648`,
 which self-destroys the partial handle) leaks every node created so far via the same bug.
-Fix direction: make the second decrement run only on the map-miss path (restructure as
-`else` on "map entry absent"), or free the node inside the refcount-zero branch directly.
+
+**Fixed 2026-08-14:** the refcount-zero branch now frees the node immediately — after the
+`sighandler_info_has_decider` walk it does `free(*retp)` and sets `*retp = NULL`, so the
+post-unlock block is only reached for the map-miss (uninstalled-signal) case. This is
+safe because the raise path bumps the node's `refcount` under the same `state->lock`
+*before* its unlocked decider call, so the map-entry refcount-zero branch can only be
+entered when no in-flight raise references the node. **Verified:** full `ctest` suite (22
+tests) passes under LeakSanitizer (ASan's `detect_leaks=1`, Linux arm64, clang 18) on all
+four CI matrix combinations (native/fallback TLS x clang/gcc) and on the Release/C23/shared
+combinations — previously 9 of 22 tests failed with `LeakSanitizer: detected memory
+leaks` reporting 40-byte `calloc` from `signal_decider_create` (`:640`).
+
+### 2.25 AC3 [code-level, fallback-TLS path, Low] `sig_global_tss_state_create` overwrites an existing TSS and leaks it
+
+`thrd_signal_handle_common.ipp.ipp:342-359` (fallback path): the function calls
+`tss_async_signal_safe_create()` which unconditionally assigns the fresh handle into the
+static `*sig_tss_state_raw()` slot. If a TSS already exists there — recreated by the
+documented post-uninstall setup call `stdc_raise(0, ...)`, or by an earlier `siginstall`
+whose full `siguninstall` has not yet run — the old TSS is orphaned and leaked together
+with every thread registration in it. The async-safe TLS path's create is a no-op and
+initialises lazily, so the two paths diverge. Only visible under LSan on Linux with
+`WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=ON` (e.g. `post_uninstall_reentry_test` — 9
+leaked `tss_async_signal_safe` handles + 9 verstable maps, ~1.9 KB per run).
+
+**Fixed 2026-08-14:** the function now returns 0 (reuse) when the slot is already
+non-NULL, matching the async-safe path's lazy-init semantics. **Verified:** the
+`post_uninstall_reentry_test` / `stdc_raise_null_info_test` / `stdc_raise_uninstalled_test`
+/ `install_consumer_test` LSan failures on the fallback path are gone; full `ctest` suite
+(22 tests) passes under LSan on all matrix combinations.
 
 ---
 
@@ -911,7 +940,6 @@ invite reading `error_code`.
 
 | ID | Severity | Issue | Location |
 |----|----------|-------|----------|
-| AB1 | Med-High | `signal_decider_destroy` leaks every decider node on the normal destroy path — AA1 fix double-decrements the refcount (confirmed) | `thrd_signal_handle_common.ipp.ipp:708-755` |
 | V2 | High | Windows vectored handler NULL-derefs `tss->front` on fresh threads | `thrd_signal_handle_windows.c.ipp:434-441` |
 | V4 | High | Windows `stdc_raise` aborts for all unsupported signos | `thrd_signal_handle_windows.c.ipp:131-153` |
 | 2.5 | Med | `thread_init` returns success for NULL item | `tss_async_signal_safe.c.ipp:209-217` |
@@ -953,6 +981,7 @@ invite reading `error_code`.
 | Z9 | Low | `thread_init`'s unlocked `attr.create` breaks THREADSAFE claim for concurrent first-use | `tss_async_signal_safe.c.ipp:209-217` |
 | Z10 | Low | Windows nondebug set omits documented signals, includes `SIGKILL`/`SIGSTOP` (extends X9) | `thrd_signal_handle_windows.c.ipp:92-108` |
 | AC2 | Low | C `thread_atexit` swallows a failed `__cxa_thread_atexit()` registration (returns 0 unconditionally) | `thread_atexit.c.ipp:66-76` |
+| AC3 | Low | fallback path: `sig_global_tss_state_create` overwrites and leaks an existing TSS | `thrd_signal_handle_common.ipp.ipp:342-359` |
 | AA4 | Low | `siguninstall` (POSIX) discards post-`siginstall` app handler changes (Z5 sibling) | `thrd_signal_handle_posix.c.ipp:414-419` |
 | AA5 | Low | global decider `invoke_recovery`: POSIX claims-without-recovery vs Windows unwinds-to-frame | `thrd_signal_handle_posix.c.ipp:384-389`, `thrd_signal_handle_windows.c.ipp:430-443` |
 | AA6 | Low | Windows user `EXCEPTION_RECORD` params leak into `rsi->addr`/`error_code` | `thrd_signal_handle_windows.c.ipp:207-216` |

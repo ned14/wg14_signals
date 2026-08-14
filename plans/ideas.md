@@ -163,13 +163,20 @@ the "ASYNC-SIGNAL-SAFE" claim.
   `return -1` before `free(ss)`; free first. (`uninstall_sighandler` always returns true so
   the path is currently dead, but keep it correct.)
 - **`signal_decider_destroy` leaks the node on the normal destroy path (analysis.md
-  AB1):** the AA1 fix left the post-unlock free as a *second* refcount decrement, so a
+  2.24/AB1):** the AA1 fix left the post-unlock free as a *second* refcount decrement, so a
   node whose first decrement hit 0 (still-installed signal, base refcount 1) is
-  LIST_REMOVE'd and then counted down to -1 and never freed. Concrete fix: free the node
-  where its refcount first reaches zero (in the map-entry branch, after the
-  `sighandler_info_has_decider` walk), and leave the post-unlock block for the map-miss
-  path only — i.e. restructure the second decrement as `else` on "the map had no entry",
-  or simply restore `free(*retp)` in the map-entry refcount-zero branch.
+  LIST_REMOVE'd and then counted down to -1 and never freed. **Fixed 2026-08-14:** the
+  map-entry refcount-zero branch now frees the node immediately (after the
+  `sighandler_info_has_decider` walk) and sets `*retp = NULL`, leaving the post-unlock
+  block for the map-miss path only — safe because the raise path bumps `refcount` under
+  the same lock before its unlocked decider call. Verified under LSan on Linux arm64
+  (clang/gcc x native/fallback, Debug/Release, C11/C23, shared ON/OFF): all 22 tests pass,
+  where previously 9 failed with LeakSanitizer reports at `signal_decider_create:640`.
+- **Fallback path: `sig_global_tss_state_create` leaks a pre-existing TSS (analysis.md
+  2.25/AC3):** the function unconditionally assigns a fresh `tss_async_signal_safe` into
+  the static slot, orphaning an existing TSS (e.g. one recreated by the documented
+  post-uninstall `stdc_raise(0, ...)` setup call). **Fixed 2026-08-14:** return 0 (reuse)
+  when the slot is already non-NULL, matching the async-safe path's lazy-init semantics.
 
 ### 5.10 C `thread_atexit`: propagate a failed `__cxa_thread_atexit()` registration (fixes analysis.md 3.21/AC2)
 
@@ -208,7 +215,7 @@ Add to `test/` (all `add_code_test`, C11):
 |---|---|---|
 | `tss_null_handle_test.c` | `create/destroy/thread_init/get` on NULL and zeroed handles | 2.6 |
 | `lock_whitebox_test.c` | `#include "detail/impl/lock_unlock.h"`, lock/unlock under TSan | 3.1 discipline |
-| `decider_destroy_leak_test.c` | loop 10,000 x {create, destroy} on an installed signal; assert no node allocation growth (malloc/calloc interposition, the analysis.md AB1 pattern) | AB1 |
+| `decider_destroy_leak_test.c` | loop 10,000 x {create, destroy} on an installed signal; assert no node allocation growth (malloc/calloc interposition, the analysis.md AB1 pattern, now fixed — keep as a permanent regression guard) | AB1 |
 | `thread_atexit_failure_test.c` | stub `__cxa_thread_atexit` via a linker/interposer shim returning -1 and assert `thread_atexit`/`thread_init` propagate the failure on platforms where the return is trustworthy | AC2 |
 
 ### 6.5 White-box tests (include internals directly) **[PARTIALLY DONE 2026-08-14]**
@@ -318,13 +325,12 @@ Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattributes`).
 
 | # | Change | Location | Fixes (analysis.md) | Effort |
 |---|--------|----------|--------------------|--------|
-| 1 | Fix `signal_decider_destroy` node leak: free at the refcount-zero branch, keep the map-miss block for uninstalled signals only | `thrd_signal_handle_common.ipp.ipp:708-755` | AB1 | Small |
-| 2 | Fallback-path setup: NULL-safe tss API | `tss_async_signal_safe.c.ipp:93-243` | 2.6 | Small |
-| 3 | Windows NULL-tss guard (V2) | `thrd_signal_handle_windows.c.ipp:357-367` | V2 | Small |
-| 4 | `tss_async_signal_safe`: lock-free `get` via cached TLS value; init re-check | `tss_async_signal_safe.c.ipp:136-243` | 3.1, 3.13, 3.14, 2.5 | Medium |
-| 5 | `install_sighandler` flags: drop `SA_NOCLDWAIT`, add `SA_RESTART` | `thrd_signal_handle_posix.c.ipp:371-383` | 3.3 | Small |
-| 6 | Remaining regression tests (tss NULL, lock whitebox, decider-destroy leak) | `test/*` | 2.6, 3.1, AB1 | Medium |
-| 7 | Compile-fail suite (`expect_compile_fail.cmake` + sigfence targets) | `test/` | 5.3, 2.8, X11 | Medium |
-| 8 | `sigfillset_*` constructor-attribute removal + init under lock | `thrd_signal_handle_posix.c.ipp:49-127` | 7.1, C11 rule 1 | Small |
-| 9 | C `thread_atexit`: propagate a failed `__cxa_thread_atexit()` registration (macOS only excepted) | `thread_atexit.c.ipp:66-76` | 3.21/AC2 | Small |
-| 10 | `docs/proposal.md` + `plans/test-review-todos.md` + `.gitattributes` trim | `docs/`, `plans/`, `.gitattributes` | process | Small |
+| 1 | Fallback-path setup: NULL-safe tss API | `tss_async_signal_safe.c.ipp:96-272` | 2.6 | Small |
+| 2 | Windows NULL-tss guard (V2) | `thrd_signal_handle_windows.c.ipp:357-367` | V2 | Small |
+| 3 | `tss_async_signal_safe`: lock-free `get` via cached TLS value; init re-check | `tss_async_signal_safe.c.ipp:136-243` | 3.1, 3.13, 3.14, 2.5 | Medium |
+| 4 | `install_sighandler` flags: drop `SA_NOCLDWAIT`, add `SA_RESTART` | `thrd_signal_handle_posix.c.ipp:371-383` | 3.3 | Small |
+| 5 | Remaining regression tests (tss NULL, lock whitebox, decider-destroy leak) | `test/*` | 2.6, 3.1 | Medium |
+| 6 | Compile-fail suite (`expect_compile_fail.cmake` + sigfence targets) | `test/` | 5.3, 2.8, X11 | Medium |
+| 7 | `sigfillset_*` constructor-attribute removal + init under lock | `thrd_signal_handle_posix.c.ipp:49-127` | 7.1, C11 rule 1 | Small |
+| 8 | C `thread_atexit`: propagate a failed `__cxa_thread_atexit()` registration (macOS only excepted) | `thread_atexit.c.ipp:66-76` | 3.21/AC2 | Small |
+| 9 | `docs/proposal.md` + `plans/test-review-todos.md` + `.gitattributes` trim | `docs/`, `plans/`, `.gitattributes` | process | Small |

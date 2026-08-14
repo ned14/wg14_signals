@@ -97,7 +97,7 @@ defined(_M_X64)
     break;
   case memory_order_acq_rel:
   case memory_order_seq_cst:
-    __asm__ __volatile__("dsb sy; mrs %0 PMCCNTR_EL0; dsb sy"
+    __asm__ __volatile__("dsb sy; mrs %0, PMCCNTR_EL0; dsb sy"
                          : "=r"(value));  // NOLINT
     break;
   default:

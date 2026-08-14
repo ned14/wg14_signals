@@ -21,7 +21,14 @@ int main(void)
      that diagnostic around the zero-arg overload for both clang and gcc. */
 #if defined(__clang__)
 #pragma clang diagnostic push
+/* -Wvariadic-macro-arguments-omitted is the pre-clang-18 name of the
+   zero-argument variadic-macro call diagnostic; clang 18 renamed it to
+   -Wgnu-zero-variadic-macro-arguments and rejects the old name as an unknown
+   warning group unless -Wunknown-warning-option is itself suppressed (the
+   tests build with -Werror). Suppress all three. */
+#pragma clang diagnostic ignored "-Wunknown-warning-option"
 #pragma clang diagnostic ignored "-Wvariadic-macro-arguments-omitted"
+#pragma clang diagnostic ignored "-Wgnu-zero-variadic-macro-arguments"
 #elif defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wvariadic-macros"

@@ -341,9 +341,22 @@ static int sig_global_state_tss_state_destroy(void *p)
 }
 static int WG14_SIGNALS_PREFIX(sig_global_tss_state_create)(void)
 {
-  const struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)
-  tss_attr = {.create = sig_global_state_tss_state_create,
-              .destroy = sig_global_state_tss_state_destroy};
+  if(*WG14_SIGNALS_PREFIX(sig_tss_state_raw)() != WG14_SIGNALS_NULLPTR)
+  {
+    // A TSS already exists -- e.g. recreated by the documented post-uninstall
+    // setup call stdc_raise(0, ...), or by an earlier siginstall whose full
+    // siguninstall has not yet run. Reuse it rather than overwrite the slot
+    // and leak the old TSS together with every thread registration in it. The
+    // async-safe TLS path's create is a no-op and initialises lazily, so this
+    // matches that path's semantics (analysis.md Z3 family).
+    return 0;
+  }
+  // Positional, not designated, initialisation: the .ipp is also compiled as
+  // C++11 by the header-only C++ test, where designated initialisers are a
+  // C++20 extension and would trip -Wc++20-designator under -Werror. The
+  // struct has exactly the two members create/destroy in this order.
+  const struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr) tss_attr = {
+  sig_global_state_tss_state_create, sig_global_state_tss_state_destroy};
   return WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(
   WG14_SIGNALS_PREFIX(sig_tss_state_raw)(), &tss_attr);
 }
@@ -714,8 +727,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
               // The node may have been orphaned (detached) by a siguninstall
               // that freed its original container, leaving this signal's new
               // container without it; only LIST_REMOVE when the node is still
-              // linked in the current container, otherwise just free it
-              // (analysis.md 2.23/AA1).
+              // linked in the current container (analysis.md 2.23/AA1).
               if(WG14_SIGNALS_PREFIX(sighandler_info_has_decider)(
                  signo_to_sighandler_map_t_value(it), *retp))
               {
@@ -726,6 +738,14 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
               {
                 (*retp)->next = (*retp)->prev = WG14_SIGNALS_NULLPTR;
               }
+              // The node is no longer referenced by any container or in-flight
+              // raise (the map-entry branch is only reached when no raise holds
+              // it, since the raise path bumps refcount under the same lock
+              // before its unlocked decider call), so free it now. Leaving it
+              // to the post-unlock block would decrement the refcount a second
+              // time 0 -> -1 and never free it (analysis.md 2.24/AB1).
+              free(*retp);
+              *retp = WG14_SIGNALS_NULLPTR;
             }
             else
             {
