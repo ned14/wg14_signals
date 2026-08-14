@@ -19,7 +19,8 @@ unsupported signos; 3.7 — `stdc_raise` now reports TSS-setup failure via errno
 a partial `siginstall` now rolls back its already-installed signals; 3.15/V5 — the
 Windows vectored function now dedups the global-decider pass across the unhandled
 filter + continue handler pair; 3.18/X4 — Windows now maps `EXCEPTION_STACK_OVERFLOW`
-to SIGSEGV like POSIX). Original
+to SIGSEGV like POSIX; 7.3/AA8 — the `tss_async_signal_safe` per-thread ID cache now
+uses the async-signal-safe TLS attribute). Original
 revision reviewed: `f48e95e` ("Implement all the changes as per N3924 WIP wording for
 'Thread-safe signals handling rev 4'"), plus one uncommitted whitespace/`nullptr`-for-C++
 change in `config.h`.
@@ -826,7 +827,7 @@ pre-initialises the statics at load time for executables and substantially mitig
 race — but the attribute is POSIX-only (C9), so the race is unmitigated on Windows for
 `synchronous_sigset`/`asynchronous_nondebug_sigset`.
 
-### 7.3 AA8 [code-level, Low] the `tss_async_signal_safe` per-thread ID cache uses plain `_Thread_local`, not the async-signal-safe attribute
+### 7.3 AA8 [code-level, Low] the `tss_async_signal_safe` per-thread ID cache uses plain `_Thread_local`, not the async-signal-safe attribute **[FIXED 2026-08-14]**
 
 `tss_async_signal_safe.c.ipp:84-94` declares the `my_current_thread_id()` cache with
 `WG14_SIGNALS_THREAD_LOCAL` (plain `_Thread_local`), not
@@ -837,6 +838,18 @@ normally primed by the documented `thread_init` call, so `tss_async_signal_safe_
 (documented ASYNC-SIGNAL-SAFE) is only actually safe after priming; the first `get` from a
 handler on a never-primed thread is async-signal-unsafe even on Linux. Extends the 4.3/Y9
 family to the async-safe path's own cache.
+
+**Fixed 2026-08-14:** `my_current_thread_id()` now uses
+`WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL` where the platform provides it (Linux/Windows:
+initial-exec ELF TLS or MSVC TLS, both async-signal-safe with no `__tls_get_addr` trap on
+first access), falling back to plain `WG14_SIGNALS_THREAD_LOCAL` on platforms without it
+(Apple fallback, where the cache is primed from outside the signal handler per the
+existing comment). This matches the shared cached-TID pattern already used by
+`current_thread_id.c.ipp:64`. **Verified:** the native Linux build's
+`tss_async_signal_safe.c.o` has no `__tls_get_addr` references (initial-exec TLS) — the
+first handler-context `get` on a never-primed thread no longer traps; the fallback path
+and macOS (where the macro is undefined, exercising the `#else` branch) compile cleanly;
+the full `ctest` suite (23 tests on Linux, 22 on macOS) passes.
 
 ---
 
@@ -1148,7 +1161,6 @@ invite reading `error_code`.
 | AA5 | Low | global decider `invoke_recovery`: POSIX claims-without-recovery vs Windows unwinds-to-frame | `thrd_signal_handle_posix.c.ipp:384-389`, `thrd_signal_handle_windows.c.ipp:430-443` |
 | AA6 | Low | Windows user `EXCEPTION_RECORD` params leak into `rsi->addr`/`error_code` | `thrd_signal_handle_windows.c.ipp:207-216` |
 | AA7 | Low | C++ object-lifetime UB: `calloc` for `std::atomic_uint` members | `tss_async_signal_safe.c.ipp:100-112,230-241` |
-| AA8 | Low | `my_current_thread_id` cache uses plain `_Thread_local`, not async-safe TLS | `tss_async_signal_safe.c.ipp:84-94` |
 | AA9 | Low | `stdc_raise(SIGFPE)` code != real `INT_DIVIDE_BY_ZERO` code; `SIGBUS`->`IN_PAGE_ERROR` | `thrd_signal_handle_windows.c.ipp:131-153` |
 
 ## 11. Methodology notes

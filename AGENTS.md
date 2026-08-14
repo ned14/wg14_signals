@@ -29,3 +29,7 @@ safe functions, and an `ASYNC-SIGNAL-SAFE` API must ONLY call those functions
 or other functions known to be signal handler safe. Analyse the
 implementation of those APIs for every possible cause of signal handler
 unsafety. Be exhaustive and report your findings as severe bugs.
+9. NULL inputs to public APIs causing an immediate crash SO LONG as no
+data gets unexpectedly mutated or causing a potential security
+vulnerability is OK - we WANT to fail fast if users supply a NULL
+to an argument which is mandatory.

@@ -20,7 +20,9 @@ a partial `siginstall` now rolls back its already-installed signals, with a new
 `--wrap=calloc` white-box regression test; analysis.md 3.15/V5 — the Windows vectored
 function now dedups the global-decider pass across the unhandled-filter + continue-handler
 pair, recorded in §5.8; analysis.md 3.18/X4 — Windows now maps
-`EXCEPTION_STACK_OVERFLOW` to SIGSEGV like POSIX, recorded in §5.8). Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
+`EXCEPTION_STACK_OVERFLOW` to SIGSEGV like POSIX, recorded in §5.8; analysis.md
+7.3/AA8 — the `tss_async_signal_safe` per-thread ID cache now uses the async-signal-safe
+TLS attribute on platforms that provide it). Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
 derived from this project. Every idea is tied to a specific file and function in this
 tree, shows the current code, and gives the concrete replacement (or a test design that
 would have caught the defect). Sibling references are cited as

@@ -78,14 +78,22 @@ extern "C"
     WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t) thread_id_to_tls_map;
   };
 
-  // Keep a local cache of the current thread id, if thread locals aren't async
-  // signal safe on this platform it doesn't matter as we'll ensure it is
-  // initialised from outside the signal handler
+  // Keep a local cache of the current thread id. Use the async-signal-safe
+  // TLS attribute where the platform provides it (Linux/Windows: initial-exec
+  // ELF TLS or MSVC TLS, both async-signal-safe with no __tls_get_addr trap on
+  // first access); on platforms without it (Apple fallback) fall back to plain
+  // _Thread_local, where the cache is primed from outside the signal handler
+  // so the first handler-context access is the fast path (analysis.md 7.3/AA8).
   static WG14_SIGNALS_PREFIX(thread_id_t)
   WG14_SIGNALS_PREFIX(my_current_thread_id)(void)
   {
-    static WG14_SIGNALS_THREAD_LOCAL WG14_SIGNALS_PREFIX(thread_id_t)
+#ifdef WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL
+    static WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL WG14_SIGNALS_PREFIX(thread_id_t)
     current_thread_id_mycache;
+#else
+  static WG14_SIGNALS_THREAD_LOCAL WG14_SIGNALS_PREFIX(thread_id_t)
+  current_thread_id_mycache;
+#endif
     if(current_thread_id_mycache == WG14_SIGNALS_PREFIX(thread_id_t_tombstone))
     {
       current_thread_id_mycache = WG14_SIGNALS_PREFIX(current_thread_id)();
