@@ -1304,6 +1304,19 @@ Verdicts:
   *already-present* filter, which `AddVectoredContinueHandler` would not have needed
   to displace. (The POSIX backend has no analogous concern: `sigaction` chaining
   preserves the old handler in `old_handler`.)
+- **`--wrap` + hidden visibility + shared library breaks the rollback test's link
+  (fixed).** `siginstall_rollback_test` links `-Wl,--wrap=calloc` and defines
+  `__wrap_calloc`; with `CMAKE_C_VISIBILITY_PRESET "hidden"` the definition was
+  hidden, and GNU ld (binutils >= 2.42, Ubuntu 24.04 CI) additionally redirects the
+  *shared library's* undefined `calloc` reference to `__wrap_calloc` — a DSO
+  reference that a hidden symbol in the executable cannot satisfy ("hidden symbol
+  `__wrap_calloc' ... is referenced by DSO", final link failed). Fixed by compiling
+  the interposer with default visibility
+  (`__attribute__((visibility("default")))`, `test/siginstall_rollback_test.c:32-49`):
+  the executable exports it, the DSO's redirected reference binds at runtime, and the
+  library's own internal `calloc` calls are not redirected by `--wrap`, so the
+  interposer still only sees the test TU's calls. Verified on Ubuntu 24.04 for
+  GCC/Clang x shared ON/OFF x Debug/Release (all 23 tests pass).
 
 ### Minor proposal-conformance notes (N3924 rev 4 wording)
 

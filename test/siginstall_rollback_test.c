@@ -29,7 +29,16 @@
 static int sighandler_info_calls_allowed = -1;
 static int sighandler_info_calls = 0;
 void *__real_calloc(size_t nmemb, size_t size);
-void *__wrap_calloc(size_t nmemb, size_t size)
+// Must be default-visible: with GNU ld (binutils >= 2.42, Ubuntu 24.04 CI),
+// --wrap=calloc also redirects the *shared library's* undefined calloc
+// reference to __wrap_calloc; a hidden definition (CMAKE_C_VISIBILITY_PRESET
+// "hidden") cannot satisfy a reference from a DSO and the link fails with
+// "hidden symbol `__wrap_calloc' ... is referenced by DSO". The executable
+// exports this symbol so the runtime binds the DSO's redirected reference to
+// it; the library's own internal calloc calls are not redirected by --wrap and
+// keep binding to libc, so the interposer only ever sees this TU's calls.
+__attribute__((visibility("default"))) void *__wrap_calloc(size_t nmemb,
+                                                           size_t size)
 {
   if(size == sizeof(struct WG14_SIGNALS_PREFIX(sighandler_info)))
   {
