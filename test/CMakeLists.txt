@@ -15,8 +15,14 @@ set_tests_properties(siguninstall_raise_test PROPERTIES TIMEOUT 300)
 # --wrap=calloc (GNU/BSD ld) to fail the per-signal sighandler_info allocation
 # for a chosen later signal; the header-only build compiles the .ipp into the
 # test TU so the interposer sees the .ipp's calloc calls. Excluded on MSVC and
-# Apple (their linkers do not support --wrap).
-if(NOT MSVC AND NOT APPLE AND NOT CMAKE_C_COMPILER_ID MATCHES "MSVC")
+# Apple (their linkers do not support --wrap), and under Fil-C: Fil-C
+# "pizlonates" every symbol (e.g. __real_calloc becomes
+# pizlonated___real_calloc), so the --wrap rewrites never match the mangled
+# names, and libpizlo.so's own wrapped calloc reference cannot be bound either
+# ("undefined reference to `__wrap_calloc'"). The rollback behaviour remains
+# covered by the GCC/Clang Linux and FreeBSD legs.
+if(NOT MSVC AND NOT APPLE AND NOT CMAKE_C_COMPILER_ID MATCHES "MSVC"
+   AND NOT CMAKE_C_COMPILER MATCHES "[Ff][Ii][Ll]-?[Cc]")
   add_code_example(siginstall_rollback_test SOURCES "siginstall_rollback_test.c" FEATURES c_std_11)
   target_link_options(siginstall_rollback_test PRIVATE "LINKER:--wrap=calloc")
   add_test(NAME siginstall_rollback_test COMMAND $<TARGET_FILE:siginstall_rollback_test>)

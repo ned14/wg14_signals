@@ -1316,7 +1316,15 @@ Verdicts:
   the executable exports it, the DSO's redirected reference binds at runtime, and the
   library's own internal `calloc` calls are not redirected by `--wrap`, so the
   interposer still only sees the test TU's calls. Verified on Ubuntu 24.04 for
-  GCC/Clang x shared ON/OFF x Debug/Release (all 23 tests pass).
+  GCC/Clang x shared ON/OFF x Debug/Release (all 23 tests pass). **Fil-C (2026-08-15):
+  `--wrap` is unusable under Fil-C at all — Fil-C pizlonates every symbol
+  (`__real_calloc` becomes `pizlonated___real_calloc`), so the linker's `--wrap`
+  rewrites never match the mangled names, and libpizlo.so's own wrapped `calloc`
+  reference cannot be bound either ("undefined reference to `__wrap_calloc'"). The
+  test is therefore excluded from the Fil-C build
+  (`test/CMakeLists.txt`, `CMAKE_C_COMPILER MATCHES "[Ff][Ii][Ll]-?[Cc]"`), same
+  precedent as the header-only build test; rollback coverage remains on the GCC/Clang
+  Linux and FreeBSD legs.**
 
 ### Minor proposal-conformance notes (N3924 rev 4 wording)
 
