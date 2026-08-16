@@ -177,6 +177,7 @@ Close to each other proposed changes <span style="color:
 >         - `sig_decision_next_decider`: The next decider in the sequence is called.
 >
 > It is permitted for a signal decider to never return. Signal deciders shall meet the same requirements as for a signal handler as specified for the `signal` function (7.14.2.1).
+> Decider code which determines that it will never return through the thread-local signal decider machinery should call `sigguarded_abandon()` before not returning, and may call `sigguarded_abandon_resume()` to retract that declaration if it later determines that it will return after all (7.14.4.2 and 7.14.4.3).
 > If every signal decider returns `sig_decision_next_decider` the behavior is implementation-defined.
 >
 > `siginstall` may be called multiple times, and for each a corresponding `siguninstall` should be present in the program. Each call to `siginstall` takes a set of signals for which the threadsafe implementation is to be activated. The threadsafe implementation shall not be deactivated for that signal number until the last uninstallation for that signal number is performed.
@@ -349,6 +350,11 @@ Close to each other proposed changes <span style="color:
 > sigemptyset(&a);
 > sigset_t b = a;
 > ```
+> </ins>
+
+> <ins>
+> `sigguarded_abandoned_state_t`
+> which is an implementation-defined complete type suitable for holding the information needed to retract a call of `sigguarded_abandon()`.
 > </ins>
 
 > The macros defined are
@@ -638,7 +644,7 @@ Close to each other proposed changes <span style="color:
 
 > **Returns**
 
-> If successful, this function returns zero. If unsuccessful, this function returns a nonzero value.
+> If successful, this function returns zero. If unsuccessful, this function returns a negative value.
 </ins>
 
 
@@ -685,7 +691,7 @@ Close to each other proposed changes <span style="color:
 
 > **Returns**
 
-> If successful, this function returns zero. If unsuccessful, this function returns a nonzero value.
+> If successful, this function returns zero. If unsuccessful, this function returns a negative value.
 </ins>
 
 #### In 7.14.3.2: The `stdc_raise` function
@@ -756,6 +762,64 @@ syscall `rt_tgsigqueueinfo`.
 
 > If no signal was raised, this function returns the value returned by `guarded`. If a signal was raised and a signal decider initiated recovery, this function returns the value returned by `recovery`.
 </ins>
+
+#### Add 7.14.4.2: The `sigguarded_abandon` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> int sigguarded_abandon(sigguarded_abandoned_state_t *state);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe and async-signal-safe.
+
+> The `sigguarded_abandon` function declares that the calling code will never return through the thread-local signal decider machinery (7.14.1): the `guarded` function of the call to `sigguarded` within which the call is made will never return, or the signal decider from within which the call is made will never return to the processing of the signal raise which invoked it. It may be called from any code within the dynamic extent of a call to `sigguarded` on the calling thread: from the `guarded` function of that call, from any function it calls, directly or indirectly, or from a thread-local or globally installed signal decider during the processing of a signal raise.
+
+> If the function was called from within the dynamic extent of a call to `sigguarded` on the calling thread, or from within a globally installed signal decider, and `state` is not a null pointer, it stores in the object pointed to by `state` the information needed to retract the declaration. If `state` is a null pointer, no retraction information is stored, and the declaration cannot be retracted by a subsequent call of `sigguarded_abandon_resume()`.
+
+> **Returns**
+
+> This function returns zero if it was called from within the dynamic extent of a call to `sigguarded` on the calling thread, or from within a globally installed signal decider; otherwise it returns a negative value and has no effect.
+</ins>
+
+#### Add 7.14.4.3: The `sigguarded_abandon_resume` function
+
+<ins>
+> **Synopsis**
+
+> ```
+> #include <signal.h>
+> int sigguarded_abandon_resume(const sigguarded_abandoned_state_t *state);
+> ```
+
+> **Description**
+
+> Calling this function is thread-safe and async-signal-safe.
+
+> The `sigguarded_abandon_resume` function retracts a prior call of `sigguarded_abandon()`: the object pointed to by `state` shall contain the retraction information set by a prior call of `sigguarded_abandon()` on the calling thread; otherwise the behavior is undefined.
+
+> It is undefined behavior if the dynamic extent of the call to `sigguarded` which installed the removed thread-local decider frame has ended at the time of the call. It is also undefined behavior if, at the time of the call, the ordered sequence contains a thread-local decider frame which was installed after the prior call of `sigguarded_abandon()` and whose `guarded` function has not yet returned.
+
+> **Returns**
+
+> This function returns zero if the retraction was performed; otherwise it returns a negative value and has no effect.
+</ins>
+
+Note to implementers: the reference implementation parks the removed thread-local
+decider frame in per-thread storage: `sigguarded_abandon()` unlinks the frame from
+the calling thread's ordered sequence and stores a reference to it in the
+caller-provided `sigguarded_abandoned_state_t` (implementation-defined
+contents), and a call of `sigguarded_abandon_resume()` re-links it as if it had
+just been installed by `sigguarded`. A frame never resumed is reclaimed when the
+dynamic extent of its `sigguarded` call ends or the calling thread terminates.
+For a call made from within a globally installed signal decider, the reference
+implementation records the abandoned raise processing in per-thread state and
+releases the resources it holds for that raise at the calling thread's next call
+to a function of this facility, or at thread termination.
 
 
 
