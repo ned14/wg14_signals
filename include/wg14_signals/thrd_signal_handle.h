@@ -625,6 +625,9 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   /*! \brief THREADSAFE NOT REENTRANT Destroy a global signal continuation
   decider. Threadsafe with respect to other calls of this function, but not
   reentrant i.e. do not call whilst inside a global signal continuation decider.
+  Passing a handle that has already been destroyed is undefined behaviour: this
+  reference implementation deliberately does not guard against it
+  (plans/analysis.md `DEDE`).
   \return True if recognised and thus removed.
   */
   WG14_SIGNALS_EXTERN int

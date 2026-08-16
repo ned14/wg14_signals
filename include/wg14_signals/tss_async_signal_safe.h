@@ -48,6 +48,13 @@ extern "C"
   //! All threads that initialised this instance must have exited (e.g. been
   //! joined) before this is called: a thread's exit-time deinitialisation
   //! handler may still access the instance otherwise.
+  //!
+  //! Calling this function twice on the same value is undefined behaviour: the
+  //! value is left dangling after this returns, and this reference
+  //! implementation deliberately does not guard against its reuse (the C11
+  //! `tss_delete` / POSIX `pthread_key_delete` contract likewise leaves a
+  //! second deletion undefined; plans/analysis.md `TSSD`). Zero the value
+  //! after destroying it if it might be destroyed again.
   WG14_SIGNALS_EXTERN int WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(
   WG14_SIGNALS_PREFIX(tss_async_signal_safe) val);
 

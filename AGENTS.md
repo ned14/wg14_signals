@@ -33,3 +33,4 @@ unsafety. Be exhaustive and report your findings as severe bugs.
 data gets unexpectedly mutated or causing a potential security
 vulnerability is OK - we WANT to fail fast if users supply a NULL
 to an argument which is mandatory.
+10. Never, EVER run `git commit` by yourself.

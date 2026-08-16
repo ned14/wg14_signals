@@ -169,9 +169,13 @@ Add to `test/` (all `add_code_test`, C11):
 | Test file | Exercise | Catches |
 |---|---|---|
 | `lock_whitebox_test.c` | `#include "detail/impl/lock_unlock.h"`, lock/unlock under TSan | 7 discipline |
-| `decider_destroy_leak_test.c` | loop 10,000 x {create, destroy} on an installed signal; assert no node allocation growth (malloc/calloc interposition — permanent regression guard for the decider-destroy node leak fixed 2026-08-14, and the `tss_async_signal_safe` double-destroy use-after-free, `TSSD`) | `SPIN`, `TSSD` |
+| `decider_destroy_leak_test.c` | loop 10,000 x {create, destroy} on an installed signal; assert no node allocation growth (malloc/calloc interposition — permanent regression guard for the decider-destroy node leak fixed 2026-08-14) | `SPIN` |
 | `thread_atexit_failure_test.c` | stub `__cxa_thread_atexit` via a linker/interposer shim returning -1 and assert `thread_atexit`/`thread_init` propagate the failure on platforms where the return is trustworthy | `CXAT` |
 | `leak_detection_test.c` | loop 20,000 x {create decider, destroy decider} on SIGUSR1, then assert `siguninstall(handlers)` and one final `stdc_raise(SIGUSR1) == false` under ASan/LSan — API-observable variant of `decider_destroy_leak_test`: a leaked/kept node surfaces as an ASan report or as a raise that "finds" a handler | 1 guard |
+
+(`TSSD` is wontfix, 2026-08-16: double-destroy is documented undefined behaviour per the
+C11/POSIX/N3924 contract, so no regression guard is written for it — see
+`plans/analysis.md`.)
 
 ### 9 White-box tests (include internals directly)
 
@@ -296,7 +300,7 @@ top findings, then CI and process hygiene.
   converts the unbounded spin handshakes into bounded, named-diagnostic waits (AGENTS.md
   rule 5), so the suite cannot hang for a minute before ctest's timeout silently.
 - **Regression tests then guard the top findings (items 8-10), ordered by the priority
-  of what they guard:** the double-destroy UAF and spinlock discipline (1, 7)
+  of what they guard:** spinlock discipline (7)
   first, then `thread_atexit` failure propagation (61), then header/compile behaviours
   (43, 62, 51).
 - **CI/benchmark hygiene and process items last (items 11-14):** no runtime impact;
@@ -311,7 +315,7 @@ top findings, then CI and process hygiene.
 | 5 | locking | Low | `siguninstall`/`signal_decider_destroy` locking hygiene (O(NSIG) locks, `-1` leak) | §3 minor | Small |
 | 6 | cpp | Low | `WG14_SIGNALS_ATOMIC_PREFIX` centralised in `config.h` | 33 | Small |
 | 7 | test | Low | `test_wait_until` bounded handshake (AGENTS rule 5) | test hygiene | Small |
-| 8 | test | Med | Remaining regression tests (double-destroy leak, thread_atexit failure, API leak detection) | 1, 7, 61 | Medium |
+| 8 | test | Med | Remaining regression tests (thread_atexit failure, API leak detection) | 7, 61 | Medium |
 | 9 | test | Med | White-box tests (`lock_whitebox_test`, `tss_map_whitebox_test`) | 7 discipline | Medium |
 | 10 | test | Low | Compile-fail suite (`expect_compile_fail.cmake`) | 43, 62, 51 | Medium |
 | 11 | build | Low | Benchmark structure (`EXCLUDE_FROM_ALL`) | CI hygiene | Small |
