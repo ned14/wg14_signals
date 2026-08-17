@@ -327,10 +327,19 @@ static void __attribute__((noreturn)) default_abort(void)
     {
       if(sigismember(frame->guarded, signo))
       {
-        WG14_SIGNALS_PREFIX(prepare_rsi)(&frame->rsi, signo, info, raw_context);
+        // With SA_NODEFER a second delivery of a guarded signal re-enters here
+        // on the same frame while the outer decider is still executing. A
+        // shared `frame->rsi` would be overwritten mid-call (analysis NSTR), so
+        // give each raise its own `rsi`; the value is the frame's (pre-set by
+        // sigguarded). `frame->rsi` is written only when recovery is requested,
+        // so the recovery routine (read post-longjmp from the sigguarded frame)
+        // sees exactly the raising raise's info.
+        struct WG14_SIGNALS_PREFIX(stdc_siginfo) rsi;
+        WG14_SIGNALS_PREFIX(prepare_rsi)(&rsi, signo, info, raw_context);
+        rsi.value = frame->rsi.value;
         // In case they wish to abandon
-        frame->rsi.internal_local_decider = frame;
-        switch(frame->decider(&frame->rsi))
+        rsi.internal_local_decider = frame;
+        switch(frame->decider(&rsi))
         {
         case WG14_SIGNALS_PREFIX(sig_decision_next_decider):
           break;
@@ -347,6 +356,8 @@ static void __attribute__((noreturn)) default_abort(void)
             frame = frame->prev;
             continue;
           }
+          // Copy the siginfo into the storage in the frame for recovery to use
+          frame->rsi = rsi;
           WG14_SIGNALS_LONGJMP(frame->buf, 1);
         }
       }
