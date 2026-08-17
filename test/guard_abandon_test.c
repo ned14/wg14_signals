@@ -17,11 +17,15 @@
 // after the decider call has exited is undefined behaviour per the draft
 // wording). The signal used is never installed in the POSIX-only parts and
 // only installed around the global-decider parts, so an unclaimed raise simply
-// returns false instead of reaching any previously installed handler.
+// returns false instead of reaching any previously installed handler. Fil-C's
+// runtime reserves SIGILL/SIGSEGV/SIGFPE for its own memory-safety mechanism, so
+// the tests use SIGUSR2 there; SIGILL is defined, installable and continuable
+// everywhere else, including Windows/MSVC (SIGABRT is non-continuable on
+// Windows -- analysis.md `SABA` -- and SIGUSR* are undefined on MSVC).
 #ifdef __FILC__
 #define SIGNAL_TO_USE SIGUSR2
 #else
-#define SIGNAL_TO_USE SIGUSR1
+#define SIGNAL_TO_USE SIGILL
 #endif
 
 static int global_decider_calls = 0;
