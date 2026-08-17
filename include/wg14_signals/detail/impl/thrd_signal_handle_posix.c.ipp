@@ -272,7 +272,6 @@ static void __attribute__((noreturn)) default_abort(void)
     current.recovery = recovery;
     current.decider = decider;
     current.rsi.value = value;
-    tss->front = &current;
     if(WG14_SIGNALS_SETJMP(current.buf) != 0)
     {
       tss->front = old;
@@ -281,6 +280,7 @@ static void __attribute__((noreturn)) default_abort(void)
       atomic_signal_fence(WG14_SIGNALS_ATOMIC_PREFIX memory_order_acq_rel);
       return recovery(&current.rsi);
     }
+    tss->front = &current;
     // Technically needed to ensure setjmp buffer written out before guarded
     // function is called
     atomic_signal_fence(WG14_SIGNALS_ATOMIC_PREFIX memory_order_acq_rel);

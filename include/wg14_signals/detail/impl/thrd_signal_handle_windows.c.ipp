@@ -362,7 +362,6 @@ extern "C"
                                                                        current;
     memset(&current, 0, sizeof(current));
     current.prev = old;
-    tss->front = &current;
     if(setjmp(current.buf) != 0)
     {
       // A global decider claimed the raise and longjmp'd back to us.
@@ -371,6 +370,7 @@ extern "C"
       tss->software_raise_unclaimed = 0;
       return true;
     }
+    tss->front = &current;
 
     const DWORD win32sehcode =
     WG14_SIGNALS_PREFIX(win32_exception_code_from_signal)(signo);

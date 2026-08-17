@@ -1,14 +1,11 @@
 # Ideas and techniques to adopt from `wg14_atomic_waits` — concretised
 
 Review date: 2026-08-06 (concretised against the `wg14_signals` implementation source);
-2026-08-14 reconciliation, merge, and renumbering passes (all done items removed, the two
-duplicate pairs merged, and the survivors renumbered to the consecutive sequence 1-14 in
-§6 priority order).
-Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), which was
-derived from this project. Every idea is tied to a specific file and function in this
-tree, shows the current code, and gives the concrete replacement (or a test design that
-would have caught the defect). Sibling references are cited as
-`../wg14_atomic_waits/include/...` / `.../CMakeLists.txt` and verified by direct reading.
+2026-08-14 reconciliation, merge, and renumbering passes; items renumbered to 1-14 in §6
+priority order. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), derived from
+this project. Every idea is tied to a specific file and function in this tree, shows the
+current code, and gives the concrete replacement (or a test design that would have caught
+the defect).
 
 Cross-references to `plans/analysis.md` findings use each finding's stable four-letter
 code (e.g. `SPIN`), never the priority row number, which changes when the order is
@@ -84,7 +81,7 @@ header (already partially documented at `thrd_signal_handle.h:550-552`).
 
 **Why.** `thrd_signal_handle_posix.c.ipp:49-67` (and the async sets) use
 `static __attribute__((constructor))` — a GNU extension, violating AGENTS.md rule 1 — plus
-a double-checked write race on `v` (12) for any platform where the constructor is
+a double-checked write race on `v` (`SIGF`) for any platform where the constructor is
 ignored.
 
 **Concrete change.** Remove the attribute; build the three sets once from
@@ -168,10 +165,10 @@ Add to `test/` (all `add_code_test`, C11):
 
 | Test file | Exercise | Catches |
 |---|---|---|
-| `lock_whitebox_test.c` | `#include "detail/impl/lock_unlock.h"`, lock/unlock under TSan | 7 discipline |
-| `decider_destroy_leak_test.c` | loop 10,000 x {create, destroy} on an installed signal; assert no node allocation growth (malloc/calloc interposition — permanent regression guard for the decider-destroy node leak fixed 2026-08-14) | `SPIN` |
+| `lock_whitebox_test.c` | `#include "detail/impl/lock_unlock.h"`, lock/unlock under TSan | `SPIN` discipline |
+| `decider_destroy_leak_test.c` | loop 10,000 x {create, destroy} on an installed signal; assert no node allocation growth (malloc/calloc interposition — permanent regression guard for the decider-destroy node leak fixed 2026-08-14) | `LEAK` |
 | `thread_atexit_failure_test.c` | stub `__cxa_thread_atexit` via a linker/interposer shim returning -1 and assert `thread_atexit`/`thread_init` propagate the failure on platforms where the return is trustworthy | `CXAT` |
-| `leak_detection_test.c` | loop 20,000 x {create decider, destroy decider} on SIGUSR1, then assert `siguninstall(handlers)` and one final `stdc_raise(SIGUSR1) == false` under ASan/LSan — API-observable variant of `decider_destroy_leak_test`: a leaked/kept node surfaces as an ASan report or as a raise that "finds" a handler | 1 guard |
+| `leak_detection_test.c` | loop 20,000 x {create decider, destroy decider} on SIGUSR1, then assert `siguninstall(handlers)` and one final `stdc_raise(SIGUSR1) == false` under ASan/LSan — API-observable variant of `decider_destroy_leak_test`: a leaked/kept node surfaces as an ASan report or as a raise that "finds" a handler | `SPIN` guard |
 
 (`TSSD` is wontfix, 2026-08-16: double-destroy is documented undefined behaviour per the
 C11/POSIX/N3924 contract, so no regression guard is written for it — see
@@ -300,24 +297,23 @@ top findings, then CI and process hygiene.
   converts the unbounded spin handshakes into bounded, named-diagnostic waits (AGENTS.md
   rule 5), so the suite cannot hang for a minute before ctest's timeout silently.
 - **Regression tests then guard the top findings (items 8-10), ordered by the priority
-  of what they guard:** spinlock discipline (7)
-  first, then `thread_atexit` failure propagation (61), then header/compile behaviours
-  (43, 62, 51).
+  of what they guard:** spinlock discipline (`SPIN`), then `thread_atexit` failure
+  propagation (`CXAT`), then header/compile behaviours (`SFAR`, `SFQL`, `NDBS`).
 - **CI/benchmark hygiene and process items last (items 11-14):** no runtime impact;
   worthwhile only once the code fixes and their tests are in place.
 
 | # | Category | Priority | Change | Fixes (analysis.md) | Effort |
 |---|----------|----------|--------|--------------------|--------|
-| 1 | async | Med | `tss_async_signal_safe`: lock-free `get` via cached TLS value; init re-check | 7, 9, 10 | Medium |
-| 2 | semantics | Med | `install_sighandler` flags: drop `SA_NOCLDWAIT`, add `SA_RESTART` | 16 | Small |
-| 3 | race | Low | `sigfillset_*` constructor-attribute removal + init under lock | 12, C11 rule 1 | Small |
-| 4 | error | Low | C `thread_atexit`: propagate a failed `__cxa_thread_atexit()` registration (macOS only excepted) | 61 | Small |
+| 1 | async | Med | `tss_async_signal_safe`: lock-free `get` via cached TLS value; init re-check | `SPIN`, `REEN`, `TAFL` | Medium |
+| 2 | semantics | Med | `install_sighandler` flags: drop `SA_NOCLDWAIT`, add `SA_RESTART` | `FLGS` | Small |
+| 3 | race | Low | `sigfillset_*` constructor-attribute removal + init under lock | `SIGF`, AGENTS rule 1 | Small |
+| 4 | error | Low | C `thread_atexit`: propagate a failed `__cxa_thread_atexit()` registration (macOS only excepted) | `CXAT` | Small |
 | 5 | locking | Low | `siguninstall`/`signal_decider_destroy` locking hygiene (O(NSIG) locks, `-1` leak) | §3 minor | Small |
-| 6 | cpp | Low | `WG14_SIGNALS_ATOMIC_PREFIX` centralised in `config.h` | 33 | Small |
+| 6 | cpp | Low | `WG14_SIGNALS_ATOMIC_PREFIX` centralised in `config.h` | `SJSP` | Small |
 | 7 | test | Low | `test_wait_until` bounded handshake (AGENTS rule 5) | test hygiene | Small |
-| 8 | test | Med | Remaining regression tests (thread_atexit failure, API leak detection) | 7, 61 | Medium |
-| 9 | test | Med | White-box tests (`lock_whitebox_test`, `tss_map_whitebox_test`) | 7 discipline | Medium |
-| 10 | test | Low | Compile-fail suite (`expect_compile_fail.cmake`) | 43, 62, 51 | Medium |
+| 8 | test | Med | Remaining regression tests (thread_atexit failure, API leak detection) | `SPIN`, `CXAT` | Medium |
+| 9 | test | Med | White-box tests (`lock_whitebox_test`, `tss_map_whitebox_test`) | `SPIN` discipline | Medium |
+| 10 | test | Low | Compile-fail suite (`expect_compile_fail.cmake`) | `SFAR`, `SFQL`, `NDBS` | Medium |
 | 11 | build | Low | Benchmark structure (`EXCLUDE_FROM_ALL`) | CI hygiene | Small |
 | 12 | docs | Low | `docs/proposal.md` (vendor N3924 rev 4) | process | Small |
 | 13 | docs | Low | `plans/test-review-todos.md` companion | process | Small |

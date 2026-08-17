@@ -829,13 +829,21 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
         // Pop the top most sigguarded()
         tss->front = tss->front->prev;
       }
-      if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR)
+      if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR ||
+         rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
       {
-        rsi->internal_sighandler->lifetime_refcount--;
-      }
-      if(rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
-      {
-        rsi->internal_global_decider->refcount--;
+        struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+        WG14_SIGNALS_PREFIX(sig_global_state)();
+        LOCK(state->lock);
+        if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR)
+        {
+          rsi->internal_sighandler->lifetime_refcount--;
+        }
+        if(rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
+        {
+          rsi->internal_global_decider->refcount--;
+        }
+        UNLOCK(state->lock);
       }
       rsi->internal_decider_is_abandoned = true;
     }
@@ -859,13 +867,21 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
         }
         tss->front = rsi->internal_local_decider;
       }
-      if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR)
+      if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR ||
+         rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
       {
-        rsi->internal_sighandler->lifetime_refcount++;
-      }
-      if(rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
-      {
-        rsi->internal_global_decider->refcount++;
+        struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+        WG14_SIGNALS_PREFIX(sig_global_state)();
+        LOCK(state->lock);
+        if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR)
+        {
+          rsi->internal_sighandler->lifetime_refcount++;
+        }
+        if(rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
+        {
+          rsi->internal_global_decider->refcount++;
+        }
+        UNLOCK(state->lock);
       }
       rsi->internal_decider_is_abandoned = false;
     }

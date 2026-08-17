@@ -3,10 +3,10 @@
 Scope: every header, every source file, both backends (POSIX/Windows), the header-only
 configuration, the fallback hash-table TLS path and the async-signal-safe TLS path, all
 error paths, and all build configurations exercised and *not* exercised by CI. Reviewed
-against the vendored N3924 rev 4 wording (`docs/proposed-wording.md`). Original revision
-reviewed: `f48e95e`; current HEAD: `937d896`.
+against the vendored N3924 rev 4 wording (`docs/proposed-wording.md`). Current HEAD:
+`6d33c77`.
 
-Findings are listed in priority order (rows 1-84; rows 83-84 are adjudicated
+Findings are listed in priority order (rows 1-80; rows 81-82 are adjudicated
 wontfix — see their headings); the ranking criteria are explained
 in §4 "Priority ordering rationale". Row numbers are positional and change whenever the
 order is revised; each finding's identity is its unique four-letter code, shown in its
@@ -19,52 +19,18 @@ throwaway probes (scratch area, temporary artifacts, not part of the tree); item
 heading body. Windows-only
 items are code-level findings (no Windows host available) but were verified against the
 MSVC build matrix in CI. Where merged findings touch the same machinery (e.g. `DEIN`
-extends `UNTL`, `NDEC` is the Windows sibling of `JLGS`/`LEAK`), the earlier finding is
+extends `UNTL`, `NDEC` is the Windows sibling of `LEAK` and the POSIX never-returning
+frame-decider family), the earlier finding is
 referenced rather than duplicated. §5 records the code reference map and citation
-guidance.
+guidance. Removed findings: the `JLGS` dangling-frame defect (fixed cooperative case,
+wontfix uncooperative case, 2026-08-17) and the `SJMP` setjmp-buffer race (fixed by the
+publish-after-`setjmp` change in the working tree, 2026-08-17) are no longer listed.
 
 ---
 
 ## 1. Findings, in priority order
 
-### 1 `JLGS` [confirmed, POSIX, Med] a never-returning thread-local decider leaves `tss->front` pointing at a dead `sigguarded` frame
-
-`thrd_signal_handle_posix.c.ipp`: `sigguarded` stores the guard frame
-`current` as a local of `sigguarded`, links it on `tss->front`, and pops it only
-on the two normal exits (`guarded` returning, or the `setjmp != 0` recovery
-branch). **Return contract (corrected 2026-08-16):** `guarded` and `recovery`
-MUST return — if control leaves either otherwise (its own `longjmp` past
-`sigguarded`, a non-terminating loop, etc.) the behaviour is undefined, the
-same class of misuse as C11 7.13.2.1's `jmp_buf` rule; the *decider*, however,
-IS permitted to never return (N3924 7.14.1). A thread-local decider that never
-returns — `siglongjmp` to a caller-owned buffer, `_exit`, a loop — abandons the
-whole `guarded`/`sigguarded`/`stdc_raise` call chain with `tss->front` still
-pointing at the frame, so the pop never runs. The next `stdc_raise` on that
-thread (or a real signal delivered to it, *inside the handler*) walks
-`frame->guarded`/`decider`/`buf` in re-used stack — verified ASan
-`stack-use-after-scope` at `thrd_signal_handle_posix.c.ipp` — and can `longjmp`
-into a dead environment. On the async-safe TLS path the stale frame is never
-cleared, so the corruption persists indefinitely. Related sub-race (code-level):
-a raise delivered after `guarded()` returns but before `tss->front = old`
-executes still finds the frame and, if it chooses `invoke_recovery`, silently
-discards `guarded()`'s return value — a few-instruction window in the same
-family as `SJMP` (below).
-
-**Partially addressed 2026-08-16 (see `plans/fix-guarded-abandon.md`).** The
-guard frames now live in per-thread heap storage (`sigguarded` takes/recycles a
-frame from a per-thread freelist and publishes it only after `setjmp`,
-co-fixing `SJMP`), so an abandoned frame is always defined memory to read — the
-ASan `stack-use-after-scope` is gone. The cooperative extension
-`sigguarded_abandon()`/`sigguarded_abandon_resume()` (7.14.4.2-3 of the draft
-wording) lets a decider — or the guarded body — deterministically unlink its
-guard so no subsequent raise consults it, and retract that declaration later.
-The *uncooperative* case (a decider that never returns *without* calling
-`abandon`) is still open: such a frame remains linked and may still be
-consulted, and requesting recovery through it is the documented residual UB —
-that is the `home_mark` sound-skip machinery of `fix-guarded-abandon.md`, not
-yet implemented.
-
-### 2 `UNTL` [code-level, fallback path, Med] `siguninstall` of the last handler while another thread is inside `sigguarded` frees that thread's live state
+### 1 `UNTL` [code-level, fallback path, Med] `siguninstall` of the last handler while another thread is inside `sigguarded` frees that thread's live state
 
 On the fallback (Apple) path, the final `siguninstall` -> `sig_global_tss_state_destroy`
 -> `tss_async_signal_safe_destroy` frees the shared TSS (and every per-thread entry)
@@ -75,22 +41,7 @@ Only the fallback path is affected (the async-safe TLS path's destroy is a no-op
 usage requirement "destroy only after all threads have left `sigguarded`" is nowhere
 documented.
 
-### 3 `SJMP` [code-level, both backends, Med] Frame published before `setjmp` completes -> longjmp into an uninitialised buffer
-
-POSIX `sigguarded` (`thrd_signal_handle_posix.c.ipp:271-272`) and Windows `stdc_raise`
-(`thrd_signal_handle_windows.c.ipp:315-316`) both execute `tss->front = &current` before
-`setjmp(current.buf)` returns. A signal/exception delivered in that instruction window
-runs `stdc_raise`/the vectored handler, which may `longjmp(current.buf)` before `setjmp`
-has stored the environment — undefined behaviour. The window is a few instructions wide but
-is exactly the async nature the API claims to handle.
-
-**POSIX co-fixed 2026-08-16 (`fix-guarded-abandon.md`):** with guard frames now in
-per-thread heap storage, `sigguarded` publishes the frame on `tss->front` only after
-`setjmp` returns, closing the window for thread-local guard frames. The Windows
-`stdc_raise` raise-frame push (`tss->front = &current` before `setjmp(current.buf)`) is
-unchanged and still open (sibling of `NDEC`).
-
-### 4 `NSTR` [code-level, POSIX, Med] nested signal delivery during a decider call races on the shared frame `rsi`
+### 2 `NSTR` [code-level, POSIX, Med] nested signal delivery during a decider call races on the shared frame `rsi`
 
 `thrd_signal_handle_posix.c.ipp:312-315` — the frame's `rsi` is both written
 (`prepare_rsi`) and read (`frame->decider(&frame->rsi)`) from the same thread. With
@@ -102,7 +53,7 @@ the *outer* recovery runs with the *nested* `rsi` contents. Not a C memory-model
 (same thread), but a re-entrancy aliasing bug; on Windows the frame `rsi` is a fresh
 local in `win32_exception_filter`, so nested exceptions cannot corrupt it.
 
-### 5 `NDEC` [Windows, Med] a never-returning global decider during `stdc_raise` leaves `software_raise_in_progress` and `tss->front` pinned
+### 3 `NDEC` [Windows, Med] a never-returning global decider during `stdc_raise` leaves `software_raise_in_progress` and `tss->front` pinned
 
 The proposal explicitly permits deciders to never return (7.14.1: "It is permitted for a
 signal decider to never return"). On Windows, `stdc_raise` sets
@@ -122,26 +73,27 @@ that thread (and its pinned state) permanently:
    marker can no longer be distinguished from a real fault.
 2. A later global-decider claim with `invoke_recovery` longjmps to `tss->front->buf`
    (`:522-525`); `tss->front` still points at the *dead* `stdc_raise` frame of the
-   abandoned raise -> stack use-after-unwind (the `JLGS` family, but via the Windows
-   `stdc_raise` frame rather than a `sigguarded` frame).
+   abandoned raise -> stack use-after-unwind (the same never-returning-decider family
+   as the POSIX frame case, but via the Windows `stdc_raise` frame rather than a
+   `sigguarded` frame).
 
 POSIX's sibling is finding `LEAK` (refcount/container leak per abandoned raise); Windows
 additionally corrupts the per-thread raise state for all subsequent exceptions. Note that
 on the POSIX backend a never-returning *frame* decider abandons `tss->front` pointing at a
-dead frame (finding `JLGS`'s mechanism); Windows `sigguarded` never pushes frames, so this
+dead frame (the same family); Windows `sigguarded` never pushes frames, so this
 finding is `stdc_raise`-specific.
 
-No never-returning decider is needed: the
+No never-returning decider is needed to trigger the re-fault loop: the
 `software_raise_in_progress` flag is per-thread rather than per-raise, so *any* genuine
 fault on a signal with no map entry while a software raise is being dispatched — e.g. a
 global decider or the user's own `__except` handler faulting during `RaiseException` —
 hits the `software_raise_in_progress` branch (`thrd_signal_handle_windows.c.ipp:466-473`)
 and returns `EXCEPTION_CONTINUE_EXECUTION`: the nested faulting instruction re-executes
-and re-faults forever (the same infinite re-fault loop consequence 1 describes), and the
-nested dispatch also stomps `software_raise_unclaimed`, so the outer `stdc_raise` can
-misreport false when it finally returns.
+and re-faults forever (the same infinite re-fault loop as consequence 1), and the nested
+dispatch also stomps `software_raise_unclaimed`, so the outer `stdc_raise` can misreport
+false when it finally returns.
 
-### 6 `VDED` [code-level, Windows, Med] the V5 decider-dedup cache is never invalidated; a later exception reusing the record's stack address silently skips the global-decider pass
+### 4 `VDED` [code-level, Windows, Med] the V5 decider-dedup cache is never invalidated; a later exception reusing the record's stack address silently skips the global-decider pass
 
 `thrd_signal_handle_windows.c.ipp:427-449` — the TLS pair
 `wg14_last_global_decider_record`/`wg14_last_global_decider_result` records the
@@ -174,17 +126,19 @@ Fix direction: invalidate the cache when the second pass consumes it, or clear i
 unhandled filter record a generation token that the continue-handler pass must match.
 Severity Med: silent misbehaviour in the core raise machinery, no memory corruption.
 
-### 7 `SPIN` Spinlock is not async-signal-safe (deadlock risk in signal handlers)
+### 5 `SPIN` Spinlock is not async-signal-safe (deadlock risk in signal handlers)
 
 `LOCK`/`UNLOCK` (`lock_unlock.h:33-61`) is a CAS spinlock with no signal masking, no
 backoff, and no `pause`/`yield`. It is used inside signal-handler contexts on both
 backends (`stdc_raise` -> `LOCK(state->lock)`, Windows vectored handler ->
-`LOCK(state->lock)`, and the fallback `tss_async_signal_safe_get` -> `LOCK(mem->lock)`).
+`LOCK(state->lock)`, the fallback `tss_async_signal_safe_get` -> `LOCK(mem->lock)`, and —
+since the abandon fix — `sigdecider_abandon`/`_resume` -> `LOCK(state->lock)`, finding
+`LEAK`).
 If a signal is delivered while the interrupted thread is itself holding the same lock,
 the handler spins forever — a silent deadlock. The header's "usually async signal safe"
 claim (`thrd_signal_handle.h:328-347`) does not cover re-entrancy.
 
-### 8 `ALOC` First signal delivery on a fresh thread performs allocation inside the handler
+### 6 `ALOC` First signal delivery on a fresh thread performs allocation inside the handler
 
 `stdc_raise` -> `sig_global_tss_state_init` -> `calloc` + `thread_atexit` (which does
 `std::vector` allocation / possibly throws) on the first call per thread
@@ -194,7 +148,7 @@ malloc and C++ heap operations run inside the handler (not async-signal-safe; ri
 deadlock on the heap lock). The docs recommend pre-calling `stdc_raise(0, ...)`; on Linux
 this works, but the safety relies entirely on the user reading the docs.
 
-### 9 `REEN` tss_async_signal_safe_thread_init re-entrancy (signal during `attr.create`) leaks
+### 7 `REEN` tss_async_signal_safe_thread_init re-entrancy (signal during `attr.create`) leaks
 
 `tss_async_signal_safe.c.ipp:211-218` unlocks before calling the user's `create` and
 re-locks before `insert`. If a signal handler runs `thread_init` on the same object in
@@ -203,7 +157,7 @@ the user's `create` callback runs twice and the second `insert` replaces the fir
 the first value leaks (no destructor on replace), `count` is double-incremented, and two
 atexit registrations are queued.
 
-### 10 `TAFL` tss_async_signal_safe_thread_init does not roll back on `thread_atexit` failure
+### 8 `TAFL` tss_async_signal_safe_thread_init does not roll back on `thread_atexit` failure
 
 `tss_async_signal_safe.c.ipp:228-249`: the map entry and `state->count` are committed
 before `thread_atexit` is called; if it returns -1 the caller sees failure but the entry
@@ -212,47 +166,27 @@ async-safe TLS path, `sig_global_tss_state_init` has the same pattern — it set
 mem` *before* `thread_atexit(free, mem)`; on registration failure the pointer stays set
 and the next call silently succeeds with a leaked `mem`, M2.)
 
-### 11 `LEAK` Global deciders may never return (e.g. `siglongjmp` elsewhere) -> leaked node/container reference counts [code-level, both backends, Med]
+### 9 `LEAK` [code-level, both backends, Med] `sigdecider_abandon`/`_resume` take `state->lock` inside an ASYNC-SIGNAL-SAFE API (spinlock-in-handler deadlock risk)
 
-A decider function is only restricted to async-signal-safe calls
-(`thrd_signal_handle.h:522-524`); `siglongjmp` and `_exit` are on the POSIX
-async-signal-safe list, and nothing in the docs forbids a decider from transferring
-control away and never returning. The library's own frame-recovery decision already
-transfers control non-locally (`sig_decision_invoke_recovery` longjmps to the guarded
-frame's `jmp_buf`). In the *global* decider path, however, each invocation increments the
-decider node's `refcount` and the container's `lifetime_refcount` before the unlocked
-decider call (`thrd_signal_handle_posix.c.ipp:358-366`; Windows vectored handler
-`thrd_signal_handle_windows.c.ipp:404-416`), and the matching decrements
-(`--current->refcount`, `sighandler_info_release`) only run *after* the decider returns.
-A decider that never returns (e.g. `siglongjmp` to a caller-owned buffer, or a
-non-terminating loop) therefore abandons the raise with both references held forever:
+The original defect — a never-returning global decider abandoning the per-raise
+`current->refcount`/`item->lifetime_refcount` references taken before the unlocked decider
+call (`thrd_signal_handle_posix.c.ipp:358-366`, Windows `:404-416`), leaking the node and
+container forever — is **fixed 2026-08-17 (commit `6d33c77`, `sigdecider_abandon()` drops
+both references; verified by the global-abandon sections of `test/guard_abandon_test.c`)**.
+The follow-on fix (working tree, uncommitted) now performs the abandon/resume reference
+adjustments under `state->lock` (`thrd_signal_handle_common.ipp.ipp`), removing the
+unlocked non-atomic `int` `++/--` that raced concurrent raises/`siguninstall`/
+`signal_decider_destroy` on other threads (a C11 data race that could free a container
+under a sibling in-flight raise).
 
-1. The node `refcount` stays elevated, so the node stays linked in
-   `global_handler` and `signal_decider_destroy` can never retire it (its `--refcount`
-   never reaches zero; the handle slot is merely nulled) — a leak that grows
-   unboundedly if the user keeps creating deciders after each abandoned raise.
-2. The container `lifetime_refcount` stays >= 1, so `siguninstall` dropping the map's
-   reference never brings it to zero and `sighandler_info_release` never frees the
-   container — the container and every node on its `global_handler`/`deferred_frees`
-   lists leak permanently (the `state->lock` is *not* held across the decider call, so
-   there is no spinlock leak, only memory).
+The remaining defect is that these two APIs are documented `THREADSAFE ASYNC-SIGNAL-SAFE`
+(`thrd_signal_handle.h:546-567`), yet now take the `state->lock` spinlock: a decider
+calling `sigdecider_abandon()` from a signal handler whose interrupted thread holds that
+lock (e.g. mid-`siguninstall`/`signal_decider_destroy`) spins forever — the `SPIN` deadlock
+mechanism in a documented-valid call pattern. Fix requires a lock-free atomic formulation
+for the reference adjustments.
 
-`_exit()` inside a decider is harmless (process teardown reclaims all memory). A
-never-returning *frame* decider is the `JLGS` family (`tss->front` left pointing at a
-dead frame). Severity Med: no UAF/crash, but unbounded leak per abandoned raise.
-
-**Future handling.** The implementation must cope with non-returning deciders. Under the
-corrected return contract (2026-08-16) a decider is explicitly permitted to never return
-(N3924 7.14.1), so "document that deciders must return" is closed as an option; the
-contrast is with `guarded`/`recovery`, which MUST return (else UB). Options, in increasing
-robustness: (a) make the reference release the *thread's*
-responsibility — record the abandoned container/node in per-thread raise state and drain
-it on the next library entry or at thread exit (via the existing `thread_atexit` hook),
-bounding the leak to one outstanding abandoned raise per thread; (b) hold the release on a
-per-thread "in-flight raise" guard pushed before each unlocked decider call and popped on
-return, with the same drain-on-entry/exit.
-
-### 12 `DEIN` [race, fallback path, Low] `tss_async_signal_safe_thread_deinit` reads `state->val` without the lock; concurrent `destroy` frees `mem` under it -> UAF
+### 10 `DEIN` [race, fallback path, Low] `tss_async_signal_safe_thread_deinit` reads `state->val` without the lock; concurrent `destroy` frees `mem` under it -> UAF
 
 `tss_async_signal_safe.c.ipp:148-152`: the thread-exit deinit reads
 `struct tss_async_signal_safe_s *mem = (struct tss_async_signal_safe_s *) state->val;`
@@ -270,7 +204,7 @@ the race for consumers, but the library-internal destroy from the last `sigunins
 and races the destroy. Related mechanism, distinct from finding `UNTL`'s dangling-`tss->front`
 failure; both share the trigger.
 
-### 13 `SIGF` Data race in the `sigfillset_*` lazy initialisation
+### 11 `SIGF` Data race in the `sigfillset_*` lazy initialisation
 
 `thrd_signal_handle_posix.c.ipp:58-76` double-checks `sigismember(&v, signos[0])` then
 writes `v = x` without a lock or atomics. Two threads calling `sigfillset_synchronous`
@@ -282,7 +216,7 @@ pre-initialises the statics at load time for executables and substantially mitig
 race — but the attribute is POSIX-only, so the race is unmitigated on Windows for
 `synchronous_sigset`/`asynchronous_nondebug_sigset`.
 
-### 14 `GLIN` [code-level, race, Low] `sig_global_state()`'s lazy verstable `_init` on the NSIG >= 1024 branch is an unsynchronised double-checked write race (sibling of `SIGF`)
+### 12 `GLIN` [code-level, race, Low] `sig_global_state()`'s lazy verstable `_init` on the NSIG >= 1024 branch is an unsynchronised double-checked write race (sibling of `SIGF`)
 
 `thrd_signal_handle_common.ipp.ipp:239-251`: on the verstable-map branch the check
 `v.signo_to_sighandler_map.metadata == NULL` and the following
@@ -302,7 +236,7 @@ perform the `_init` under `state->lock` (move it into the locked section of
 `install_sighandler`/`siginstall`'s first-call path), or make the check-and-write
 atomic.
 
-### 15 `MLAS` Modified-local-after-setjmp UB in POSIX `sigguarded`
+### 13 `MLAS` Modified-local-after-setjmp UB in POSIX `sigguarded`
 
 `thrd_signal_handle_posix.c.ipp:241-287`: `current.rsi` is written by `prepare_rsi` (via
 the frame pointer in the signal handler, i.e. after `setjmp` executed) and then read after
@@ -312,13 +246,13 @@ mainstream compilers because the frame is a memory object, but a conforming comp
 cache `current` in registers). The struct should be `volatile` (or the members accessed
 post-longjmp should be).
 
-### 16 `SJMS` _setjmp/`setjmp` selection changes signal-mask semantics
+### 14 `SJMS` _setjmp/`setjmp` selection changes signal-mask semantics
 
 With `setjmp` (used when `_setjmp` is unavailable) the mask saved at the `setjmp` is
 restored on `longjmp` — combined with `SA_NODEFER` handlers this can silently
 unblock/block signals relative to the interrupted context. Platform-dependent.
 
-### 17 `CPPD` [C++ consumers, Low] longjmp across objects with non-trivial destructors is UB
+### 15 `CPPD` [C++ consumers, Low] longjmp across objects with non-trivial destructors is UB
 
 `stdc_raise`'s `invoke_recovery` path (`thrd_signal_handle_posix.c.ipp:332`) and the
 Windows vectored handler's `longjmp` (`thrd_signal_handle_windows.c.ipp:440`) skip C++
@@ -327,7 +261,7 @@ The library is documented as C++-usable, and MSVC explicitly disables warning 46
 (`thrd_signal_handle_windows.c.ipp:46`) for it. A C++ `sigguarded` caller with RAII objects
 in scope of a raised signal gets skipped destructors silently.
 
-### 18 `SFNK` [race, Windows, Low] `sigfence`'s MSVC fallback shares a process-static sink array; concurrent calls race on `sigfence_sink[8]`
+### 16 `SFNK` [race, Windows, Low] `sigfence`'s MSVC fallback shares a process-static sink array; concurrent calls race on `sigfence_sink[8]`
 
 The GNU/Clang asm path (`thrd_signal_handle.h:171-201`) is a pure `__asm__` with no shared
 mutable state. The MSVC (and `DISABLE_INLINE_ASM`/Fil-C) fallback (`:202-311`) uses a
@@ -342,7 +276,7 @@ exactly the re-entrant case. Fix direction: make the sink per-thread
 (`WG14_SIGNALS_THREAD_LOCAL`), which removes both the cross-thread race and the
 handler-reentrancy read of the interrupted value.
 
-### 19 `FLGS` SA_NOCLDWAIT + `SA_NODEFER` + missing `SA_RESTART` alter process semantics
+### 17 `FLGS` SA_NOCLDWAIT + `SA_NODEFER` + missing `SA_RESTART` alter process semantics
 
 `install_sighandler_impl` (`thrd_signal_handle_posix.c.ipp:400-412`) installs with
 `sa_flags = SA_SIGINFO | SA_NOCLDWAIT | SA_NODEFER` for **every** signal:
@@ -357,7 +291,7 @@ handler-reentrancy read of the interrupted value.
   the library's tenure even if the original handler had `SA_RESTART` (the old flags are
   discarded).
 
-### 20 `DFLT` invoke_sigaction default handling is wrong for stop/continue signals and re-raises under `SA_NODEFER`
+### 18 `DFLT` invoke_sigaction default handling is wrong for stop/continue signals and re-raises under `SA_NODEFER`
 
 `thrd_signal_handle_posix.c.ipp:152-193`: the "default is to ignore" list only covers
 SIGCHLD/SIGURG/SIGWINCH. Signals whose default action is "stop" (SIGSTOP, SIGTSTP,
@@ -370,7 +304,7 @@ a stop, the map still claims the signal installed while the kernel handler is no
 (`RTIM`) — the documented `sigfillset_*` sets deliberately exclude them, yet the re-raise
 path discards the library's handler for them.
 
-### 21 `UNKN` raw_signal_handler on unknown signals silently installs SIG_DFL and re-raises
+### 19 `UNKN` raw_signal_handler on unknown signals silently installs SIG_DFL and re-raises
 
 `thrd_signal_handle_posix.c.ipp:223-239`: if `stdc_raise` returns false, the handler
 replaces itself with `SIG_DFL` and invokes `invoke_sigaction(&sa, ...)` where `sa` is the
@@ -379,7 +313,7 @@ signal silently dropped); for others it re-raises as default. Reasonable, but th
 admits "It shouldn't happen that this handler gets called when we have no knowledge of
 the signal".
 
-### 22 `TIDR` Thread-ID reuse with stale hash-table entries
+### 20 `TIDR` Thread-ID reuse with stale hash-table entries
 
 `tss_async_signal_safe` maps are keyed by kernel thread ID (`current_thread_id`). If a
 thread exits without running its atexit deinit (abnormal termination, `_exit` within a
@@ -388,7 +322,7 @@ failing), the map retains the entry under that TID. A later thread that reuses t
 TID will observe the *previous* thread's value (never its own), and destruction may run
 with stale state. There is no TID-generation counter.
 
-### 23 `SDCF` signal_decider_create failure path partially self-destroys correctly but leaves warning-path signals uncounted
+### 21 `SDCF` signal_decider_create failure path partially self-destroys correctly but leaves warning-path signals uncounted
 
 When `calloc` fails mid-loop, `signal_decider_create` calls `signal_decider_destroy(ret)`
 on the partially-built handle, but `signal_decider_destroy` returns -1 (errno unchanged)
@@ -396,24 +330,17 @@ when it finds no matching slots — a misleading error signal. Additionally,
 `WG14_SIGNALS_STDERR_PRINTF` runs while `state->lock` is held, which is slow and can
 itself trigger a signal while the lock is held (see `SPIN`).
 
-### 24 `SDDF` signal_decider_destroy frees nodes outside the lock
+### 22 `SDDF` signal_decider_destroy frees nodes outside the lock
 
-`thrd_signal_handle_common.ipp.ipp:736-757`: after decrementing a node's refcount to zero
-under the lock and removing it from the list, `free(*retp)` runs after `UNLOCK`. In
-practice the refcount increment precedes the unlocked decider call, so the current design
-is safe — **confirmed by a fresh trace:** the base refcount is 1 (create), an
-in-flight raise increments to 2 *before* the unlocked decider call, and `destroy`'s
-`--refcount` then takes the deferral branch; the raise's later `--refcount` reaches 0 and
-moves the node to `deferred_frees`. The concurrent-destroy test genuinely exercises this
-deferred path. Still, the free outside the lock is fragile and undocumented.
-**State update:** the in-lock branch now frees the node *under* the lock
-(`:757-781`); the remaining out-of-lock free (`:792-807`) runs only for nodes whose
-container was already released by a `siguninstall` — a state that by the
-`lifetime_refcount` protocol implies no raise is in flight on the node, so the free is
-safe by construction (and the concurrent-destroy test exercises the deferred path, not
-this one). The residual risk is the undocumented fragility, not an actual race.
+`thrd_signal_handle_common.ipp.ipp` — after decrementing a node's refcount to zero under
+the lock and removing it from the list, `free(*retp)` runs after `UNLOCK`. The in-lock
+branch now frees under the lock; the remaining out-of-lock free (`:792-807`) runs only for
+nodes whose container was already released by a `siguninstall` — a state in which, by the
+`lifetime_refcount` protocol, no raise is in flight on the node, so the free is safe by
+construction (the concurrent-destroy test exercises the deferred path instead). The
+residual risk is the undocumented fragility, not an actual race.
 
-### 25 `UCLK` [code-level, both backends, Low] `tss_async_signal_safe_destroy` runs the user's `attr.destroy` callback with `mem->lock` held
+### 23 `UCLK` [code-level, both backends, Low] `tss_async_signal_safe_destroy` runs the user's `attr.destroy` callback with `mem->lock` held
 
 `tss_async_signal_safe.c.ipp:122-146` — destroy acquires `mem->lock` and invokes
 `mem->attr.destroy(it.data->val)` for every registered thread while the lock is held
@@ -433,21 +360,21 @@ document the re-entrancy constraint, or gather the values under the lock and inv
 callbacks after unlocking (with the destroy-vs-deinit lifetime rules of `DEIN` kept in
 mind).
 
-### 26 `TAOM` thread_atexit C++ exceptions disabled -> OOM terminates
+### 24 `TAOM` thread_atexit C++ exceptions disabled -> OOM terminates
 
 `thread_atexit.cpp.ipp:71-85`: with `-fno-exceptions` the `try/catch` block is compiled
 out; `std::vector::emplace_back` on allocation failure calls `std::terminate` instead of
 returning -1. The library is designed to be embedded in C standard libraries where
 exceptions may be disabled; this path then crashes instead of reporting failure.
 
-### 27 `FPUN` Function-pointer type pun for atexit callback
+### 25 `FPUN` Function-pointer type pun for atexit callback
 
 `tss_async_signal_safe.c.ipp:246-248` casts `int (*)(struct deinit_state *)` to
 `void (*)(void *)` and registers it via `thread_atexit`. Calling through an incompatible
 function-pointer type is UB per the C standard (works on common ABIs, but a latent
 portability hazard).
 
-### 28 `NSIH` [confirmed, Low-Med] `stdc_raise(signo, NULL, NULL)` hands off to a pre-existing `SA_SIGINFO` handler with NULL `siginfo_t *` and NULL `ucontext_t *`
+### 26 `NSIH` [confirmed, Low-Med] `stdc_raise(signo, NULL, NULL)` hands off to a pre-existing `SA_SIGINFO` handler with NULL `siginfo_t *` and NULL `ucontext_t *`
 
 `thrd_signal_handle_posix.c.ipp:396`: when no frame or global decider claims the
 raise and the pre-library handler was installed with `SA_SIGINFO`, `invoke_sigaction`
@@ -460,7 +387,7 @@ handling to this library" API. The header does not warn that the previous handle
 receive NULL pointers. Fix direction: synthesise a minimal `siginfo_t` when `info ==
 NULL`, or document the NULL-pointer hand-off.
 
-### 29 `IGND` [code-level, POSIX, Low] `stdc_raise` returns `true` even when the previous handler ignored the signal
+### 27 `IGND` [code-level, POSIX, Low] `stdc_raise` returns `true` even when the previous handler ignored the signal
 
 `thrd_signal_handle_posix.c.ipp:394-397` — when the map has an entry for the signal but no
 global decider claims it, `stdc_raise` calls `invoke_sigaction(&sa, ...)` and
@@ -473,7 +400,7 @@ SIGUSR1 installed and a pre-install `SIG_IGN` disposition returned `true` (the s
 silently ignored); with a benign pre-install handler it returned `true` and the previous
 handler ran once.
 
-### 30 `ZERO` [semantics, both backends, Low] `stdc_raise` returns `true` when zero deciders were called **[probe-verified]**
+### 28 `ZERO` [semantics, both backends, Low] `stdc_raise` returns `true` when zero deciders were called **[probe-verified]**
 
 N3924 (7.14.3.2): "returns true if at least one signal decider installed under this
 facility was called." With a map entry for the signal but an empty decider list, both
@@ -492,7 +419,7 @@ Distinct from finding `IGND` (which is the SIG_IGN hand-off vs the *header's own
 no decider claims" contract): `IGND`'s scenario is conforming to the proposal when a decider
 was called, and `ZERO`'s scenario is a proposal deviation the header does not mention.
 
-### 31 `PREI` [Windows, Low] `stdc_raise` before any `siginstall` terminates the process (unhandled SEH -> WER); POSIX returns `false`
+### 29 `PREI` [Windows, Low] `stdc_raise` before any `siginstall` terminates the process (unhandled SEH -> WER); POSIX returns `false`
 
 On POSIX, `stdc_raise` for an uninstalled signal runs the chain in-process and returns
 `false` (`thrd_signal_handle_posix.c.ipp:356-361`). On Windows the unclaimed-raise path
@@ -509,7 +436,7 @@ backends' `stdc_raise` behaviour differs for the identical call sequence. (The p
 permits "implementation-defined if this function ever returns", so this is a
 header-doc/backend-parity defect rather than a wording violation.)
 
-### 32 `WRET` [code-level, Windows, Med] `stdc_raise` of an *installed* signal with no decider, no guarding frame and no user `__except` terminates the process via Windows Error Reporting; POSIX hands off and returns `true`
+### 30 `WRET` [code-level, Windows, Med] `stdc_raise` of an *installed* signal with no decider, no guarding frame and no user `__except` terminates the process via Windows Error Reporting; POSIX hands off and returns `true`
 
 `thrd_signal_handle_windows.c.ipp:535-541`: when the map has an entry for the raised
 signal but `global_handler.front == NULL` (no global deciders) and no `sigguarded`
@@ -541,7 +468,7 @@ no-entry case — set `software_raise_unclaimed` and return
 `EXCEPTION_CONTINUE_EXECUTION` so `RaiseException` returns and `stdc_raise` reports
 false, or install a `RaiseException`-specific continuation path.
 
-### 33 `WFRM` [code-level, Windows, Med] global deciders run *before* thread-local frame deciders on Windows (N3924 7.14.1 requires thread-local first); frame deciders are skipped entirely for software raises of uninstalled signals
+### 31 `WFRM` [code-level, Windows, Med] global deciders run *before* thread-local frame deciders on Windows (N3924 7.14.1 requires thread-local first); frame deciders are skipped entirely for software raises of uninstalled signals
 
 N3924 7.14.1: "The ordered sequence begins with thread-locally installed signal
 deciders ... followed by signal deciders installed globally". On Windows the dispatch
@@ -576,7 +503,7 @@ Fix direction: have the vectored function consult the per-thread frame stack
 still run in the filter to be able to use `EXCEPTION_EXECUTE_HANDLER`, so this needs
 the filter/vectored split rethought), or document the inversion.
 
-### 34 `SUST` [code-level, Low] `siguninstall_system()` is a non-functional stub
+### 32 `SUST` [code-level, Low] `siguninstall_system()` is a non-functional stub
 
 `thrd_signal_handle_common.ipp.ipp:555-563` — the function only validates `version == 0`
 and returns 0; it installs/removes nothing. The header documents it as "Uninstall a
@@ -585,7 +512,7 @@ the codebase. An API that reports success for an operation it never performs is 
 trap for future callers (and for the eventual C standard library integration this library
 targets).
 
-### 35 `SKIP` [semantics, both backends, Low] `siginstall` silently skips un-installable signals yet returns a valid handle
+### 33 `SKIP` [semantics, both backends, Low] `siginstall` silently skips un-installable signals yet returns a valid handle
 
 N3924 (7.14.2.5): "For all signals in the signal set `guarded`, the threadsafe
 implementation shall be activated according to the Introduction above" and "If the
@@ -603,7 +530,7 @@ when any member cannot be installed (and roll back — the rollback machinery al
 exists), or define and document the skip; the current silent success matches neither the
 wording nor the failure contract.
 
-### 36 `PRCR` [semantics, both backends, Low] `signal_decider_create` before `siginstall` silently loses the decider **[probe-verified]**
+### 34 `PRCR` [semantics, both backends, Low] `signal_decider_create` before `siginstall` silently loses the decider **[probe-verified]**
 
 N3924 models deciders as installed globally and invoked whenever "siginstall has been
 called in the current program execution" — order between `signal_decider_create` and
@@ -618,12 +545,12 @@ for SIGUSR1, then `siginstall`, then raise): "decider ran 0 times, raise returne
 ordering constraint is nowhere documented; either document it or re-link deciders into
 newly created containers.
 
-### 37 `AMBI` sigguarded failure return is indistinguishable from a legitimate -1
+### 35 `AMBI` sigguarded failure return is indistinguishable from a legitimate -1
 
 `sigguarded` failure returns `ret.int_value = -1`, which is indistinguishable from a
 guarded function legitimately returning -1; no error return is documented for `sigguarded`.
 
-### 38 `ORDR` [semantics, both backends, Med] global-decider iteration order is the reverse of the N3924 7.14.1 ordering clauses **[probe-verified]**
+### 36 `ORDR` [semantics, both backends, Med] global-decider iteration order is the reverse of the N3924 7.14.1 ordering clauses **[probe-verified]**
 
 N3924 (7.14.1, global deciders): "The deciders are called in order of: those with
 `callfirst == true` most recently installed last, and then those with `callfirst == false`
@@ -651,7 +578,7 @@ the reference implementation must reverse all three iteration orders. A WG14 wor
 clarification is required before this can be fixed without breaking either the create()
 descriptions or the stacking intuition; flag for the wording group.
 
-### 39 `ENUM` [public API, both backends, Low] enum member is named `sig_decision_invoke_recovery`, the N3924 wording names it `sig_decision_call_recovery`
+### 37 `ENUM` [public API, both backends, Low] enum member is named `sig_decision_invoke_recovery`, the N3924 wording names it `sig_decision_call_recovery`
 
 `thrd_signal_handle.h:419-429` declares the third member of `sig_decision_t` as
 `WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery)`. The N3924 wording's required member
@@ -667,7 +594,7 @@ the proposal wording (`return sig_decision_call_recovery;`) fails to compile aga
 reference implementation — the one public identifier that a consumer's decider must
 literally spell.
 
-### 40 `TYDF` [public API, both backends, Low] typedef is named `thrd_raised_signal_error_code_t`, the N3924 wording names it `stdc_siginfo_error_code_t`
+### 38 `TYDF` [public API, both backends, Low] typedef is named `thrd_raised_signal_error_code_t`, the N3924 wording names it `stdc_siginfo_error_code_t`
 
 `thrd_signal_handle.h:351-355` defines `thrd_raised_signal_error_code_t` (the only
 remaining `thrd_*` public identifier; the struct itself was renamed to `stdc_siginfo`).
@@ -675,11 +602,11 @@ The N3924 wording requires "`stdc_siginfo_error_code_t` which is an implementati
 complete native error code type" (7.14.1), matching the revision history's blanket
 "Renamed `thrd_raised_signal_info*` to `stdc_siginfo*`". Used at
 `thrd_signal_handle.h:393` (`stdc_siginfo::error_code`) and `thrd_signal_handle_windows.c.ipp:248`;
-no occurrence of `stdc_siginfo_error_code_t` exists. Same consequence as 63: consumer code
-using the proposal's type name fails to compile. Both 63 and 64 are mechanical renames;
+no occurrence of `stdc_siginfo_error_code_t` exists. Same consequence as `ENUM`: consumer code
+using the proposal's type name fails to compile. Both `ENUM` and this renaming are mechanical renames;
 the enum-member rename additionally needs a README + doc + test sweep.
 
-### 41 `VSDT` [public API, Windows, Low] Windows `sigemptyset`/`sigfillset`/`sigaddset`/`sigdelset` return `void`, the N3924 synopses return `int` and "always return zero"
+### 39 `VSDT` [public API, Windows, Low] Windows `sigemptyset`/`sigfillset`/`sigaddset`/`sigdelset` return `void`, the N3924 synopses return `int` and "always return zero"
 
 `thrd_signal_handle.h:44-75` defines the four helpers as `static inline void` on `_WIN32`
 (`sigismember` returns `bool`). The N3924 synopses (7.14.2.1/7.14.2.2) declare
@@ -698,7 +625,7 @@ further consequences:
 2. `sigismember`'s `bool` return satisfies "positive one is returned... zero" only by
    accident of `bool` layout; it is fine in practice.
 
-### 42 `TLSD` WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL detection is too optimistic; forcing it on Apple is silently unsafe
+### 40 `TLSD` WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL detection is too optimistic; forcing it on Apple is silently unsafe
 
 `config.h:51-61` enables async-safe TLS for *any* `__GNUC__` (which includes clang) on
 any non-Apple platform. This is only true where the toolchain actually supports
@@ -713,14 +640,14 @@ async-signal-safe, so the library quietly violates its own "ASYNC SIGNAL SAFE" c
 including inside `current_thread_id()`/`tss_async_signal_safe_get()` called from handlers.
 A silent safety regression, not a diagnostic.
 
-### 43 `MAST` pthread_getthreadid_np / `mach_thread_self` are not async-signal-safe
+### 41 `MAST` pthread_getthreadid_np / `mach_thread_self` are not async-signal-safe
 
 `current_thread_id.c.ipp:80-83`: the Apple branch performs `mach_port_deallocate` (kernel
 round-trip) on every cache miss; `current_thread_id()` is documented as "ASYNC SIGNAL
 SAFE" (`current_thread_id.h:64-65`). On fallback platforms the cache miss happens inside a
 signal handler on first use -> async-signal-unsafe syscalls.
 
-### 44 `CRTS` MSVC CRT signals bypass SEH (Windows)
+### 42 `CRTS` MSVC CRT signals bypass SEH (Windows)
 
 `siginstall` on Windows installs only SEH vectored handlers
 (`thrd_signal_handle_windows.c.ipp:486-505`); it does not install CRT signal handlers.
@@ -730,7 +657,7 @@ exceptions (access violations, integer overflow traps on x86, explicit `RaiseExc
 are handled. A substantial functional gap on Windows versus POSIX, and it is not
 documented.
 
-### 45 `FWTF` [code-level, Windows + forced fallback TLS, Med] the vectored exception function NULL-derefs `tss_async_signal_safe_get(NULL)` on the fallback-TLS path
+### 43 `FWTF` [code-level, Windows + forced fallback TLS, Med] the vectored exception function NULL-derefs `tss_async_signal_safe_get(NULL)` on the fallback-TLS path
 
 With `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL == 0` — i.e.
 `-DWG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=ON` on Windows (a documented PUBLIC option) or
@@ -754,56 +681,33 @@ return NULL when `*sig_tss_state_raw()` is NULL (mirroring the async path), or c
 raw handle before calling `get`. Not reachable on macOS/POSIX (the POSIX backend only
 calls `sig_global_tss_state` after `sig_global_tss_state_init`).
 
-### 46 `PTHD` [confirmed, fallback path, Med] the pthread-key `thread_atexit` fallback drops *every* registered callback on Darwin: pthread key destructors run after the Mach-O TLS block has been torn down, so the destructor reads a freshly-initialised (empty) `thread_atexit_items` list
+### 44 `PTHD` [confirmed, fallback path, Med] the pthread-key `thread_atexit` fallback drops *every* registered callback on Darwin
 
 `thread_atexit.c.ipp:158-233` (the POSIX `pthread_key` fallback, used whenever
 `WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT` is undefined and the TU is C — i.e. any
-header-only C consumer that does not define the macro) registers the per-thread
-callback list as a `_Thread_local` (`thread_atexit_items`, `:167-168`) and drains it
-from the pthread key destructor (`thread_atexit_run`, `:171-188`), which reads the
-TLS variable. **Probe-verified on macOS 15.7.9 arm64 (clang 17):** a minimal
-reproducer using the unmodified backend (`thread_atexit(cb, NULL)` in a thread)
-printed `thread_atexit returned 0` and then `callback ran 0 times` — the destructor
-*does* run (it is invoked by the runtime) but reads `thread_atexit_items == NULL`.
-Controlled experiments isolated the mechanism: at pthread-key-destructor time on
-Darwin the exiting thread's TLS block has already been torn down; any TLS access in
-the destructor transparently re-creates the block with *initialiser* values. A raw
-probe (`_Thread_local void *tlsval`, key destructor) showed `worker: tlsval=0xbeef`
-followed by `dtor: tlsval=0x0` at the *same TLS address*; a C++ probe
-(`thread_local int tval = 42`, worker writes 99) showed the destructor reading 42;
-writes made *inside* a destructor are visible to later destructors, proving the
-destructors share a fresh block while the exited thread's writes are gone. (A
-`thread_local` *object* probe printed no destructor at all because the object was
-never odr-used and therefore never constructed — the write-visibility facts above
-are the relevant ones, and they were reproduced with both `_Thread_local` and
-`__thread` spellings.) The
-library's fallback therefore silently no-ops on Apple for every registered callback:
+header-only C consumer that does not define the macro) stores the per-thread callback
+list in a `_Thread_local` (`thread_atexit_items`, `:167-168`) and drains it from the
+pthread key destructor (`thread_atexit_run`, `:171-188`). **Probe-verified on macOS 15.7.9
+arm64 (clang 17):** at key-destructor time on Darwin the exiting thread's TLS block has
+already been torn down and any TLS access re-creates it with initialiser values, so the
+destructor runs but reads `thread_atexit_items == NULL` — every registered callback is
+silently dropped (the destructor's *argument* is preserved, only the TLS read is zeroed).
+Consequences on this path:
 
 1. `tss_async_signal_safe_thread_init`'s `thread_atexit(func, mem->state)`
    (`tss_async_signal_safe.c.ipp:264-266`) never runs `tss_async_signal_safe_thread_deinit`:
-   the per-thread map entry, the TID key and the shared `deinit_state` (with its
-   `count`) leak at every thread exit; `state->val`/`mem->state` bookkeeping is never
-   unwound, so a later `destroy` (or the last-thread-exit free) never happens for
-   that state (`tss_concurrent_exit_test`'s lifecycle guarantees silently become
-   leaks, and `TIDR`'s stale-entry trigger becomes the *normal* case on this path).
+   the per-thread map entry, the TID key and the shared `deinit_state` leak at every
+   thread exit, and `TIDR`'s stale-entry trigger becomes the *normal* case.
 2. `sig_global_tss_state_init`'s `thread_atexit(free, mem)`
-   (`thrd_signal_handle_common.ipp.ipp:296-317`) never frees the per-thread raise
-   state on the async-safe-TLS path (dormant on Apple, where that path is off, but
-   the same fallback serves any non-`__cxa` platform).
+   (`thrd_signal_handle_common.ipp.ipp:296-317`) never frees the per-thread raise state.
 
-The library's own CI never exercises the path: every CI platform's configure probe
-finds `__cxa_thread_atexit` and propagates `WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT` to
-the header-only consumers, so the pthread fallback is neither compiled nor run in CI
-(and the CMake library build prefers `thread_atexit.cpp` when `__cxa` is absent, so
-the *library* never uses this branch either — only header-only C consumers without
-the define, or exotic non-`__cxa` POSIX platforms, do). Fix direction: on Darwin the
-list must not live in `_Thread_local` state read from a key destructor — e.g. store
-the list head in the key's value itself (the destructor receives it as its argument,
-which the probes show *is* preserved: `arg` carried the correct pointer while the
-TLS read was zeroed), and/or probe the platform's destructor order at configure time
-and reject or rework the fallback there.
+CI never compiles the branch: every CI platform's probe finds `__cxa_thread_atexit` (and
+the library build prefers `thread_atexit.cpp` when `__cxa` is absent), so only header-only
+C consumers without the define, or exotic non-`__cxa` POSIX platforms, hit it. Fix: store
+the list head in the key value itself (the destructor's argument survives) and/or probe
+and reject the fallback on affected platforms at configure time.
 
-### 47 `MUSL` [code-level, Low-Med] `siginfo_t`/`ucontext_t` platform dispatch breaks musl and assumes non-POSIX spellings
+### 45 `MUSL` [code-level, Low-Med] `siginfo_t`/`ucontext_t` platform dispatch breaks musl and assumes non-POSIX spellings
 
 `thrd_signal_handle.h:202-216` relies on `<signal.h>` defining `ucontext_t` (POSIX does
 not require this; `<ucontext.h>` does) and dispatches the `siginfo_t` spelling by
@@ -813,29 +717,29 @@ nor `__ANDROID__` — so musl builds fall into the `struct __siginfo` branch and
 compile (the CI matrix only exercises glibc). The BSD/Android/glibc layout assumptions
 are not portable.
 
-### 48 `MING` Mingw
+### 46 `MING` Mingw
 
 Deliberately unsupported (`#error` at `thrd_signal_handle_windows.c.ipp:273-275`), but
 before reaching that `#error` the header has already redefined `sigset_t` on `_WIN32`
 (`thrd_signal_handle.h:43`), which collides with MinGW's own `sigset_t` typedef — the
 first of several Mingw incompatibilities.
 
-### 49 `SJSP` _setjmp vs `setjmp` inconsistency for header-only consumers
+### 47 `SJSP` _setjmp vs `setjmp` inconsistency for header-only consumers
 
 `WG14_SIGNALS_HAVE__SETJMP` is set only on the compiled library target
 (`CMakeLists.txt:176-178`, PRIVATE). Header-only consumers never get the definition and
 always use `setjmp` (saving/restoring the signal mask) even when `_setjmp` is available.
 Not a correctness bug but a silent performance/behaviour split between the two modes.
 
-### 50 `SIGN` Missing `SIGSYS`/`SIGXCPU`/`SIGXFSZ` guards
+### 48 `SIGN` Missing `SIGSYS`/`SIGXCPU`/`SIGXFSZ` guards
 
 `thrd_signal_handle_posix.c.ipp:53-54` uses `SIGSYS`, and `:109` uses `SIGXCPU`/`SIGXFSZ`
 without `#ifdef` guards (only `SIGPOLL` is guarded). On a POSIX platform that omits any of
 these the file fails to compile. The library build now compiles with explicit feature-test
-macros (plans/ideas.md 2.2), so glibc/musl consistently expose these
+macros (plans/ideas.md §2), so glibc/musl consistently expose these
 signals; the missing `#ifdef` guards remain for platforms that omit the signals entirely.
 
-### 51 `FORK` [code-level, Low] no `pthread_atfork` handling; stale TID caches are inherited across `fork()`
+### 49 `FORK` [code-level, Low] no `pthread_atfork` handling; stale TID caches are inherited across `fork()`
 
 There are no `pthread_atfork` registrations anywhere in the library. After `fork()` in a
 multi-threaded process, the child inherits `current_thread_id_cached` (initial-exec TLS,
@@ -848,7 +752,7 @@ the *parent's* per-thread values. For a library whose stated purpose is thread-l
 signal handling inside a C runtime, fork-safety is a realistic requirement and is neither
 implemented nor documented.
 
-### 52 `NSIG` [code-level, Low] `NSIG` is not POSIX-mandated; a missing `NSIG` silently disables `siginstall`
+### 50 `NSIG` [code-level, Low] `NSIG` is not POSIX-mandated; a missing `NSIG` silently disables `siginstall`
 
 `thrd_signal_handle_common.ipp.ipp:61-62` uses `#if NSIG < 1024` (undefined `NSIG`
 evaluates to 0), and the `siginstall`/`siguninstall`/decider loops iterate `1 .. NSIG-1` —
@@ -856,30 +760,20 @@ with `NSIG` undefined the loops never execute and `siginstall` **returns success
 installed nothing**. All CI platforms define NSIG, so this is exotic-POSIX-only, but the
 failure is silent.
 
-### 53 `NEGS` [code-level, Low] out-of-range and negative `signo` in `stdc_raise` is UB on the POSIX frame walk
+### 51 `NEGS` [code-level, Low] out-of-range and negative `signo` in `stdc_raise` is UB on the POSIX frame walk
 
 `thrd_signal_handle_posix.c.ipp:310-336` — the frame loop tests
 `sigismember(frame->guarded, signo)` with no `signo < NSIG` check. On macOS/BSD
-`sigismember` is a macro expanding to `(*(set) & (1u << (signo - 1)))` (verified via
-`-dM`): a negative `signo` is a negative shift count, and `stdc_raise(64, ...)` is a
-shift-count UB. On glibc, `sigismember` is a function that returns 0 for out-of-range
-values, so the bug is invisible there. (On Windows both cases were fixed:
-unsupported and negative signos map to the user-defined exception-code range and recover
-as values the signo-to-sighandler map bounds-checks as absent, so `stdc_raise(-1)` and
-`stdc_raise(64)` return false instead of aborting or reaching Windows Error Reporting.)
-The POSIX UB remains open.
-**Probe-verified (macOS arm64, current SDK):** `stdc_raise(-1, NULL,
-NULL)` executed inside a `sigguarded()` frame guarding SIGUSR2 invoked that frame's
-decider with `rsi->signo == -1` — the shift-count masking turns `1u << -2` into `1u << 30`,
-so a negative signo silently dispatches to the decider of signal 31. On the current SDK
-positive out-of-range signos are additionally bounded by `__sigbits()` (returns 0 for
-`signo > 32`), so the wrap is negative-only there; pre-Xcode-15 SDKs wrap in both
-directions (a runtime `stdc_raise(33)` then matches a frame guarding signal 1). The
-consequence is stronger than the original finding's UB framing: on Apple/BSD a negative
-`signo` does not just have undefined behaviour, it deterministically *aliases another
-signal's frame decider*.
+`sigismember` is a shift-count macro, so a negative `signo` is a negative shift count —
+**probe-verified** to deterministically *alias another signal's frame decider*, not just
+UB: `stdc_raise(-1)` inside a frame guarding SIGUSR2 invoked that frame's decider with
+`rsi->signo == -1` (the masking turns `1u << -2` into `1u << 30`, i.e. signal 31; on
+pre-Xcode-15 SDKs positive out-of-range signos wrap similarly, `stdc_raise(33)` matching a
+frame guarding signal 1). On glibc `sigismember` returns 0 for out-of-range values, so the
+bug is invisible there; on Windows both cases return false. Fix: bounds-check `signo`
+before the walk.
 
-### 54 `RTIM` [code-level, Linux/glibc, Low] `siginstall(NULL)` installs handlers for glibc-internal signals 32/33 and realtime signals 34-64
+### 52 `RTIM` [code-level, Linux/glibc, Low] `siginstall(NULL)` installs handlers for glibc-internal signals 32/33 and realtime signals 34-64
 
 On glibc `NSIG == 65`, so `siginstall(NULL)` (the pattern used by every test and the
 README) installs the library's handler for signals 32 (`SIGCANCEL`) and 33 (`SIGSETXID`,
@@ -893,7 +787,7 @@ re-raise discards the library handler permanently (the `DFLT`/C10 family), even 
 `sigfillset_synchronous`/`_asynchronous_*` deliberately do not include realtime signals.
 The internal and realtime ranges are neither skipped nor documented.
 
-### 55 `TOPL` [build, Med] `PROJECT_IS_TOP_LEVEL` requires CMake >= 3.21 while `cmake_minimum_required` is 3.15
+### 53 `TOPL` [build, Med] `PROJECT_IS_TOP_LEVEL` requires CMake >= 3.21 while `cmake_minimum_required` is 3.15
 
 `CMakeLists.txt:1` declares `cmake_minimum_required(VERSION 3.15 FATAL_ERROR)`, but line
 231 gates the entire `test/` subdirectory on `PROJECT_IS_TOP_LEVEL`, a variable introduced
@@ -902,36 +796,34 @@ evaluates false: no tests, no `header_only_test` target, and `BUILD_TESTING` is 
 with no diagnostic. Either raise the minimum to 3.21 or use
 `CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR`.
 
-### 56 `WXMS` [build, minor] MSVC builds lack the `-Werror` equivalent
+### 54 `WXMS` [build, minor] MSVC builds lack the `-Werror` equivalent
 
 `CMakeLists.txt:188-192`: GCC/Clang get `-Wall -Wextra -Wpedantic -Werror`; MSVC gets
 `/W4 /experimental:c11atomics` with no `/WX`. All warnings that would break a strict
 GCC/Clang build are invisible in the Windows CI leg (extends `CSTD`).
 
-### 57 `CXXR` [build, Low] the project unconditionally requires a C++ compiler for a C library
+### 55 `CXXR` [build, Low] the project unconditionally requires a C++ compiler for a C library
 
 `CMakeLists.txt:19` declares `project(wg14_signals LANGUAGES C CXX)` unconditionally (only
 the *chosen* `thread_atexit` source is conditional, at `:80-84`), so a C-only toolchain
 cannot configure the project on any platform — even on `__cxa_thread_atexit()` platforms
 where the compiled library is all-C.
 
-### 58 `CPPR` Static library requires a C++ runtime, not declared [open on non-`__cxa_thread_atexit()` platforms]
+### 56 `CPPR` Static library requires a C++ runtime, not declared [open on non-`__cxa_thread_atexit()` platforms]
 
 On platforms without `__cxa_thread_atexit()` (e.g. Windows), `thread_atexit.cpp` is
-compiled into the library (C++) and the CMake package does not express the C++ standard
-library dependency, so a plain C consumer linking `libwg14_signals.a` there gets
-unresolved C++ runtime symbols. (Fixed 2026-08-10 on `__cxa_thread_atexit()` platforms:
-`src/wg14_signals/thread_atexit.c` is compiled instead and the C++ file is neither
-compiled nor linked — the library is all-C with no C++ runtime dependency there.) The
-open remainder is the Windows/non-`__cxa_thread_atexit()` case.
+compiled into the library and the CMake package does not express the C++ standard library
+dependency, so a plain C consumer linking `libwg14_signals.a` there gets unresolved C++
+runtime symbols. (On `__cxa_thread_atexit()` platforms the C file is compiled instead and
+the library is all-C with no C++ runtime dependency.)
 
-### 59 `CSTD` CMake `CMAKE_C_STANDARD` cache variable is unused for consumers
+### 57 `CSTD` CMake `CMAKE_C_STANDARD` cache variable is unused for consumers
 
 The `CMAKE_C_STANDARD` cache variable set at `CMakeLists.txt:6` is not propagated to
 consumers of the installed package; the `find_package` consumer must re-declare its own
 `CMAKE_C_STANDARD` (the install consumer does, at `test/install_consumer/CMakeLists.txt:10-11`).
 
-### 60 `CIGA` CI gaps
+### 58 `CIGA` CI gaps
 
 - The Windows CI runs with `-DCMAKE_C_STANDARD` in {11,17} but MSVC ignores the C-standard
   option for `/experimental:c11atomics` in some versions.
@@ -946,17 +838,17 @@ consumers of the installed package; the `find_package` consumer must re-declare 
 - No Windows leg runs `WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=ON`,
   so the fallback-TLS path is never compiled or exercised with MSVC's
   `/experimental:c11atomics` (the Linux fallback legs use GCC/clang). The
-  `FWTF` crash (row 45) lives precisely in that unexercised configuration, and
+  `FWTF` crash (row 43) lives precisely in that unexercised configuration, and
   `tss_async_signal_safe`'s MSVC build is otherwise only ever compiled on macOS-derived
   toolchains.
 
-### 61 `PCFG` ProjectConfig.cmake.in references non-existent export names
+### 59 `PCFG` ProjectConfig.cmake.in references non-existent export names
 
 `cmake/ProjectConfig.cmake.in:6-11` conditionally includes
 `@PROJECT_NAME@SlExports.cmake`/`@PROJECT_NAME@DlExports.cmake`, which are never
 generated. Harmless (guarded by `EXISTS`), but misleading.
 
-### 62 `THRD` [test-harness, Low] `test_common.h` `thrd_join`/`thrd_create` defects
+### 60 `THRD` [test-harness, Low] `test_common.h` `thrd_join`/`thrd_create` defects
 
 `test_common.h:81-100` — `thrd_join` checks `ret != -1`, but `pthread_join` returns an
 error *number* (0 on success), never -1: on failure `*res` is left unset while the caller
@@ -964,7 +856,7 @@ proceeds as if the join succeeded. `thrd_create` (`:81-89`) dereferences the unc
 `calloc` result (NULL deref on OOM). The benchmark and handle tests rely on this shim; the
 harness masks real failures.
 
-### 63 `STOR` Test storage exhaustion
+### 61 `STOR` Test storage exhaustion
 
 `test/async_signal_safe_tls_test.c:6-14` and `test/header_only_test.cpp:16-24`: `create`
 does `*dest = storage_ptr++` on a 2-element array; any third `thread_init` (e.g., a
@@ -973,18 +865,18 @@ call many times") writes out of bounds. **Extended:** the same applies to
 `test/benchmark_async_signal_safe_tls_test.c:12-13`. The test also never verifies the
 re-init and re-entrancy semantics documented in the API.
 
-### 64 `TRAP` The SIGFPE test depends on architecture trap behaviour
+### 62 `TRAP` The SIGFPE test depends on architecture trap behaviour
 
 `test/thrd_sigfpe_test.c:62-67` works around x64's lack of integer-divide trapping, but
 the guard relies on `sigfence` and `stdc_raise(SIGFPE)` fallback, so the "real fault" SEH
 path on Windows is never exercised.
 
-### 65 `TCOV` No coverage of the failure/edge APIs
+### 63 `TCOV` No coverage of the failure/edge APIs
 
 No test calls `siguninstall_system`, `sigfillset_synchronous/asynchronous_*` return
 values, or `signal_decider_create` with NULL/empty guarded sets.
 
-### 66 `PFXM` WG14_SIGNALS_PREFIX(fn(args)) misuse (cosmetic only — C11)
+### 64 `PFXM` WG14_SIGNALS_PREFIX(fn(args)) misuse (cosmetic only — C11)
 
 `test/thrd_signal_handle_test.c:101,121`, `test/thrd_sigfpe_test.c:111`,
 `test/benchmark_thrd_signal_handle_test.c:116` all write
@@ -998,14 +890,14 @@ programs compile. The spelling is still misleading and should be fixed for clari
 the macro must be function-like, which is a documentation gap in `config.h`, not a
 library defect.
 
-### 67 `SFAR` [code-level, Low] `sigfence` with more than 8 arguments produces a confusing hard error
+### 65 `SFAR` [code-level, Low] `sigfence` with more than 8 arguments produces a confusing hard error
 
 `WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8` (`thrd_signal_handle.h:96-106`) returns the 9th
 argument as the count; `sigfence(a,...,i)` expands `WG14_SIGNALS_SIGFENCE_IMPL_i` — an
 undefined identifier — yielding a cryptic compile error rather than a diagnostic about the
 8-argument limit. (The 0-arg form works; verified.)
 
-### 68 `SABA` [code-level, Windows, Low] `stdc_raise(SIGABRT)` raises a non-continuable exception; "resume" from a decider loops
+### 66 `SABA` [code-level, Windows, Low] `stdc_raise(SIGABRT)` raises a non-continuable exception; "resume" from a decider loops
 
 `SIGABRT` maps to `EXCEPTION_NONCONTINUABLE_EXCEPTION (0xC0000025)`. If any decider
 returns "resume execution" for it, Windows re-raises `0xC0000025` (the OS cannot resume a
@@ -1013,7 +905,7 @@ non-continuable exception), the vectored handler runs the decider again -> repea
 POSIX has no such constraint for SIGABRT. (With no decider and an enclosing `__except` the
 raise still works, which is why tests pass.)
 
-### 69 `MUTR` [code-level, Windows, Low] `stdc_raise` mutates the caller's `EXCEPTION_RECORD`
+### 67 `MUTR` [code-level, Windows, Low] `stdc_raise` mutates the caller's `EXCEPTION_RECORD`
 
 `thrd_signal_handle_windows.c.ipp:332-341`: when `info != NULL` and room remains, the
 function appends the `0xdeadbeefdeadbeef` marker and the raw context into
@@ -1023,7 +915,7 @@ fault from inside a filter — exactly the "pass on signal handling to this libr
 case documented in the header), the record the kernel will later inspect is altered. The
 marker write is also racy if two threads re-raise through the same record.
 
-### 70 `UFLT` [code-level, Windows, Low] `siguninstall` clobbers an application-installed `SetUnhandledExceptionFilter`
+### 68 `UFLT` [code-level, Windows, Low] `siguninstall` clobbers an application-installed `SetUnhandledExceptionFilter`
 
 `thrd_signal_handle_windows.c.ipp:516-519`: the library captures the
 unhandled-exception filter present at first `siginstall` and restores exactly that filter
@@ -1038,7 +930,7 @@ sibling is `uninstall_sighandler_impl`
 threadsafe with respect to other code modifying the global signal handlers") is framed as
 a concurrency caveat and does not cover the sequential case.
 
-### 71 `NDBS` [code-level, Windows, Low, extends X9] `asynchronous_nondebug_sigset` silently omits most documented signals and includes the two `siginstall`-skipped ones
+### 69 `NDBS` [code-level, Windows, Low] `asynchronous_nondebug_sigset` silently omits most documented signals and includes the two `siginstall`-skipped ones
 
 `thrd_signal_handle_windows.c.ipp:92-108` builds the nondebug set from only
 `{SIGINT, SIGKILL, SIGSTOP, SIGTERM}`, whereas the header documents it as containing at
@@ -1057,7 +949,7 @@ SIGSEGV, SIGSYS" list promises — SIGPIPE and SIGSYS are undefined on MSVC and 
 omitted. All three Windows filler sets therefore deliver less than their documented
 "at least" lists.
 
-### 72 `GDIR` [code-level, both backends, Low] a *global* decider returning `sig_decision_invoke_recovery` has divergent, undocumented semantics
+### 70 `GDIR` [code-level, both backends, Low] a *global* decider returning `sig_decision_invoke_recovery` has divergent, undocumented semantics
 
 The enum documentation (`thrd_signal_handle.h:254-257`) says `sig_decision_invoke_recovery`
 is "Thread local signal deciders only", yet global deciders share the same `sig_decide_t`
@@ -1073,7 +965,7 @@ livelock),
 no recovery, re-fault" on POSIX and "unwind to top frame" on Windows. Neither backend
 documents or diagnoses this for global deciders.
 
-### 73 `MSQR` [code-level, Windows, Low] user `EXCEPTION_RECORD` parameters masquerade as `rsi->addr` / `rsi->error_code`
+### 71 `MSQR` [code-level, Windows, Low] user `EXCEPTION_RECORD` parameters masquerade as `rsi->addr` / `rsi->error_code`
 
 `thrd_signal_handle_windows.c.ipp:207-216` reads `ExceptionInformation[1]` and
 `ExceptionInformation[2]` as `addr` and `error_code` with no `NumberParameters` check. For
@@ -1082,7 +974,7 @@ parameters*, so deciders see arbitrary user data in `addr`/`error_code` (determi
 non-NULL `info`, not garbage). Any decider keying on the NTSTATUS in `error_code` gets
 different values for user raises than for genuine faults.
 
-### 74 `CATM` [code-level, C++ conformance, Low] `calloc` allocates C++ objects containing `std::atomic_uint` members without starting their lifetime
+### 72 `CATM` [code-level, C++ conformance, Low] `calloc` allocates C++ objects containing `std::atomic_uint` members without starting their lifetime
 
 `tss_async_signal_safe.c.ipp:96-112` (`tss_async_signal_safe_create`) and `:230-241`
 (`deinit_state` allocation) use `calloc` for structs whose members include
@@ -1092,7 +984,7 @@ those atomics, so using them is object-lifetime UB per the C++ standard (works o
 MSVC/GCC/Clang because `std::atomic<unsigned>` is trivially default-constructible in
 practice). The C path is unaffected (C11 `atomic_uint` is a plain type).
 
-### 75 `SFPD` [code-level, Windows, Low] `stdc_raise(SIGFPE)` raises a different exception code than a genuine integer divide-by-zero
+### 73 `SFPD` [code-level, Windows, Low] `stdc_raise(SIGFPE)` raises a different exception code than a genuine integer divide-by-zero
 
 `win32_exception_code_from_signal` maps SIGFPE -> `EXCEPTION_FLT_INVALID_OPERATION`
 (0xC0000090), but the real hardware fault from `x / 0` on x64 is
@@ -1103,7 +995,7 @@ Similarly `stdc_raise(SIGBUS)` maps to `EXCEPTION_IN_PAGE_ERROR`, a semantically
 fault class from a real SIGBUS-equivalent. Cosmetic divergence, but the README/header
 invite reading `error_code`.
 
-### 76 `UECL` [code-level, Windows, Low] `stdc_raise`'s user-range exception codes collide with the documented user-defined exception-code range
+### 74 `UECL` [code-level, Windows, Low] `stdc_raise`'s user-range exception codes collide with the documented user-defined exception-code range
 
 `thrd_signal_handle_windows.c.ipp:139, 160-172` — signals with no native Win32 code are
 raised as `WG14_SIGNALS_USER_RAISE_BASE | (signo & 0x3FFFFFFF)`, i.e.
@@ -1122,7 +1014,7 @@ two; the collision range could be narrowed (the signo mapping only needs 5 bits,
 No memory-safety consequence; a behavioural hijack of the host application's own
 exception codes.
 
-### 77 `DRGN` [code-level, Windows + C++-vector paths, Low] a callback registering a new `thread_atexit` callback during the thread-exit drain is silently dropped (MSVC TLS-directory path) or is UB (C++ vector path)
+### 75 `DRGN` [code-level, Windows + C++-vector paths, Low] a callback registering a new `thread_atexit` callback during the thread-exit drain is silently dropped (MSVC TLS-directory path) or is UB (C++ vector path)
 
 On the MSVC TLS-directory path (`thread_atexit.c.ipp:106-124`) the TLS callback
 NULLs the list head and drains it exactly once at `DLL_THREAD_DETACH`; a callback
@@ -1143,7 +1035,7 @@ append-during-drain. Low severity: needs a callback pattern and only leaks; flag
 because the "safe to call many times" `thread_init` contract invites exactly the
 drain-time re-entry.
 
-### 78 `UCRE` [code-level, Low] `thread_init`'s unlocked `attr.create` breaks the THREADSAFE contract for concurrent first-use on distinct threads
+### 76 `UCRE` [code-level, Low] `thread_init`'s unlocked `attr.create` breaks the THREADSAFE contract for concurrent first-use on distinct threads
 
 `tss_async_signal_safe.c.ipp:211-218`: the user's `create` callback runs **without**
 `mem->lock`, so two threads racing to first-initialise the same handle call the user's
@@ -1153,7 +1045,7 @@ map insert but not the create callback. The test suite's own `create` uses a sha
 in the harness itself. Design note: either document that `create` must be thread-safe, or
 serialise the create callback under the lock (at the cost of re-entrancy, cf. `REEN`).
 
-### 79 `CXAT` [code-level, Low] the C `thread_atexit` silently swallows a failed `__cxa_thread_atexit()` registration
+### 77 `CXAT` [code-level, Low] the C `thread_atexit` silently swallows a failed `__cxa_thread_atexit()` registration
 
 `thread_atexit.c.ipp:66-76` — the C implementation (used whenever
 `__cxa_thread_atexit()` is available, i.e. the glibc/macOS/FreeBSD builds) calls
@@ -1177,7 +1069,7 @@ return is reliable (the CMake `WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT` probe alrea
 exists) and propagate the return on platforms where it is, keeping the ignore-everything
 behaviour only for the known-unreliable ones (macOS).
 
-### 80 `SFQL` sigfence on GNU compilers requires lvalues; non-lvalues fail to compile
+### 78 `SFQL` sigfence on GNU compilers requires lvalues; non-lvalues fail to compile
 
 `WG14_SIGNALS_SIGFENCE_IMPL_1(a)` expands to `__asm__ volatile(";" : "+m"(a) : : "memory")`.
 The `+m` operand must be an lvalue: `sigfence(42)` or `sigfence(x + 1)` is a hard compile
@@ -1186,41 +1078,26 @@ header now documents the requirement ("Any variable in the argument list MUST be
 lvalue", `thrd_signal_handle.h:248-249`), so the failure is documented if still a bare
 compiler error.
 
-### 81 `TSSG` [docs/API contract, both backends, Low] `tss_async_signal_safe_destroy`'s documented precondition is stricter than the N3924 wording; `tss_async_signal_safe_get`'s header omits the wording's precondition
+### 79 `TSSG` [docs/API contract, both backends, Low] `tss_async_signal_safe_destroy`'s documented precondition is stricter than the N3924 wording; `tss_async_signal_safe_get`'s header omits the wording's precondition
 
-N3924 (7.30.6.6): destroy "destroys" the instance and "All thread-specific storage
-pointers associated with this instance are destroyed using the original `attr->destroy()`
-upon the successful return of this function" — no requirement that the initialising
-threads have exited. The implementation's header instead requires "All threads that
-initialised this instance must have exited (e.g. been joined) before this is called"
-(`tss_async_signal_safe.h:46-52`), and the implementation genuinely cannot destroy
-pointers of live threads safely (the concurrent-deinit race in `DEIN`). Two consequences:
-(a) consumers written against the wording find a *documented restriction* the wording does
-not impose; (b) the library's own fallback path violates even the stricter requirement —
-the last `siguninstall` -> `sig_global_tss_state_destroy` -> `tss_async_signal_safe_destroy`
-runs while other threads may still be inside `sigguarded` (finding `UNTL`). The wording's
-semantics ("destroy on destroy, or at thread exit — implementation-defined") were resolved
-towards "thread-exit destroy plus destroy-time destroy for exited threads", which is the
-weaker of the two permitted behaviours; a consumer that relied on destroy-time cleanup of
-live threads' pointers gets leaks (the entries are freed at thread exit). **Update
-(2026-08-16):** the destroy half of this finding is resolved by the `TSSD` wontfix
-decision — a second destroy on the same value is now explicitly documented as undefined
-behaviour (fail-fast, per the C11/POSIX/N3924 contract), which the header admits, so the
-"destroy must only be called once, after threads have exited" precondition is a genuine
-wording-vs-implementation deviation rather than a defect that papers over a UAF. The
-`get` half below remains open.
+N3924 (7.30.6.6): destroy makes no requirement that the initialising threads have
+exited. The implementation's header instead requires "All threads that initialised this
+instance must have exited (e.g. been joined) before this is called"
+(`tss_async_signal_safe.h:46-52`) and genuinely cannot destroy live threads' pointers
+safely (the `DEIN` race) — a documented restriction the wording does not impose, and one
+the library's own fallback path violates (`UNTL`). The double-destroy half was resolved
+by the `TSSD` wontfix adjudication (2026-08-16); the `get` half below remains open.
 
-`tss_async_signal_safe_get`: the wording says `tss_async_signal_safe_thread_init()` "shall
-have been called on the calling thread beforehand, in which case the thread-specific
-storage pointer created at that time is returned; otherwise the behavior is undefined."
-The implementation returns NULL for an uninitialised thread (`tss_async_signal_safe.c.ipp:273-290`)
-— a defined, benignly stronger behaviour — but the header (`tss_async_signal_safe.h:68-72`)
-documents neither the precondition nor the NULL fallback, so the async-signal-safety
-claim ("ASYNC-SIGNAL-SAFE", no caveat) is asserted for a function whose first call per
+`tss_async_signal_safe_get`: the wording requires `tss_async_signal_safe_thread_init()`
+"shall have been called on the calling thread beforehand... otherwise the behavior is
+undefined." The implementation returns NULL for an uninitialised thread
+(`tss_async_signal_safe.c.ipp:273-290`) — a defined, benignly stronger behaviour — but the
+header (`tss_async_signal_safe.h:68-72`) documents neither the precondition nor the NULL
+fallback, so the "ASYNC-SIGNAL-SAFE" claim is asserted for a function whose first call per
 thread performs the `my_current_thread_id()` cache fill (`MAST`) and a spinlocked map lookup
 (`SPIN`) — see §2.
 
-### 82 `DECR` [docs, both backends, Low] `signal_decider_create`'s documentation describes a bool decider contract that no longer matches the enum `sig_decide_t`
+### 80 `DECR` [docs, both backends, Low] `signal_decider_create`'s documentation describes a bool decider contract that no longer matches the enum `sig_decide_t`
 
 `thrd_signal_handle.h:616-619` — "a decider function, which must return `true` if
 execution is to resume, `false` if the next decider function should be called", and "A
@@ -1235,7 +1112,7 @@ sensibly — but a decider can never express `sig_decision_invoke_recovery` that
 the wording's own `sig_decision_t` semantics (7.14.1) are the contract a reference
 implementation should document. Pure documentation hygiene; flagged because the stale
 contract text is the first thing a consumer of this API reads.
-### 83 `TSSD` [wontfix, code-level, security, Low] `tss_async_signal_safe_destroy` double-destroy is an unguarded use-after-free
+### 81 `TSSD` [wontfix, code-level, security, Low] `tss_async_signal_safe_destroy` double-destroy is an unguarded use-after-free
 
 `tss_async_signal_safe.c.ipp:114-138`: a **second** `destroy` on the same (non-NULL)
 handle calls `LOCK(mem->lock)` on freed memory and then `free(mem)` again — a double-free /
@@ -1263,7 +1140,7 @@ standards leave undefined. Resolution: a second `destroy` on the same value is
 value is left dangling after `destroy` and must not be reused (see
 `tss_async_signal_safe.h` and finding `TSSG`). No guard will be added.
 
-### 84 `DEDE` [wontfix, code-level, Low] `signal_decider_destroy` double-destroy is an unguarded use-after-free
+### 82 `DEDE` [wontfix, code-level, Low] `signal_decider_destroy` double-destroy is an unguarded use-after-free
 
 `thrd_signal_handle_common.ipp.ipp:757` (`free(p)`) unconditionally frees the handle. A
 second `signal_decider_destroy` on the same pointer reads freed memory before the
@@ -1328,16 +1205,11 @@ Verdicts:
   the open findings above; the plan files remain the only inventory.
 - `doc/html/` is a committed Doxygen build output — version-controlled generated artifacts
   (churn, but not a bug).
-- **AC1 [docs-hygiene, Low]** many source comments and the CI YAML cite finding IDs that
-  no longer exist: `analysis.md 5.10` (Fil-C/FreeBSD, cited by
-  `test/thrd_sigfpe_test.c:6`, `test/recovery_null_loop_test.c:6`,
-  `test/post_uninstall_reentry_test.c:21`, `test/header_only_build_test.cmake:17`,
-  `ci.yml:332`), `analysis.md 2.9`/`W11` (sigfence codegen, cited by
-  `test/sigfence_fence_test.c:1`, `test/sigfence_codegen_test.cmake:1`), and `analysis.md
-  1.8`/`C3`/`Y10` (header-only, cited by `test/header_only_build_test.cmake` and
-  `test/header_only_c_consumer/main.c`). The IDs no longer resolve in `plans/analysis.md`;
-  retarget the comments to the surviving IDs (e.g. the Fil-C/FreeBSD exclusions are now
-  documented only in `ci.yml` itself).
+- **AC1 [docs-hygiene, Low]** source comments and the CI YAML cite finding IDs from the
+  pre-renumbering scheme (`analysis.md 5.10`, `2.9`/`W11`, `1.8`/`C3`/`Y10`, cited by
+  `test/thrd_sigfpe_test.c`, `test/sigfence_fence_test.c`, `test/header_only_build_test.cmake`,
+  `test/header_only_c_consumer/main.c`, `ci.yml`) that no longer resolve in this document;
+  retarget them to the surviving codes or to `ci.yml` itself.
 - `sigguarded`'s doc `\return` ("The value returned by `guarded`, or `recovery`",
   `thrd_signal_handle.h:502`) is sloppy: `recovery` is the *value returned by the
   recovery function*, and the failure return (`-1`, finding `AMBI`) is not mentioned.
@@ -1362,38 +1234,19 @@ Verdicts:
   `sig_decision_resume_execution` case executes `frame = frame->prev;` immediately
   before `return true;`; the store is dead. Harmless, but it reads as if the walk
   continued; drop the assignment.
-- **Windows `install_sighandler_impl` returns true when the vectored continue handler
-  was added but `SetUnhandledExceptionFilter` is the app's own filter.** `:591-592`
-  unconditionally overwrites the process unhandled-exception filter with the library's
-  function and stores the old one; the app's pre-existing filter is only restored at
-  the *final* `siguninstall` (`UFLT`), so an app that installs its filter after the
-  first `siginstall` and *never* fully uninstalls loses it for the rest of the
-  process lifetime even while other signals remain installed — the current `UFLT`
-  framing covers the uninstall-time clobber; this is the install-time overwrite of an
-  *already-present* filter, which `AddVectoredContinueHandler` would not have needed
-  to displace. (The POSIX backend has no analogous concern: `sigaction` chaining
-  preserves the old handler in `old_handler`.)
-- **`--wrap` + hidden visibility + shared library breaks the rollback test's link
-  (fixed).** `siginstall_rollback_test` links `-Wl,--wrap=calloc` and defines
-  `__wrap_calloc`; with `CMAKE_C_VISIBILITY_PRESET "hidden"` the definition was
-  hidden, and GNU ld (binutils >= 2.42, Ubuntu 24.04 CI) additionally redirects the
-  *shared library's* undefined `calloc` reference to `__wrap_calloc` — a DSO
-  reference that a hidden symbol in the executable cannot satisfy ("hidden symbol
-  `__wrap_calloc' ... is referenced by DSO", final link failed). Fixed by compiling
-  the interposer with default visibility
-  (`__attribute__((visibility("default")))`, `test/siginstall_rollback_test.c:32-49`):
-  the executable exports it, the DSO's redirected reference binds at runtime, and the
-  library's own internal `calloc` calls are not redirected by `--wrap`, so the
-  interposer still only sees the test TU's calls. Verified on Ubuntu 24.04 for
-  GCC/Clang x shared ON/OFF x Debug/Release (all 23 tests pass). **Fil-C (2026-08-15):
-  `--wrap` is unusable under Fil-C at all — Fil-C pizlonates every symbol
-  (`__real_calloc` becomes `pizlonated___real_calloc`), so the linker's `--wrap`
-  rewrites never match the mangled names, and libpizlo.so's own wrapped `calloc`
-  reference cannot be bound either ("undefined reference to `__wrap_calloc'"). The
-  test is therefore excluded from the Fil-C build
-  (`test/CMakeLists.txt`, `CMAKE_C_COMPILER MATCHES "[Ff][Ii][Ll]-?[Cc]"`), same
-  precedent as the header-only build test; rollback coverage remains on the GCC/Clang
-  Linux and FreeBSD legs.**
+- **Windows `install_sighandler_impl` overwrites an already-present unhandled-exception
+  filter at install time.** `:591-592` unconditionally replaces the process filter and
+  only restores the pre-library one at the *final* `siguninstall` (`UFLT`), so an app that
+  installs its filter after the first `siginstall` loses it even while other signals
+  remain installed — the UFLT finding covers the uninstall-time clobber; this is the
+  install-time overwrite of an already-present filter. (POSIX has no analogue: `sigaction`
+  chaining preserves the old handler.)
+- **`siginstall_rollback_test` is excluded from Fil-C builds:** `--wrap` is unusable under
+  Fil-C's symbol pizlonation (the linker's rewrites never match the mangled names), so the
+  test is excluded (`test/CMakeLists.txt`, `CMAKE_C_COMPILER MATCHES "[Ff][Ii][Ll]-?[Cc]"`);
+  rollback coverage remains on the GCC/Clang Linux and FreeBSD legs. (The earlier
+  `--wrap` + hidden-visibility link breakage that motivated the exclusion was fixed by
+  giving the interposer default visibility.)
 
 ### Minor proposal-conformance notes (N3924 rev 4 wording)
 
@@ -1429,13 +1282,14 @@ The severity label in the tables classifies each finding's worst-case impact; th
 order is the remediation priority, which applies the criteria below to the label *and*
 the finding's trigger likelihood. It is not a strict severity sort: the security-class items
 (`TSSD`, `DEDE`) were adjudicated wontfix on 2026-08-16 and therefore rank *last*
-(rows 83-84) rather than first, and the Med items `FLGS`, `DFLT`, `TIDR`, `TLSD`,
+(rows 81-82) rather than first, and the Med items `FLGS`, `DFLT`, `TIDR`, `TLSD`,
 `MAST`, `CRTS` and `TOPL` follow Low items that are more dangerous in practice. The main
-table lists the fixable findings (rows 1-82); the two wontfix findings have their own
+table lists the fixable findings (rows 1-80); the two wontfix findings have their own
 summary table below it.
 
 Where merged findings touch the same machinery (`DEIN` extends the `UNTL` trigger,
-`NDEC` is the Windows sibling of `JLGS`/`LEAK`, `ZERO`-`PRCR` are the
+`NDEC` is the Windows sibling of `LEAK` and the POSIX never-returning frame-decider
+family, `ZERO`-`PRCR` are the
 `stdc_raise`/`siginstall`/decider contract family), the earlier finding is referenced
 rather than duplicated. Row numbers are positional only; every finding is cited by its
 stable four-letter code (§5).
@@ -1446,11 +1300,9 @@ Ranking criteria, applied in order of precedence:
 
 1. **Memory corruption in the live raise path.** UAF / dangling frame state / UB that
    corrupts memory or crashes during ordinary use of the core guarded-raise machinery
-   (`JLGS`, `UNTL`, `SJMP`, `NSTR`). Within the tier: the confirmed reproduction (`JLGS`,
-   ASan stack-use-after-scope, triggered by the wording-permitted never-returning
-   thread-local decider) and the deterministic UAF (`UNTL`) precede the narrow-window
-   setjmp race (`SJMP`) and the re-entrancy aliasing bug (`NSTR`). The Windows analogue of
-   `JLGS` — a
+   (`UNTL`, `NSTR`). Within the tier: the deterministic UAF (`UNTL`) precedes the
+   re-entrancy aliasing bug (`NSTR`). The Windows
+   analogue of the (now removed) `JLGS` — a
    never-returning decider during `stdc_raise` pinning `tss->front` and
    `software_raise_in_progress` (`NDEC`) — follows because it needs the same
    never-returning-decider trigger (permitted by the wording, but an unusual pattern), and
@@ -1461,16 +1313,16 @@ Ranking criteria, applied in order of precedence:
    non-default user setup to trigger, whereas tier 1 defects fire on plausible ordinary
    usage.
 3. **Unbounded resource/lifecycle leaks.** No crash today but progressive degradation:
-   re-entrancy double-create (`REEN`), missing rollback on `thread_atexit` failure (`TAFL`),
-   and never-returning deciders leaking refcounts (`LEAK`). Ordered by how realistically the
-   trigger arises (re-entrancy and OOM before a decider that never returns).
+   re-entrancy double-create (`REEN`) and missing rollback on `thread_atexit` failure
+   (`TAFL`). (`LEAK`, the never-returning-decider refcount leak, was fixed by
+   `sigdecider_abandon`; its residual — a spinlock taken inside an ASYNC-SIGNAL-SAFE API —
+   is the `SPIN` mechanism, and is listed there.)
 4. **Data races and setjmp-family UB.** C/C++ memory-model violations that current
-   compilers tolerate today. The race that can escalate to a use-after-free — the
-   thread-exit deinit reading `state->val` unlocked against a concurrent destroy (`DEIN`) —
-   leads the tier; then the benign double-checked `sigfillset` write race (`SIGF`),
-   modified-local-after-setjmp (`MLAS`), `_setjmp`/`setjmp` mask semantics (`SJMS`), skipped
-   C++ destructors (`CPPD`), and the `sigfence` MSVC fallback's shared-sink race (`SFNK`).
-   Latent UB, not today's crashes.
+   compilers tolerate today. The thread-exit deinit reading `state->val` unlocked against a
+   concurrent destroy (`DEIN`) leads the tier; then the benign double-checked `sigfillset`
+   write race (`SIGF`), modified-local-after-setjmp (`MLAS`), `_setjmp`/`setjmp` mask
+   semantics (`SJMS`), skipped C++ destructors (`CPPD`), and the `sigfence` MSVC fallback's
+   shared-sink race (`SFNK`). Latent UB, not today's crashes.
 5. **Silent alteration of host-process semantics.** POSIX install flags and
    default-action handling that change the behaviour of the host process for the whole
    tenure of an install: `SA_NOCLDWAIT`/no `SA_RESTART`/`SA_NODEFER` on the default
@@ -1530,7 +1382,7 @@ Ranking criteria, applied in order of precedence:
     behaviour under the C11/POSIX/N3924 contract and, as this reference implementation
     keeps raw-pointer handles that `destroy()` frees, no guard will be added (see the
     heading bodies). Because no remediation is expected for them, they rank **last** in
-    the list (rows 83-84), below every fixable finding, despite being the only
+    the list (rows 81-82), below every fixable finding, despite being the only
     weaponisable findings in the inventory.
 
 Tie-breakers within a tier: severity label; then whether the trigger is a realistic user
@@ -1540,99 +1392,102 @@ then backend scope.
 
 | # | Code | Category | Severity | Issue |
 |---|---|---|---|---|
-| 1 | `JLGS` | memory | Med | never-returning thread-local decider -> dangling `tss->front` -> stack UAF (**partially fixed 2026-08-16**: heap frames; cooperative `sigguarded_abandon`/`_resume` extension; uncooperative sound-skip still open — see finding) |
-| 2 | `UNTL` | memory | Med | `siguninstall` during another thread's `sigguarded` frees live TSS (fallback) |
-| 3 | `SJMP` | race | Med | setjmp-buffer race: frame published before setjmp completes (**POSIX co-fixed 2026-08-16** by the heap-frame publish-after-setjmp change; Windows `stdc_raise` raise-frame push still open — see finding) |
-| 4 | `NSTR` | race | Med | nested delivery overwrites frame `rsi` mid-decider |
-| 5 | `NDEC` | windows | Med | never-returning decider pins `software_raise_in_progress`/`tss->front` (re-fault loop, dead-frame longjmp) |
-| 6 | `VDED` | windows | Med | V5 dedup cache never invalidated; later exception at same record address skips deciders (livelock, skipped pass) |
-| 7 | `SPIN` | async | Med | Spinlock not async-signal-safe |
-| 8 | `ALOC` | async | Med | first delivery allocates in handler |
-| 9 | `REEN` | leak | Low | `thread_init` re-entrancy leaks |
-| 10 | `TAFL` | leak | Low | `thread_init` no rollback on `thread_atexit` failure |
-| 11 | `LEAK` | leak | Med | never-returning deciders leak refcounts |
-| 12 | `DEIN` | race | Low | deinit reads `state->val` unlocked; destroy race -> UAF (extends `UNTL`) |
-| 13 | `SIGF` | race | Low | `sigfillset_*` lazy-init data race |
-| 14 | `GLIN` | race | Low | `sig_global_state()` lazy verstable `_init` race (NSIG >= 1024 branch) |
-| 15 | `MLAS` | ub | Low | modified-local-after-setjmp UB |
-| 16 | `SJMS` | semantics | Low | `_setjmp`/`setjmp` mask semantics |
-| 17 | `CPPD` | cpp | Low | longjmp skips C++ destructors |
-| 18 | `SFNK` | race | Low | `sigfence` MSVC fallback shared-sink data race |
-| 19 | `FLGS` | semantics | Med | `SA_NOCLDWAIT`/`SA_NODEFER`/no `SA_RESTART` |
-| 20 | `DFLT` | semantics | Med | `invoke_sigaction` default handling wrong for stop/continue |
-| 21 | `UNKN` | semantics | Low | `raw_signal_handler` unknown signals |
-| 22 | `TIDR` | identity | Med | thread-ID reuse with stale entries |
-| 23 | `SDCF` | error | Low | `signal_decider_create` failure path |
-| 24 | `SDDF` | locking | Low | `signal_decider_destroy` frees nodes outside lock |
-| 25 | `UCLK` | locking | Low | `tss_async_signal_safe_destroy` runs user `attr.destroy` under `mem->lock` (re-entrancy deadlock) |
-| 26 | `TAOM` | error | Low | `thread_atexit` C++ exceptions disabled -> OOM terminates |
-| 27 | `FPUN` | ub | Low | fn-pointer type pun |
-| 28 | `NSIH` | contract | Low-Med | NULL `siginfo` hand-off to pre-existing SA_SIGINFO handler |
-| 29 | `IGND` | contract | Low | `stdc_raise` true when previous handler ignored |
-| 30 | `ZERO` | contract | Low | `stdc_raise` returns true with zero deciders called (wording: false) |
-| 31 | `PREI` | windows | Low | Windows `stdc_raise` pre-install terminates via WER; POSIX returns `false` |
-| 32 | `WRET` | windows | Med | `stdc_raise` of installed signal with no decider/frame/user `__except` terminates via WER; POSIX hands off and returns `true` |
-| 33 | `WFRM` | windows | Med | global deciders run before thread-local frame deciders on Windows; frame deciders skipped for software raises of uninstalled signals |
-| 34 | `SUST` | contract | Low | `siguninstall_system` no-op stub |
-| 35 | `SKIP` | contract | Low | `siginstall` silently skips SIGKILL/SIGSTOP/Fil-C signals, still returns success |
-| 36 | `PRCR` | contract | Low | `signal_decider_create` before `siginstall` silently loses the decider |
-| 37 | `AMBI` | contract | Low | `sigguarded` -1 indistinguishable from legit -1 |
-| 38 | `ORDR` | semantics | Med | decider iteration order is the inverse of the 7.14.1 ordering clauses (wording self-contradictory) |
-| 39 | `ENUM` | api | Low | enum member `sig_decision_invoke_recovery` vs wording's `sig_decision_call_recovery` |
-| 40 | `TYDF` | api | Low | typedef `thrd_raised_signal_error_code_t` vs wording's `stdc_siginfo_error_code_t` |
-| 41 | `VSDT` | api | Low | Windows sigset helpers `void` vs wording's `int` (and POSIX "always returns zero" not guaranteed) |
-| 42 | `TLSD` | portability | Med | async-safe TLS detection too optimistic; forced-on-Apple unsafe |
-| 43 | `MAST` | async | Med | `pthread_getthreadid_np`/`mach_thread_self` not async-safe |
-| 44 | `CRTS` | windows | Med | MSVC CRT signals bypass SEH |
-| 45 | `FWTF` | windows | Med | fallback-TLS `sig_global_tss_state()` NULL-deref in vectored function on fresh threads |
-| 46 | `PTHD` | portability | Med | pthread-key `thread_atexit` fallback drops every callback on Darwin (TLS torn down before key destructors) **[confirmed]** |
-| 47 | `MUSL` | portability | Low-Med | `siginfo_t`/`ucontext_t` dispatch breaks musl |
-| 48 | `MING` | portability | Low | Mingw |
-| 49 | `SJSP` | portability | Low | `_setjmp` vs `setjmp` inconsistency |
-| 50 | `SIGN` | portability | Low | missing `SIGSYS`/`SIGXCPU`/`SIGXFSZ` guards |
-| 51 | `FORK` | portability | Low | no `pthread_atfork`; stale TID across `fork()` |
-| 52 | `NSIG` | portability | Low | missing `NSIG` silently no-ops `siginstall` |
-| 53 | `NEGS` | ub | Low | out-of-range/negative `signo` UB frame walk |
-| 54 | `RTIM` | semantics | Low | `siginstall(NULL)` installs glibc-internal/realtime |
-| 55 | `TOPL` | build | Med | `PROJECT_IS_TOP_LEVEL` needs CMake >= 3.21 |
-| 56 | `WXMS` | build | Low | MSVC lacks `/WX` |
-| 57 | `CXXR` | build | Low | project requires CXX |
-| 58 | `CPPR` | build | Low | C++ runtime dependency undeclared |
-| 59 | `CSTD` | build | Low | `CMAKE_C_STANDARD` unused for consumers |
-| 60 | `CIGA` | build | Low | CI gaps (Windows C_STANDARD, benchmarks, FreeBSD) |
-| 61 | `PCFG` | build | Low | `ProjectConfig.cmake.in` non-existent exports |
-| 62 | `THRD` | test | Low | `thrd_join`/`thrd_create` harness defects |
-| 63 | `STOR` | test | Low | test storage exhaustion |
-| 64 | `TRAP` | test | Low | SIGFPE test trap-dependent |
-| 65 | `TCOV` | test | Low | no failure/edge API coverage |
-| 66 | `PFXM` | test | Low | `WG14_SIGNALS_PREFIX` misuse (cosmetic) |
-| 67 | `SFAR` | header | Low | `sigfence` >8 args cryptic error |
-| 68 | `SABA` | windows | Low | `stdc_raise(SIGABRT)` non-continuable |
-| 69 | `MUTR` | windows | Low | `stdc_raise` mutates caller's `EXCEPTION_RECORD` |
-| 70 | `UFLT` | windows | Low | `siguninstall` clobbers app filter |
-| 71 | `NDBS` | windows | Low | nondebug set omits signals/includes SIGKILL |
-| 72 | `GDIR` | contract | Low | global decider `invoke_recovery` divergence |
-| 73 | `MSQR` | windows | Low | user `EXCEPTION_RECORD` params masquerade |
-| 74 | `CATM` | cpp | Low | `calloc` C++ `std::atomic_uint` lifetime |
-| 75 | `SFPD` | windows | Low | `stdc_raise(SIGFPE)` code divergence |
-| 76 | `UECL` | windows | Low | `stdc_raise` user-range codes collide with app user-defined exception codes |
-| 77 | `DRGN` | windows | Low | drain-time re-registration dropped on MSVC TLS-directory path; UB on C++ vector path |
-| 78 | `UCRE` | contract | Low | `thread_init` unlocked `attr.create` |
-| 79 | `CXAT` | error | Low | C `thread_atexit` swallows failure |
-| 80 | `SFQL` | header | Low | `sigfence` requires lvalues (documented) |
-| 81 | `TSSG` | docs | Low | destroy precondition stricter than wording; get precondition undocumented |
-| 82 | `DECR` | docs | Low | `signal_decider_create` doc describes stale bool decider contract |
+| 1 | `UNTL` | memory | Med | `siguninstall` during another thread's `sigguarded` frees live TSS (fallback) |
+| 2 | `NSTR` | race | Med | nested delivery overwrites frame `rsi` mid-decider |
+| 3 | `NDEC` | windows | Med | never-returning decider pins `software_raise_in_progress`/`tss->front` (re-fault loop, dead-frame longjmp) |
+| 4 | `VDED` | windows | Med | V5 dedup cache never invalidated; later exception at same record address skips deciders (livelock, skipped pass) |
+| 5 | `SPIN` | async | Med | Spinlock not async-signal-safe |
+| 6 | `ALOC` | async | Med | first delivery allocates in handler |
+| 7 | `REEN` | leak | Low | `thread_init` re-entrancy leaks |
+| 8 | `TAFL` | leak | Low | `thread_init` no rollback on `thread_atexit` failure |
+| 9 | `LEAK` | race | Med | `sigdecider_abandon`/`_resume` take `state->lock` inside an ASYNC-SIGNAL-SAFE API (spinlock-in-handler deadlock risk) |
+| 10 | `DEIN` | race | Low | deinit reads `state->val` unlocked; destroy race -> UAF (extends `UNTL`) |
+| 11 | `SIGF` | race | Low | `sigfillset_*` lazy-init data race |
+| 12 | `GLIN` | race | Low | `sig_global_state()` lazy verstable `_init` race (NSIG >= 1024 branch) |
+| 13 | `MLAS` | ub | Low | modified-local-after-setjmp UB |
+| 14 | `SJMS` | semantics | Low | `_setjmp`/`setjmp` mask semantics |
+| 15 | `CPPD` | cpp | Low | longjmp skips C++ destructors |
+| 16 | `SFNK` | race | Low | `sigfence` MSVC fallback shared-sink data race |
+| 17 | `FLGS` | semantics | Med | `SA_NOCLDWAIT`/`SA_NODEFER`/no `SA_RESTART` |
+| 18 | `DFLT` | semantics | Med | `invoke_sigaction` default handling wrong for stop/continue |
+| 19 | `UNKN` | semantics | Low | `raw_signal_handler` unknown signals |
+| 20 | `TIDR` | identity | Med | thread-ID reuse with stale entries |
+| 21 | `SDCF` | error | Low | `signal_decider_create` failure path |
+| 22 | `SDDF` | locking | Low | `signal_decider_destroy` frees nodes outside lock |
+| 23 | `UCLK` | locking | Low | `tss_async_signal_safe_destroy` runs user `attr.destroy` under `mem->lock` (re-entrancy deadlock) |
+| 24 | `TAOM` | error | Low | `thread_atexit` C++ exceptions disabled -> OOM terminates |
+| 25 | `FPUN` | ub | Low | fn-pointer type pun |
+| 26 | `NSIH` | contract | Low-Med | NULL `siginfo` hand-off to pre-existing SA_SIGINFO handler |
+| 27 | `IGND` | contract | Low | `stdc_raise` true when previous handler ignored |
+| 28 | `ZERO` | contract | Low | `stdc_raise` returns true with zero deciders called (wording: false) |
+| 29 | `PREI` | windows | Low | Windows `stdc_raise` pre-install terminates via WER; POSIX returns `false` |
+| 30 | `WRET` | windows | Med | `stdc_raise` of installed signal with no decider/frame/user `__except` terminates via WER; POSIX hands off and returns `true` |
+| 31 | `WFRM` | windows | Med | global deciders run before thread-local frame deciders on Windows; frame deciders skipped for software raises of uninstalled signals |
+| 32 | `SUST` | contract | Low | `siguninstall_system` no-op stub |
+| 33 | `SKIP` | contract | Low | `siginstall` silently skips SIGKILL/SIGSTOP/Fil-C signals, still returns success |
+| 34 | `PRCR` | contract | Low | `signal_decider_create` before `siginstall` silently loses the decider |
+| 35 | `AMBI` | contract | Low | `sigguarded` -1 indistinguishable from legit -1 |
+| 36 | `ORDR` | semantics | Med | decider iteration order is the inverse of the 7.14.1 ordering clauses (wording self-contradictory) |
+| 37 | `ENUM` | api | Low | enum member `sig_decision_invoke_recovery` vs wording's `sig_decision_call_recovery` |
+| 38 | `TYDF` | api | Low | typedef `thrd_raised_signal_error_code_t` vs wording's `stdc_siginfo_error_code_t` |
+| 39 | `VSDT` | api | Low | Windows sigset helpers `void` vs wording's `int` (and POSIX "always returns zero" not guaranteed) |
+| 40 | `TLSD` | portability | Med | async-safe TLS detection too optimistic; forced-on-Apple unsafe |
+| 41 | `MAST` | async | Med | `pthread_getthreadid_np`/`mach_thread_self` not async-safe |
+| 42 | `CRTS` | windows | Med | MSVC CRT signals bypass SEH |
+| 43 | `FWTF` | windows | Med | fallback-TLS `sig_global_tss_state()` NULL-deref in vectored function on fresh threads |
+| 44 | `PTHD` | portability | Med | pthread-key `thread_atexit` fallback drops every callback on Darwin (TLS torn down before key destructors) **[confirmed]** |
+| 45 | `MUSL` | portability | Low-Med | `siginfo_t`/`ucontext_t` dispatch breaks musl |
+| 46 | `MING` | portability | Low | Mingw |
+| 47 | `SJSP` | portability | Low | `_setjmp` vs `setjmp` inconsistency |
+| 48 | `SIGN` | portability | Low | missing `SIGSYS`/`SIGXCPU`/`SIGXFSZ` guards |
+| 49 | `FORK` | portability | Low | no `pthread_atfork`; stale TID across `fork()` |
+| 50 | `NSIG` | portability | Low | missing `NSIG` silently no-ops `siginstall` |
+| 51 | `NEGS` | ub | Low | out-of-range/negative `signo` UB frame walk |
+| 52 | `RTIM` | semantics | Low | `siginstall(NULL)` installs glibc-internal/realtime |
+| 53 | `TOPL` | build | Med | `PROJECT_IS_TOP_LEVEL` needs CMake >= 3.21 |
+| 54 | `WXMS` | build | Low | MSVC lacks `/WX` |
+| 55 | `CXXR` | build | Low | project requires CXX |
+| 56 | `CPPR` | build | Low | C++ runtime dependency undeclared |
+| 57 | `CSTD` | build | Low | `CMAKE_C_STANDARD` unused for consumers |
+| 58 | `CIGA` | build | Low | CI gaps (Windows C_STANDARD, benchmarks, FreeBSD) |
+| 59 | `PCFG` | build | Low | `ProjectConfig.cmake.in` non-existent exports |
+| 60 | `THRD` | test | Low | `thrd_join`/`thrd_create` harness defects |
+| 61 | `STOR` | test | Low | test storage exhaustion |
+| 62 | `TRAP` | test | Low | SIGFPE test trap-dependent |
+| 63 | `TCOV` | test | Low | no failure/edge API coverage |
+| 64 | `PFXM` | test | Low | `WG14_SIGNALS_PREFIX` misuse (cosmetic) |
+| 65 | `SFAR` | header | Low | `sigfence` >8 args cryptic error |
+| 66 | `SABA` | windows | Low | `stdc_raise(SIGABRT)` non-continuable |
+| 67 | `MUTR` | windows | Low | `stdc_raise` mutates caller's `EXCEPTION_RECORD` |
+| 68 | `UFLT` | windows | Low | `siguninstall` clobbers app filter |
+| 69 | `NDBS` | windows | Low | nondebug set omits signals/includes SIGKILL |
+| 70 | `GDIR` | contract | Low | global decider `invoke_recovery` divergence |
+| 71 | `MSQR` | windows | Low | user `EXCEPTION_RECORD` params masquerade |
+| 72 | `CATM` | cpp | Low | `calloc` C++ `std::atomic_uint` lifetime |
+| 73 | `SFPD` | windows | Low | `stdc_raise(SIGFPE)` code divergence |
+| 74 | `UECL` | windows | Low | `stdc_raise` user-range codes collide with app user-defined exception codes |
+| 75 | `DRGN` | windows | Low | drain-time re-registration dropped on MSVC TLS-directory path; UB on C++ vector path |
+| 76 | `UCRE` | contract | Low | `thread_init` unlocked `attr.create` |
+| 77 | `CXAT` | error | Low | C `thread_atexit` swallows failure |
+| 78 | `SFQL` | header | Low | `sigfence` requires lvalues (documented) |
+| 79 | `TSSG` | docs | Low | destroy precondition stricter than wording; get precondition undocumented |
+| 80 | `DECR` | docs | Low | `signal_decider_create` doc describes stale bool decider contract |
 
 ### Wontfix findings (adjudicated not to fix)
 
 | # | Code | Category | Severity | Issue |
 |---|---|---|---|---|
-| 83 | `TSSD` (wontfix) | security | Low | `tss_async_signal_safe_destroy` double-destroy = unguarded UAF |
-| 84 | `DEDE` (wontfix) | security | Low | `signal_decider_destroy` double-destroy = unguarded UAF |
+| 81 | `TSSD` (wontfix) | security | Low | `tss_async_signal_safe_destroy` double-destroy = unguarded UAF |
+| 82 | `DEDE` (wontfix) | security | Low | `signal_decider_destroy` double-destroy = unguarded UAF |
 
-*(wontfix) = adjudicated not to fix on 2026-08-16: rows 83-84 are the double-destroy UAF
+*(wontfix) = adjudicated not to fix on 2026-08-16: rows 81-82 are the double-destroy UAF
 pair, now documented undefined behaviour per the C11/POSIX/N3924 contract; see the
-heading bodies.*
+heading bodies. On 2026-08-17 the *uncooperative* arm of the removed `JLGS` finding (a
+decider that never returns without calling `sigdecider_abandon`) was likewise adjudicated
+wontfix: the frame stays linked and may still be consulted, and requesting recovery
+through it is residual undefined behaviour.*
+
+---
 
 ## 5. Reference map and citation guidance
 
@@ -1642,90 +1497,88 @@ table below; cite findings by code, never by row number.
 
 | Code | Row | Issue |
 |---|---|---|
-| `JLGS` | 1 | never-returning thread-local decider -> dangling `tss->front` -> stack UAF (**partially fixed**: heap frames + cooperative abandon APIs; sound-skip open) |
-| `UNTL` | 2 | `siguninstall` during another thread's `sigguarded` frees live TSS (fallback) |
-| `SJMP` | 3 | setjmp-buffer race: frame published before setjmp completes (**POSIX co-fixed**; Windows open) |
-| `NSTR` | 4 | nested delivery overwrites frame `rsi` mid-decider |
-| `NDEC` | 5 | never-returning decider pins `software_raise_in_progress`/`tss->front` (re-fault loop, dead-frame longjmp) |
-| `VDED` | 6 | V5 dedup cache never invalidated; later exception at same record address skips deciders |
-| `SPIN` | 7 | Spinlock not async-signal-safe |
-| `ALOC` | 8 | first delivery allocates in handler |
-| `REEN` | 9 | `thread_init` re-entrancy leaks |
-| `TAFL` | 10 | `thread_init` no rollback on `thread_atexit` failure |
-| `LEAK` | 11 | never-returning deciders leak refcounts |
-| `DEIN` | 12 | deinit reads `state->val` unlocked; destroy race -> UAF (extends `UNTL`) |
-| `SIGF` | 13 | `sigfillset_*` lazy-init data race |
-| `GLIN` | 14 | `sig_global_state()` lazy verstable `_init` race (NSIG >= 1024 branch) |
-| `MLAS` | 15 | modified-local-after-setjmp UB |
-| `SJMS` | 16 | `_setjmp`/`setjmp` mask semantics |
-| `CPPD` | 17 | longjmp skips C++ destructors |
-| `SFNK` | 18 | `sigfence` MSVC fallback shared-sink data race |
-| `FLGS` | 19 | `SA_NOCLDWAIT`/`SA_NODEFER`/no `SA_RESTART` |
-| `DFLT` | 20 | `invoke_sigaction` default handling wrong for stop/continue |
-| `UNKN` | 21 | `raw_signal_handler` unknown signals |
-| `TIDR` | 22 | thread-ID reuse with stale entries |
-| `SDCF` | 23 | `signal_decider_create` failure path |
-| `SDDF` | 24 | `signal_decider_destroy` frees nodes outside lock |
-| `UCLK` | 25 | `tss_async_signal_safe_destroy` runs user `attr.destroy` under `mem->lock` |
-| `TAOM` | 26 | `thread_atexit` C++ exceptions disabled -> OOM terminates |
-| `FPUN` | 27 | fn-pointer type pun |
-| `NSIH` | 28 | NULL `siginfo` hand-off to pre-existing SA_SIGINFO handler |
-| `IGND` | 29 | `stdc_raise` true when previous handler ignored |
-| `ZERO` | 30 | `stdc_raise` returns true with zero deciders called (wording: false) |
-| `PREI` | 31 | Windows `stdc_raise` pre-install terminates via WER; POSIX returns `false` |
-| `WRET` | 32 | `stdc_raise` of installed signal with no decider/frame/`__except` terminates via WER on Windows |
-| `WFRM` | 33 | Windows dispatch order: global deciders before thread-local frame deciders; frame deciders skipped for software raises of uninstalled signals |
-| `SUST` | 34 | `siguninstall_system` no-op stub |
-| `SKIP` | 35 | `siginstall` silently skips SIGKILL/SIGSTOP/Fil-C signals, still returns success |
-| `PRCR` | 36 | `signal_decider_create` before `siginstall` silently loses the decider |
-| `AMBI` | 37 | `sigguarded` -1 indistinguishable from legit -1 |
-| `ORDR` | 38 | decider iteration order is the inverse of the 7.14.1 ordering clauses (wording self-contradictory) |
-| `ENUM` | 39 | enum member `sig_decision_invoke_recovery` vs wording's `sig_decision_call_recovery` |
-| `TYDF` | 40 | typedef `thrd_raised_signal_error_code_t` vs wording's `stdc_siginfo_error_code_t` |
-| `VSDT` | 41 | Windows sigset helpers `void` vs wording's `int` (and POSIX "always returns zero" not guaranteed) |
-| `TLSD` | 42 | async-safe TLS detection too optimistic; forced-on-Apple unsafe |
-| `MAST` | 43 | `pthread_getthreadid_np`/`mach_thread_self` not async-safe |
-| `CRTS` | 44 | MSVC CRT signals bypass SEH |
-| `FWTF` | 45 | fallback-TLS `sig_global_tss_state()` NULL-deref in vectored function |
-| `PTHD` | 46 | pthread-key `thread_atexit` fallback drops every callback on Darwin **[confirmed]** |
-| `MUSL` | 47 | `siginfo_t`/`ucontext_t` dispatch breaks musl |
-| `MING` | 48 | Mingw |
-| `SJSP` | 49 | `_setjmp` vs `setjmp` inconsistency |
-| `SIGN` | 50 | missing `SIGSYS`/`SIGXCPU`/`SIGXFSZ` guards |
-| `FORK` | 51 | no `pthread_atfork`; stale TID across `fork()` |
-| `NSIG` | 52 | missing `NSIG` silently no-ops `siginstall` |
-| `NEGS` | 53 | out-of-range/negative `signo` UB frame walk |
-| `RTIM` | 54 | `siginstall(NULL)` installs glibc-internal/realtime |
-| `TOPL` | 55 | `PROJECT_IS_TOP_LEVEL` needs CMake >= 3.21 |
-| `WXMS` | 56 | MSVC lacks `/WX` |
-| `CXXR` | 57 | project requires CXX |
-| `CPPR` | 58 | C++ runtime dependency undeclared |
-| `CSTD` | 59 | `CMAKE_C_STANDARD` unused for consumers |
-| `CIGA` | 60 | CI gaps (Windows C_STANDARD, benchmarks, FreeBSD) |
-| `PCFG` | 61 | `ProjectConfig.cmake.in` non-existent exports |
-| `THRD` | 62 | `thrd_join`/`thrd_create` harness defects |
-| `STOR` | 63 | test storage exhaustion |
-| `TRAP` | 64 | SIGFPE test trap-dependent |
-| `TCOV` | 65 | no failure/edge API coverage |
-| `PFXM` | 66 | `WG14_SIGNALS_PREFIX` misuse (cosmetic) |
-| `SFAR` | 67 | `sigfence` >8 args cryptic error |
-| `SABA` | 68 | `stdc_raise(SIGABRT)` non-continuable |
-| `MUTR` | 69 | `stdc_raise` mutates caller's `EXCEPTION_RECORD` |
-| `UFLT` | 70 | `siguninstall` clobbers app filter |
-| `NDBS` | 71 | nondebug set omits signals/includes SIGKILL |
-| `GDIR` | 72 | global decider `invoke_recovery` divergence |
-| `MSQR` | 73 | user `EXCEPTION_RECORD` params masquerade |
-| `CATM` | 74 | `calloc` C++ `std::atomic_uint` lifetime |
-| `SFPD` | 75 | `stdc_raise(SIGFPE)` code divergence |
-| `UECL` | 76 | `stdc_raise` user-range codes collide with app user-defined exception codes |
-| `DRGN` | 77 | drain-time re-registration dropped on MSVC TLS-directory path; UB on C++ vector path |
-| `UCRE` | 78 | `thread_init` unlocked `attr.create` |
-| `CXAT` | 79 | C `thread_atexit` swallows failure |
-| `SFQL` | 80 | `sigfence` requires lvalues (documented) |
-| `TSSG` | 81 | destroy precondition stricter than wording; get precondition undocumented |
-| `DECR` | 82 | `signal_decider_create` doc describes stale bool decider contract |
-| `TSSD` (wontfix) | 83 | `tss_async_signal_safe_destroy` double-destroy = unguarded UAF |
-| `DEDE` (wontfix) | 84 | `signal_decider_destroy` double-destroy = unguarded UAF |
+| `UNTL` | 1 | `siguninstall` during another thread's `sigguarded` frees live TSS (fallback) |
+| `NSTR` | 2 | nested delivery overwrites frame `rsi` mid-decider |
+| `NDEC` | 3 | never-returning decider pins `software_raise_in_progress`/`tss->front` (re-fault loop, dead-frame longjmp) |
+| `VDED` | 4 | V5 dedup cache never invalidated; later exception at same record address skips deciders |
+| `SPIN` | 5 | Spinlock not async-signal-safe |
+| `ALOC` | 6 | first delivery allocates in handler |
+| `REEN` | 7 | `thread_init` re-entrancy leaks |
+| `TAFL` | 8 | `thread_init` no rollback on `thread_atexit` failure |
+| `LEAK` | 9 | `sigdecider_abandon`/`_resume` take `state->lock` inside an ASYNC-SIGNAL-SAFE API (spinlock deadlock risk) |
+| `DEIN` | 10 | deinit reads `state->val` unlocked; destroy race -> UAF (extends `UNTL`) |
+| `SIGF` | 11 | `sigfillset_*` lazy-init data race |
+| `GLIN` | 12 | `sig_global_state()` lazy verstable `_init` race (NSIG >= 1024 branch) |
+| `MLAS` | 13 | modified-local-after-setjmp UB |
+| `SJMS` | 14 | `_setjmp`/`setjmp` mask semantics |
+| `CPPD` | 15 | longjmp skips C++ destructors |
+| `SFNK` | 16 | `sigfence` MSVC fallback shared-sink data race |
+| `FLGS` | 17 | `SA_NOCLDWAIT`/`SA_NODEFER`/no `SA_RESTART` |
+| `DFLT` | 18 | `invoke_sigaction` default handling wrong for stop/continue |
+| `UNKN` | 19 | `raw_signal_handler` unknown signals |
+| `TIDR` | 20 | thread-ID reuse with stale entries |
+| `SDCF` | 21 | `signal_decider_create` failure path |
+| `SDDF` | 22 | `signal_decider_destroy` frees nodes outside lock |
+| `UCLK` | 23 | `tss_async_signal_safe_destroy` runs user `attr.destroy` under `mem->lock` |
+| `TAOM` | 24 | `thread_atexit` C++ exceptions disabled -> OOM terminates |
+| `FPUN` | 25 | fn-pointer type pun |
+| `NSIH` | 26 | NULL `siginfo` hand-off to pre-existing SA_SIGINFO handler |
+| `IGND` | 27 | `stdc_raise` true when previous handler ignored |
+| `ZERO` | 28 | `stdc_raise` returns true with zero deciders called (wording: false) |
+| `PREI` | 29 | Windows `stdc_raise` pre-install terminates via WER; POSIX returns `false` |
+| `WRET` | 30 | `stdc_raise` of installed signal with no decider/frame/`__except` terminates via WER on Windows |
+| `WFRM` | 31 | Windows dispatch order: global deciders before thread-local frame deciders; frame deciders skipped for software raises of uninstalled signals |
+| `SUST` | 32 | `siguninstall_system` no-op stub |
+| `SKIP` | 33 | `siginstall` silently skips SIGKILL/SIGSTOP/Fil-C signals, still returns success |
+| `PRCR` | 34 | `signal_decider_create` before `siginstall` silently loses the decider |
+| `AMBI` | 35 | `sigguarded` -1 indistinguishable from legit -1 |
+| `ORDR` | 36 | decider iteration order is the inverse of the 7.14.1 ordering clauses (wording self-contradictory) |
+| `ENUM` | 37 | enum member `sig_decision_invoke_recovery` vs wording's `sig_decision_call_recovery` |
+| `TYDF` | 38 | typedef `thrd_raised_signal_error_code_t` vs wording's `stdc_siginfo_error_code_t` |
+| `VSDT` | 39 | Windows sigset helpers `void` vs wording's `int` (and POSIX "always returns zero" not guaranteed) |
+| `TLSD` | 40 | async-safe TLS detection too optimistic; forced-on-Apple unsafe |
+| `MAST` | 41 | `pthread_getthreadid_np`/`mach_thread_self` not async-safe |
+| `CRTS` | 42 | MSVC CRT signals bypass SEH |
+| `FWTF` | 43 | fallback-TLS `sig_global_tss_state()` NULL-deref in vectored function |
+| `PTHD` | 44 | pthread-key `thread_atexit` fallback drops every callback on Darwin **[confirmed]** |
+| `MUSL` | 45 | `siginfo_t`/`ucontext_t` dispatch breaks musl |
+| `MING` | 46 | Mingw |
+| `SJSP` | 47 | `_setjmp` vs `setjmp` inconsistency |
+| `SIGN` | 48 | missing `SIGSYS`/`SIGXCPU`/`SIGXFSZ` guards |
+| `FORK` | 49 | no `pthread_atfork`; stale TID across `fork()` |
+| `NSIG` | 50 | missing `NSIG` silently no-ops `siginstall` |
+| `NEGS` | 51 | out-of-range/negative `signo` UB frame walk |
+| `RTIM` | 52 | `siginstall(NULL)` installs glibc-internal/realtime |
+| `TOPL` | 53 | `PROJECT_IS_TOP_LEVEL` needs CMake >= 3.21 |
+| `WXMS` | 54 | MSVC lacks `/WX` |
+| `CXXR` | 55 | project requires CXX |
+| `CPPR` | 56 | C++ runtime dependency undeclared |
+| `CSTD` | 57 | `CMAKE_C_STANDARD` unused for consumers |
+| `CIGA` | 58 | CI gaps (Windows C_STANDARD, benchmarks, FreeBSD) |
+| `PCFG` | 59 | `ProjectConfig.cmake.in` non-existent exports |
+| `THRD` | 60 | `thrd_join`/`thrd_create` harness defects |
+| `STOR` | 61 | test storage exhaustion |
+| `TRAP` | 62 | SIGFPE test trap-dependent |
+| `TCOV` | 63 | no failure/edge API coverage |
+| `PFXM` | 64 | `WG14_SIGNALS_PREFIX` misuse (cosmetic) |
+| `SFAR` | 65 | `sigfence` >8 args cryptic error |
+| `SABA` | 66 | `stdc_raise(SIGABRT)` non-continuable |
+| `MUTR` | 67 | `stdc_raise` mutates caller's `EXCEPTION_RECORD` |
+| `UFLT` | 68 | `siguninstall` clobbers app filter |
+| `NDBS` | 69 | nondebug set omits signals/includes SIGKILL |
+| `GDIR` | 70 | global decider `invoke_recovery` divergence |
+| `MSQR` | 71 | user `EXCEPTION_RECORD` params masquerade |
+| `CATM` | 72 | `calloc` C++ `std::atomic_uint` lifetime |
+| `SFPD` | 73 | `stdc_raise(SIGFPE)` code divergence |
+| `UECL` | 74 | `stdc_raise` user-range codes collide with app user-defined exception codes |
+| `DRGN` | 75 | drain-time re-registration dropped on MSVC TLS-directory path; UB on C++ vector path |
+| `UCRE` | 76 | `thread_init` unlocked `attr.create` |
+| `CXAT` | 77 | C `thread_atexit` swallows failure |
+| `SFQL` | 78 | `sigfence` requires lvalues (documented) |
+| `TSSG` | 79 | destroy precondition stricter than wording; get precondition undocumented |
+| `DECR` | 80 | `signal_decider_create` doc describes stale bool decider contract |
+| `TSSD` (wontfix) | 81 | `tss_async_signal_safe_destroy` double-destroy = unguarded UAF |
+| `DEDE` (wontfix) | 82 | `signal_decider_destroy` double-destroy = unguarded UAF |
 
 *(wontfix) = adjudicated not to fix on 2026-08-16; see the heading bodies and the
 legend under the §4 tables.*
