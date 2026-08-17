@@ -489,6 +489,9 @@ extern "C"
         rsi.value = current->value;
         current->refcount++;
         UNLOCK(state->lock);
+        // In case they wish to abandon
+        rsi.internal_sighandler = item;
+        rsi.internal_global_decider = current;
         const enum WG14_SIGNALS_PREFIX(sig_decision_t) res =
         current->decider(&rsi);
         LOCK(state->lock);

@@ -216,6 +216,10 @@ static void __attribute__((noreturn)) default_abort(void)
       rsi->error_code = 0;
       rsi->addr = WG14_SIGNALS_NULLPTR;
     }
+    rsi->internal_decider_is_abandoned = false;
+    rsi->internal_global_decider = WG14_SIGNALS_NULLPTR;
+    rsi->internal_local_decider = WG14_SIGNALS_NULLPTR;
+    rsi->internal_sighandler = WG14_SIGNALS_NULLPTR;
   }
 
   // The base signal handler for POSIX
@@ -324,6 +328,8 @@ static void __attribute__((noreturn)) default_abort(void)
       if(sigismember(frame->guarded, signo))
       {
         WG14_SIGNALS_PREFIX(prepare_rsi)(&frame->rsi, signo, info, raw_context);
+        // In case they wish to abandon
+        frame->rsi.internal_local_decider = frame;
         switch(frame->decider(&frame->rsi))
         {
         case WG14_SIGNALS_PREFIX(sig_decision_next_decider):
@@ -377,6 +383,9 @@ static void __attribute__((noreturn)) default_abort(void)
         rsi.value = current->value;
         current->refcount++;
         UNLOCK(state->lock);
+        // In case they wish to abandon
+        rsi.internal_sighandler = item;
+        rsi.internal_global_decider = current;
         const enum WG14_SIGNALS_PREFIX(sig_decision_t) res =
         current->decider(&rsi);
         LOCK(state->lock);

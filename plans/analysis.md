@@ -29,23 +29,40 @@ guidance.
 
 ### 1 `JLGS` [confirmed, POSIX, Med] a never-returning thread-local decider leaves `tss->front` pointing at a dead `sigguarded` frame
 
-`thrd_signal_handle_posix.c.ipp:249-287`: `sigguarded` stores the guard frame `current`
-as a local of `sigguarded`, links it on `tss->front`, and pops it only on the two normal
-exits (`guarded` returning, or the `setjmp != 0` recovery branch). **Return contract
-(corrected 2026-08-16):** `guarded` and `recovery` MUST return — if control leaves either
-otherwise (its own `longjmp` past `sigguarded`, a non-terminating loop, etc.) the behaviour
-is undefined, the same class of misuse as C11 7.13.2.1's `jmp_buf` rule; the *decider*,
-however, IS permitted to never return (N3924 7.14.1). A thread-local decider that never
-returns — `siglongjmp` to a caller-owned buffer, `_exit`, a loop — abandons the whole
-`guarded`/`sigguarded`/`stdc_raise` call chain with `tss->front` still pointing at the
-frame, so the pop never runs. The next `stdc_raise` on that thread (or a real signal
-delivered to it, *inside the handler*) walks `frame->guarded`/`decider`/`buf` in re-used
-stack — verified ASan `stack-use-after-scope` at `thrd_signal_handle_posix.c.ipp:310` —
-and can `longjmp` into a dead environment. On the async-safe TLS path the stale frame is
-never cleared, so the corruption persists indefinitely. Related sub-race (code-level): a
-raise delivered after `guarded()` returns but before `tss->front = old` executes still
-finds the frame and, if it chooses `invoke_recovery`, silently discards `guarded()`'s
-return value — a few-instruction window in the same family as `SJMP` (below).
+`thrd_signal_handle_posix.c.ipp`: `sigguarded` stores the guard frame
+`current` as a local of `sigguarded`, links it on `tss->front`, and pops it only
+on the two normal exits (`guarded` returning, or the `setjmp != 0` recovery
+branch). **Return contract (corrected 2026-08-16):** `guarded` and `recovery`
+MUST return — if control leaves either otherwise (its own `longjmp` past
+`sigguarded`, a non-terminating loop, etc.) the behaviour is undefined, the
+same class of misuse as C11 7.13.2.1's `jmp_buf` rule; the *decider*, however,
+IS permitted to never return (N3924 7.14.1). A thread-local decider that never
+returns — `siglongjmp` to a caller-owned buffer, `_exit`, a loop — abandons the
+whole `guarded`/`sigguarded`/`stdc_raise` call chain with `tss->front` still
+pointing at the frame, so the pop never runs. The next `stdc_raise` on that
+thread (or a real signal delivered to it, *inside the handler*) walks
+`frame->guarded`/`decider`/`buf` in re-used stack — verified ASan
+`stack-use-after-scope` at `thrd_signal_handle_posix.c.ipp` — and can `longjmp`
+into a dead environment. On the async-safe TLS path the stale frame is never
+cleared, so the corruption persists indefinitely. Related sub-race (code-level):
+a raise delivered after `guarded()` returns but before `tss->front = old`
+executes still finds the frame and, if it chooses `invoke_recovery`, silently
+discards `guarded()`'s return value — a few-instruction window in the same
+family as `SJMP` (below).
+
+**Partially addressed 2026-08-16 (see `plans/fix-guarded-abandon.md`).** The
+guard frames now live in per-thread heap storage (`sigguarded` takes/recycles a
+frame from a per-thread freelist and publishes it only after `setjmp`,
+co-fixing `SJMP`), so an abandoned frame is always defined memory to read — the
+ASan `stack-use-after-scope` is gone. The cooperative extension
+`sigguarded_abandon()`/`sigguarded_abandon_resume()` (7.14.4.2-3 of the draft
+wording) lets a decider — or the guarded body — deterministically unlink its
+guard so no subsequent raise consults it, and retract that declaration later.
+The *uncooperative* case (a decider that never returns *without* calling
+`abandon`) is still open: such a frame remains linked and may still be
+consulted, and requesting recovery through it is the documented residual UB —
+that is the `home_mark` sound-skip machinery of `fix-guarded-abandon.md`, not
+yet implemented.
 
 ### 2 `UNTL` [code-level, fallback path, Med] `siguninstall` of the last handler while another thread is inside `sigguarded` frees that thread's live state
 
@@ -66,6 +83,12 @@ POSIX `sigguarded` (`thrd_signal_handle_posix.c.ipp:271-272`) and Windows `stdc_
 runs `stdc_raise`/the vectored handler, which may `longjmp(current.buf)` before `setjmp`
 has stored the environment — undefined behaviour. The window is a few instructions wide but
 is exactly the async nature the API claims to handle.
+
+**POSIX co-fixed 2026-08-16 (`fix-guarded-abandon.md`):** with guard frames now in
+per-thread heap storage, `sigguarded` publishes the frame on `tss->front` only after
+`setjmp` returns, closing the window for thread-local guard frames. The Windows
+`stdc_raise` raise-frame push (`tss->front = &current` before `setjmp(current.buf)`) is
+unchanged and still open (sibling of `NDEC`).
 
 ### 4 `NSTR` [code-level, POSIX, Med] nested signal delivery during a decider call races on the shared frame `rsi`
 
@@ -1517,9 +1540,9 @@ then backend scope.
 
 | # | Code | Category | Severity | Issue |
 |---|---|---|---|---|
-| 1 | `JLGS` | memory | Med | never-returning thread-local decider -> dangling `tss->front` -> stack UAF |
+| 1 | `JLGS` | memory | Med | never-returning thread-local decider -> dangling `tss->front` -> stack UAF (**partially fixed 2026-08-16**: heap frames; cooperative `sigguarded_abandon`/`_resume` extension; uncooperative sound-skip still open — see finding) |
 | 2 | `UNTL` | memory | Med | `siguninstall` during another thread's `sigguarded` frees live TSS (fallback) |
-| 3 | `SJMP` | race | Med | setjmp-buffer race: frame published before setjmp completes |
+| 3 | `SJMP` | race | Med | setjmp-buffer race: frame published before setjmp completes (**POSIX co-fixed 2026-08-16** by the heap-frame publish-after-setjmp change; Windows `stdc_raise` raise-frame push still open — see finding) |
 | 4 | `NSTR` | race | Med | nested delivery overwrites frame `rsi` mid-decider |
 | 5 | `NDEC` | windows | Med | never-returning decider pins `software_raise_in_progress`/`tss->front` (re-fault loop, dead-frame longjmp) |
 | 6 | `VDED` | windows | Med | V5 dedup cache never invalidated; later exception at same record address skips deciders (livelock, skipped pass) |
@@ -1619,9 +1642,9 @@ table below; cite findings by code, never by row number.
 
 | Code | Row | Issue |
 |---|---|---|
-| `JLGS` | 1 | never-returning thread-local decider -> dangling `tss->front` -> stack UAF |
+| `JLGS` | 1 | never-returning thread-local decider -> dangling `tss->front` -> stack UAF (**partially fixed**: heap frames + cooperative abandon APIs; sound-skip open) |
 | `UNTL` | 2 | `siguninstall` during another thread's `sigguarded` frees live TSS (fallback) |
-| `SJMP` | 3 | setjmp-buffer race: frame published before setjmp completes |
+| `SJMP` | 3 | setjmp-buffer race: frame published before setjmp completes (**POSIX co-fixed**; Windows open) |
 | `NSTR` | 4 | nested delivery overwrites frame `rsi` mid-decider |
 | `NDEC` | 5 | never-returning decider pins `software_raise_in_progress`/`tss->front` (re-fault loop, dead-frame longjmp) |
 | `VDED` | 6 | V5 dedup cache never invalidated; later exception at same record address skips deciders |

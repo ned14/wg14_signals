@@ -34,3 +34,7 @@ data gets unexpectedly mutated or causing a potential security
 vulnerability is OK - we WANT to fail fast if users supply a NULL
 to an argument which is mandatory.
 10. Never, EVER run `git commit` by yourself.
+11. Never, EVER introduce new `_Thread_local` or `thread_local` variables
+unless you can guarantee that `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL`
+will always be true. Any deviations from this that you find during analysis
+is a severe defect and must be reported as such.

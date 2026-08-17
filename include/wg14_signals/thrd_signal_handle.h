@@ -380,6 +380,10 @@ typedef struct __siginfo WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
 #endif
 
+  struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t);
+  struct WG14_SIGNALS_PREFIX(sighandler_info);
+  struct WG14_SIGNALS_PREFIX(global_signal_decider_t);
+
   /*! \struct stdc_siginfo
   \brief A platform independent subset of `siginfo_t`.
   */
@@ -404,6 +408,14 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
     //! NULL and `raw_context` to the passed `raw_context` (NULL there); on
     //! Windows the OS info is always present (`raw_info` points at the
     //! `EXCEPTION_RECORD`).
+
+    // Used internally only
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *
+    internal_local_decider;
+    struct WG14_SIGNALS_PREFIX(sighandler_info) * internal_sighandler;
+    struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *
+    internal_global_decider;
+    bool internal_decider_is_abandoned;
   };
 
   //! \brief The type of the guarded function.
@@ -515,7 +527,12 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   anything else, calling `stdc_raise(0, nullptr, nullptr)`, this will
   ensure the calling thread's thread local state is set up and return
   immediately doing nothing else.
-   */
+
+  If you will never return from `decider`,
+  you must call `sigdecider_abandon()` to let the runtime clean up its state.
+  If after abandonment you realise that you actually shall return, you can
+  call `sigdecider_abandon_resume()` to undo the abandonment.
+  */
   WG14_SIGNALS_EXTERN union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
   WG14_SIGNALS_PREFIX(sigguarded)(const sigset_t *signals,
                                   WG14_SIGNALS_PREFIX(sig_func_t) guarded,
@@ -523,6 +540,32 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
                                   WG14_SIGNALS_PREFIX(sig_decide_t) decider,
                                   union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
                                   value);
+
+  struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t);
+
+  /*! \brief THREADSAFE ASYNC-SIGNAL-SAFE Lets the decider machinery know you
+  won't be returning into it. Can be called from within `sigguarded()`'s
+  `decider` functions or global deciders. You must NOT call this from within a
+  recovery.
+
+  If called within a local decider, it MUST be the topmost `sigguarded()` for
+  the current thread, and it will effectively abandon the current
+  `sigguarded()`.
+
+  \param rsi The siginfo passed to the decider function.
+  */
+  WG14_SIGNALS_EXTERN void WG14_SIGNALS_PREFIX(sigdecider_abandon)(
+  struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi);
+
+  /*! \brief THREADSAFE ASYNC-SIGNAL-SAFE Undoes a prior call of
+  `sigdecider_abandon()`. Do not call except from the same decider function
+  previously abandoned.
+
+  \param rsi The siginfo passed to the decider function.
+ */
+  WG14_SIGNALS_EXTERN void WG14_SIGNALS_PREFIX(sigdecider_abandon_resume)(
+  struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi);
+
 #if defined(__clang__) && defined(__cplusplus)
 #pragma clang diagnostic pop
 #endif
