@@ -176,8 +176,8 @@ Macros</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 id="header-typedef-members" class="groupheader"><a id="typedef-members" name="typedef-members"></a>
 Typedefs</h2></td></tr>
-<tr class="memitem:ab2e00b715ed9675faa57179d7502f5ab" id="r_ab2e00b715ed9675faa57179d7502f5ab"><td class="memItemLeft">typedef int&#160;</td><td class="memItemRight"><a class="el" href="#ab2e00b715ed9675faa57179d7502f5ab">thrd_raised_signal_error_code_t</a></td></tr>
-<tr class="memdesc:ab2e00b715ed9675faa57179d7502f5ab"><td class="mdescLeft">&#160;</td><td class="mdescRight">Typedef to a system specific error code type.  <br /></td></tr>
+<tr class="memitem:a6f72c8e3e7f7eaf3f12ce430fa07a053" id="r_a6f72c8e3e7f7eaf3f12ce430fa07a053"><td class="memItemLeft">typedef int&#160;</td><td class="memItemRight"><a class="el" href="#a6f72c8e3e7f7eaf3f12ce430fa07a053">stdc_siginfo_error_code_t</a></td></tr>
+<tr class="memdesc:a6f72c8e3e7f7eaf3f12ce430fa07a053"><td class="mdescLeft">&#160;</td><td class="mdescRight">Typedef to a system specific error code type.  <br /></td></tr>
 <tr class="memitem:a0d8f6995cac0677a460040238fb5ff9b" id="r_a0d8f6995cac0677a460040238fb5ff9b"><td class="memItemLeft">typedef struct __siginfo&#160;</td><td class="memItemRight"><a class="el" href="#a0d8f6995cac0677a460040238fb5ff9b">stdc_siginfo_siginfo_t</a></td></tr>
 <tr class="memdesc:a0d8f6995cac0677a460040238fb5ff9b"><td class="mdescLeft">&#160;</td><td class="mdescRight">A placeholder type for an OS specific <span class="tt">siginfo_t *</span> (POSIX) or <span class="tt">PEXCEPTION_RECORD</span> (Windows).  <br /></td></tr>
 <tr class="memitem:aad7c9f029f23b61bb6b9443194200ec5" id="r_aad7c9f029f23b61bb6b9443194200ec5"><td class="memItemLeft">typedef ucontext_t&#160;</td><td class="memItemRight"><a class="el" href="#aad7c9f029f23b61bb6b9443194200ec5">stdc_siginfo_context_t</a></td></tr>
@@ -187,7 +187,7 @@ Typedefs</h2></td></tr>
 Enumerations</h2></td></tr>
 <tr class="memitem:a70fb8ac86d13728a595708c1353f56fa" id="r_a70fb8ac86d13728a595708c1353f56fa"><td class="memItemLeft">enum &#160;</td><td class="memItemRight"><a class="el" href="#a70fb8ac86d13728a595708c1353f56fa">sig_decision_t</a> { <a class="el" href="#a70fb8ac86d13728a595708c1353f56faac58287ed641b62e0fbe6d43c804dc5dd">sig_decision_next_decider</a>
 , <a class="el" href="#a70fb8ac86d13728a595708c1353f56faa70106dc7123ac841eb873d9994ce1c85">sig_decision_resume_execution</a>
-, <a class="el" href="#a70fb8ac86d13728a595708c1353f56faabe7327aa8a52aa1fe85b5457683f0635">sig_decision_invoke_recovery</a>
+, <a class="el" href="#a70fb8ac86d13728a595708c1353f56faa66316a45082ded032b4fc237345e7f01">sig_decision_call_recovery</a>
  }</td></tr>
 <tr class="memdesc:a70fb8ac86d13728a595708c1353f56fa"><td class="mdescLeft">&#160;</td><td class="mdescRight">The decision taken by the decider function.  <a href="#a70fb8ac86d13728a595708c1353f56fa">More...</a><br /></td></tr>
 </table><table class="memberdecls">
@@ -207,6 +207,10 @@ Functions</h2></td></tr>
 <tr class="memdesc:a7e430853e028d0f71b45f2e22015c909"><td class="mdescLeft">&#160;</td><td class="mdescRight">THREADSAFE ASYNC-SIGNAL-SAFE Fille the set of debug asynchronous signals for this platform.  <br /></td></tr>
 <tr class="memitem:ab2b1d51eae8da17b873ef9d21538d1f5" id="r_ab2b1d51eae8da17b873ef9d21538d1f5"><td class="memItemLeft">union <a class="el" href="unionstdc__siginfo__value.html">stdc_siginfo_value</a>&#160;</td><td class="memItemRight"><a class="el" href="#ab2b1d51eae8da17b873ef9d21538d1f5">sigguarded</a> (const sigset_t *signals, <a class="el" href="#a6e57ef267ba917c827509ad54ab5cf21">sig_func_t</a> guarded, <a class="el" href="#acb2d5d168f38f2df6ac5cd522a05d1e9">sig_recover_t</a> recovery, <a class="el" href="#a4efe34b90244d9f416166c77a175a8d4">sig_decide_t</a> decider, union <a class="el" href="unionstdc__siginfo__value.html">stdc_siginfo_value</a> value)</td></tr>
 <tr class="memdesc:ab2b1d51eae8da17b873ef9d21538d1f5"><td class="mdescLeft">&#160;</td><td class="mdescRight">THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal guard for the calling thread, and calls the guarded function <span class="tt">guarded</span>.  <br /></td></tr>
+<tr class="memitem:abf4a707c63520a2d13b65c4ed2b0d39b" id="r_abf4a707c63520a2d13b65c4ed2b0d39b"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#abf4a707c63520a2d13b65c4ed2b0d39b">sigdecider_abandon</a> (struct <a class="el" href="structstdc__siginfo.html">stdc_siginfo</a> *rsi)</td></tr>
+<tr class="memdesc:abf4a707c63520a2d13b65c4ed2b0d39b"><td class="mdescLeft">&#160;</td><td class="mdescRight">THREADSAFE ASYNC-SIGNAL-SAFE Lets the decider machinery know you won't be returning into it. Can be called from within <span class="tt"><a class="el" href="#ab2b1d51eae8da17b873ef9d21538d1f5" title="THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal guard for the calling thread,...">sigguarded()</a></span>'s <span class="tt">decider</span> functions or global deciders. You must NOT call this from within a recovery.  <br /></td></tr>
+<tr class="memitem:a279b4ad491bc8ace784b60c6e0dd3f11" id="r_a279b4ad491bc8ace784b60c6e0dd3f11"><td class="memItemLeft">void&#160;</td><td class="memItemRight"><a class="el" href="#a279b4ad491bc8ace784b60c6e0dd3f11">sigdecider_abandon_resume</a> (struct <a class="el" href="structstdc__siginfo.html">stdc_siginfo</a> *rsi)</td></tr>
+<tr class="memdesc:a279b4ad491bc8ace784b60c6e0dd3f11"><td class="mdescLeft">&#160;</td><td class="mdescRight">THREADSAFE ASYNC-SIGNAL-SAFE Undoes a prior call of <span class="tt"><a class="el" href="#abf4a707c63520a2d13b65c4ed2b0d39b" title="THREADSAFE ASYNC-SIGNAL-SAFE Lets the decider machinery know you won&#39;t be returning into it....">sigdecider_abandon()</a></span>. Do not call except from the same decider function previously abandoned.  <br /></td></tr>
 <tr class="memitem:a82f7a98c9c71e3af4eacac3ffcf32036" id="r_a82f7a98c9c71e3af4eacac3ffcf32036"><td class="memItemLeft">bool&#160;</td><td class="memItemRight"><a class="el" href="#a82f7a98c9c71e3af4eacac3ffcf32036">stdc_raise</a> (int signo, <a class="el" href="#a0d8f6995cac0677a460040238fb5ff9b">stdc_siginfo_siginfo_t</a> *raw_info, <a class="el" href="#aad7c9f029f23b61bb6b9443194200ec5">stdc_siginfo_context_t</a> *raw_context)</td></tr>
 <tr class="memdesc:a82f7a98c9c71e3af4eacac3ffcf32036"><td class="mdescLeft">&#160;</td><td class="mdescRight">THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Call OUR currently installed signal decider for a signal (POSIX), or raise a Win32 structured exception (Windows), returning false if we have no decider installed for that signal.  <br /></td></tr>
 <tr class="memitem:a128c97aa82f563ae4cbb89ec005e592b" id="r_a128c97aa82f563ae4cbb89ec005e592b"><td class="memItemLeft">void *&#160;</td><td class="memItemRight"><a class="el" href="#a128c97aa82f563ae4cbb89ec005e592b">siginstall</a> (const sigset_t *guarded)</td></tr>
@@ -218,7 +222,7 @@ Functions</h2></td></tr>
 <tr class="memitem:a755e828cc662387f3a80769f9b1b7cf1" id="r_a755e828cc662387f3a80769f9b1b7cf1"><td class="memItemLeft">void *&#160;</td><td class="memItemRight"><a class="el" href="#a755e828cc662387f3a80769f9b1b7cf1">signal_decider_create</a> (const sigset_t *guarded, bool callfirst, <a class="el" href="#a4efe34b90244d9f416166c77a175a8d4">sig_decide_t</a> decider, union <a class="el" href="unionstdc__siginfo__value.html">stdc_siginfo_value</a> value)</td></tr>
 <tr class="memdesc:a755e828cc662387f3a80769f9b1b7cf1"><td class="mdescLeft">&#160;</td><td class="mdescRight">THREADSAFE NOT REENTRANT Create a global signal continuation decider. Threadsafe with respect to other calls of this function, but not reentrant i.e. modifying the global signal continuation decider registry whilst inside a global signal continuation decider is racy, and in any case definitely not async signal handler safe. Called after all thread local handling is exhausted. Note that what you can safely do in the decider function is extremely limited, only async signal safe functions may be called.  <br /></td></tr>
 <tr class="memitem:a92af2f434bb21c2b3e9ebf0a3d80aede" id="r_a92af2f434bb21c2b3e9ebf0a3d80aede"><td class="memItemLeft">int&#160;</td><td class="memItemRight"><a class="el" href="#a92af2f434bb21c2b3e9ebf0a3d80aede">signal_decider_destroy</a> (void *decider)</td></tr>
-<tr class="memdesc:a92af2f434bb21c2b3e9ebf0a3d80aede"><td class="mdescLeft">&#160;</td><td class="mdescRight">THREADSAFE NOT REENTRANT Destroy a global signal continuation decider. Threadsafe with respect to other calls of this function, but not reentrant i.e. do not call whilst inside a global signal continuation decider.  <br /></td></tr>
+<tr class="memdesc:a92af2f434bb21c2b3e9ebf0a3d80aede"><td class="mdescLeft">&#160;</td><td class="mdescRight">THREADSAFE NOT REENTRANT Destroy a global signal continuation decider. Threadsafe with respect to other calls of this function, but not reentrant i.e. do not call whilst inside a global signal continuation decider. Passing a handle that has already been destroyed is undefined behaviour: this reference implementation deliberately does not guard against it (plans/analysis.md <span class="tt">DEDE</span>).  <br /></td></tr>
 </table>
 <a name="doc-define-members" id="doc-define-members"></a><h2 id="header-doc-define-members" class="groupheader">Macro Definition Documentation</h2>
 <a id="a4c49302e8279e42dc1bf9a6fac4c3a97" name="a4c49302e8279e42dc1bf9a6fac4c3a97"></a>
@@ -236,11 +240,11 @@ Functions</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line"><a class="code hl_define" href="#a61fbcd0047a0587d676553536a0aefde">WG14_SIGNALS_SIGFENCE_CALL_OVERLOAD</a>(WG14_SIGNALS_SIGFENCE_IMPL_, __VA_ARGS__)</div>
-<div class="ttc" id="athrd__signal__handle_8h_html_a61fbcd0047a0587d676553536a0aefde"><div class="ttname"><a href="#a61fbcd0047a0587d676553536a0aefde">WG14_SIGNALS_SIGFENCE_CALL_OVERLOAD</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_CALL_OVERLOAD(name,...)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00139">thrd_signal_handle.h:139</a></div></div>
+<div class="ttc" id="athrd__signal__handle_8h_html_a61fbcd0047a0587d676553536a0aefde"><div class="ttname"><a href="#a61fbcd0047a0587d676553536a0aefde">WG14_SIGNALS_SIGFENCE_CALL_OVERLOAD</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_CALL_OVERLOAD(name,...)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00153">thrd_signal_handle.h:153</a></div></div>
 </div><!-- fragment -->
 <p>A compiler-only memory barrier, including for local variables in the argument list. Any variable in the argument list MUST be a lvalue. </p>
 
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00315">315</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00329">329</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -261,7 +265,7 @@ Functions</h2></td></tr>
 <b>Value:</b><div class="fragment"><div class="line">((void) (WG14_SIGNALS_PREFIX(sigfence_sink)[8] =                             \</div>
 <div class="line">         WG14_SIGNALS_PREFIX(sigfence_sink)[8]))</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00218">218</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00232">232</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -287,11 +291,11 @@ Functions</h2></td></tr>
 <div class="line"><a class="code hl_define" href="#ac43fa9c1cf41f5199fea6fa4f03de1c6">WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO</a>(                                        \</div>
 <div class="line">name, <a class="code hl_define" href="#a12f03df3da594cee96210117ccfdd31b">WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8</a>(__VA_ARGS__)),                   \</div>
 <div class="line">(__VA_ARGS__))</div>
-<div class="ttc" id="athrd__signal__handle_8h_html_a12f03df3da594cee96210117ccfdd31b"><div class="ttname"><a href="#a12f03df3da594cee96210117ccfdd31b">WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(...)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00131">thrd_signal_handle.h:131</a></div></div>
-<div class="ttc" id="athrd__signal__handle_8h_html_a65f132333b6a26f918e154cc537f88bf"><div class="ttname"><a href="#a65f132333b6a26f918e154cc537f88bf">WG14_SIGNALS_SIGFENCE_GLUE</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_GLUE(x, y)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00097">thrd_signal_handle.h:97</a></div></div>
-<div class="ttc" id="athrd__signal__handle_8h_html_ac43fa9c1cf41f5199fea6fa4f03de1c6"><div class="ttname"><a href="#ac43fa9c1cf41f5199fea6fa4f03de1c6">WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO(name, count)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00137">thrd_signal_handle.h:137</a></div></div>
+<div class="ttc" id="athrd__signal__handle_8h_html_a12f03df3da594cee96210117ccfdd31b"><div class="ttname"><a href="#a12f03df3da594cee96210117ccfdd31b">WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(...)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00145">thrd_signal_handle.h:145</a></div></div>
+<div class="ttc" id="athrd__signal__handle_8h_html_a65f132333b6a26f918e154cc537f88bf"><div class="ttname"><a href="#a65f132333b6a26f918e154cc537f88bf">WG14_SIGNALS_SIGFENCE_GLUE</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_GLUE(x, y)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00111">thrd_signal_handle.h:111</a></div></div>
+<div class="ttc" id="athrd__signal__handle_8h_html_ac43fa9c1cf41f5199fea6fa4f03de1c6"><div class="ttname"><a href="#ac43fa9c1cf41f5199fea6fa4f03de1c6">WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO(name, count)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00151">thrd_signal_handle.h:151</a></div></div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00139">139</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00153">153</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -310,9 +314,9 @@ Functions</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line"><a class="code hl_define" href="#a8cd54b0e165a7ab431e05aa55b4ef4bf">WG14_SIGNALS_SIGFENCE_EXPAND_ARGS</a>((__VA_ARGS__, 8, 7, 6, 5, 4, 3, 2, 1, 0))</div>
-<div class="ttc" id="athrd__signal__handle_8h_html_a8cd54b0e165a7ab431e05aa55b4ef4bf"><div class="ttname"><a href="#a8cd54b0e165a7ab431e05aa55b4ef4bf">WG14_SIGNALS_SIGFENCE_EXPAND_ARGS</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_EXPAND_ARGS(args)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00101">thrd_signal_handle.h:101</a></div></div>
+<div class="ttc" id="athrd__signal__handle_8h_html_a8cd54b0e165a7ab431e05aa55b4ef4bf"><div class="ttname"><a href="#a8cd54b0e165a7ab431e05aa55b4ef4bf">WG14_SIGNALS_SIGFENCE_EXPAND_ARGS</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_EXPAND_ARGS(args)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00115">thrd_signal_handle.h:115</a></div></div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00131">131</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00145">145</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -340,7 +344,7 @@ Functions</h2></td></tr>
 <div class="line">  (void) *(<span class="keyword">volatile</span> <span class="keywordtype">unsigned</span> <span class="keywordtype">char</span> *) &amp;(a);                                   \</div>
 <div class="line">} <span class="keywordflow">while</span>(0)</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00221">221</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00235">235</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -359,9 +363,9 @@ Functions</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line"><a class="code hl_define" href="#a179a64313e23f67e9aeead43bd0c37ab">WG14_SIGNALS_SIGFENCE_RETURN_ARG_COUNT</a> args</div>
-<div class="ttc" id="athrd__signal__handle_8h_html_a179a64313e23f67e9aeead43bd0c37ab"><div class="ttname"><a href="#a179a64313e23f67e9aeead43bd0c37ab">WG14_SIGNALS_SIGFENCE_RETURN_ARG_COUNT</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_RETURN_ARG_COUNT(_1_, _2_, _3_, _4_, _5_, _6_, _7_, _8_, count,...)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00098">thrd_signal_handle.h:98</a></div></div>
+<div class="ttc" id="athrd__signal__handle_8h_html_a179a64313e23f67e9aeead43bd0c37ab"><div class="ttname"><a href="#a179a64313e23f67e9aeead43bd0c37ab">WG14_SIGNALS_SIGFENCE_RETURN_ARG_COUNT</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_RETURN_ARG_COUNT(_1_, _2_, _3_, _4_, _5_, _6_, _7_, _8_, count,...)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00112">thrd_signal_handle.h:112</a></div></div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00101">101</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00115">115</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -385,7 +389,7 @@ Functions</h2></td></tr>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line">x y</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00097">97</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00111">111</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -404,9 +408,9 @@ Functions</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line"><a class="code hl_define" href="#a6f086dd5b67ad22b47c963ae76540d63">WG14_SIGNALS_SIGFENCE_BARRIER</a>()</div>
-<div class="ttc" id="athrd__signal__handle_8h_html_a6f086dd5b67ad22b47c963ae76540d63"><div class="ttname"><a href="#a6f086dd5b67ad22b47c963ae76540d63">WG14_SIGNALS_SIGFENCE_BARRIER</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_BARRIER()</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00218">thrd_signal_handle.h:218</a></div></div>
+<div class="ttc" id="athrd__signal__handle_8h_html_a6f086dd5b67ad22b47c963ae76540d63"><div class="ttname"><a href="#a6f086dd5b67ad22b47c963ae76540d63">WG14_SIGNALS_SIGFENCE_BARRIER</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_BARRIER()</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00232">thrd_signal_handle.h:232</a></div></div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00227">227</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00241">241</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -431,7 +435,7 @@ Functions</h2></td></tr>
 <div class="line">  WG14_SIGNALS_SIGFENCE_BARRIER();                                           \</div>
 <div class="line">} <span class="keywordflow">while</span>(0)</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00228">228</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00242">242</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -461,7 +465,7 @@ Functions</h2></td></tr>
 <div class="line">  WG14_SIGNALS_SIGFENCE_BARRIER();                                           \</div>
 <div class="line">} <span class="keywordflow">while</span>(0)</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00235">235</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00249">249</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -497,7 +501,7 @@ Functions</h2></td></tr>
 <div class="line">  WG14_SIGNALS_SIGFENCE_BARRIER();                                           \</div>
 <div class="line">} <span class="keywordflow">while</span>(0)</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00243">243</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00257">257</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -539,7 +543,7 @@ Functions</h2></td></tr>
 <div class="line">  WG14_SIGNALS_SIGFENCE_BARRIER();                                           \</div>
 <div class="line">} <span class="keywordflow">while</span>(0)</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00252">252</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00266">266</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -587,7 +591,7 @@ Functions</h2></td></tr>
 <div class="line">  WG14_SIGNALS_SIGFENCE_BARRIER();                                           \</div>
 <div class="line">} <span class="keywordflow">while</span>(0)</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00262">262</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00276">276</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -641,7 +645,7 @@ Functions</h2></td></tr>
 <div class="line">  WG14_SIGNALS_SIGFENCE_BARRIER();                                           \</div>
 <div class="line">} <span class="keywordflow">while</span>(0)</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00273">273</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00287">287</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -701,7 +705,7 @@ Functions</h2></td></tr>
 <div class="line">  WG14_SIGNALS_SIGFENCE_BARRIER();                                           \</div>
 <div class="line">} <span class="keywordflow">while</span>(0)</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00285">285</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00299">299</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -767,7 +771,7 @@ Functions</h2></td></tr>
 <div class="line">  WG14_SIGNALS_SIGFENCE_BARRIER();                                           \</div>
 <div class="line">} <span class="keywordflow">while</span>(0)</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00298">298</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00312">312</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -790,9 +794,9 @@ Functions</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line"><a class="code hl_define" href="#a35fa26043c01d979cd9203ae8fadb2ed">WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO1</a>(name, count)</div>
-<div class="ttc" id="athrd__signal__handle_8h_html_a35fa26043c01d979cd9203ae8fadb2ed"><div class="ttname"><a href="#a35fa26043c01d979cd9203ae8fadb2ed">WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO1</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO1(name, count)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00135">thrd_signal_handle.h:135</a></div></div>
+<div class="ttc" id="athrd__signal__handle_8h_html_a35fa26043c01d979cd9203ae8fadb2ed"><div class="ttname"><a href="#a35fa26043c01d979cd9203ae8fadb2ed">WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO1</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO1(name, count)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00149">thrd_signal_handle.h:149</a></div></div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00137">137</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00151">151</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -815,9 +819,9 @@ Functions</h2></td></tr>
       </table>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line"><a class="code hl_define" href="#ac4efba9d848d691037114f805ef71af5">WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO2</a>(name, count)</div>
-<div class="ttc" id="athrd__signal__handle_8h_html_ac4efba9d848d691037114f805ef71af5"><div class="ttname"><a href="#ac4efba9d848d691037114f805ef71af5">WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO2</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO2(name, count)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00134">thrd_signal_handle.h:134</a></div></div>
+<div class="ttc" id="athrd__signal__handle_8h_html_ac4efba9d848d691037114f805ef71af5"><div class="ttname"><a href="#ac4efba9d848d691037114f805ef71af5">WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO2</a></div><div class="ttdeci">#define WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO2(name, count)</div><div class="ttdef"><b>Definition</b> <a href="thrd__signal__handle_8h_source.html#l00148">thrd_signal_handle.h:148</a></div></div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00135">135</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00149">149</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -841,7 +845,7 @@ Functions</h2></td></tr>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line">name##count</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00134">134</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00148">148</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -905,7 +909,7 @@ Functions</h2></td></tr>
 </div><div class="memdoc">
 <b>Value:</b><div class="fragment"><div class="line">count</div>
 </div><!-- fragment -->
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00098">98</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00112">112</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -924,7 +928,25 @@ Functions</h2></td></tr>
 
 <p>A placeholder type for an OS specific <span class="tt">ucontext_t</span> (POSIX) or <span class="tt">PCONTEXT</span> (Windows). </p>
 
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00380">380</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00394">394</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+
+</div>
+</div>
+<a id="a6f72c8e3e7f7eaf3f12ce430fa07a053" name="a6f72c8e3e7f7eaf3f12ce430fa07a053"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6f72c8e3e7f7eaf3f12ce430fa07a053">&#9670;&#160;</a></span>stdc_siginfo_error_code_t</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">typedef int <a class="el" href="#a6f72c8e3e7f7eaf3f12ce430fa07a053">stdc_siginfo_error_code_t</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Typedef to a system specific error code type. </p>
+
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00368">368</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -942,25 +964,7 @@ Functions</h2></td></tr>
 
 <p>A placeholder type for an OS specific <span class="tt">siginfo_t *</span> (POSIX) or <span class="tt">PEXCEPTION_RECORD</span> (Windows). </p>
 
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00372">372</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
-
-</div>
-</div>
-<a id="ab2e00b715ed9675faa57179d7502f5ab" name="ab2e00b715ed9675faa57179d7502f5ab"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ab2e00b715ed9675faa57179d7502f5ab">&#9670;&#160;</a></span>thrd_raised_signal_error_code_t</h2>
-
-<div class="memitem">
-<div class="memproto">
-      <table class="memname">
-        <tr>
-          <td class="memname">typedef int <a class="el" href="#ab2e00b715ed9675faa57179d7502f5ab">thrd_raised_signal_error_code_t</a></td>
-        </tr>
-      </table>
-</div><div class="memdoc">
-
-<p>Typedef to a system specific error code type. </p>
-
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00354">354</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00386">386</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -983,11 +987,11 @@ Functions</h2></td></tr>
 </td></tr>
 <tr><td class="fieldname"><a id="a70fb8ac86d13728a595708c1353f56faa70106dc7123ac841eb873d9994ce1c85" name="a70fb8ac86d13728a595708c1353f56faa70106dc7123ac841eb873d9994ce1c85"></a>sig_decision_resume_execution&#160;</td><td class="fielddoc"><p>We have fixed the cause of the signal, please resume execution. </p>
 </td></tr>
-<tr><td class="fieldname"><a id="a70fb8ac86d13728a595708c1353f56faabe7327aa8a52aa1fe85b5457683f0635" name="a70fb8ac86d13728a595708c1353f56faabe7327aa8a52aa1fe85b5457683f0635"></a>sig_decision_invoke_recovery&#160;</td><td class="fielddoc"><p>Thread local signal deciders only: reset the stack and local state to entry to <span class="tt"><a class="el" href="#ab2b1d51eae8da17b873ef9d21538d1f5" title="THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal guard for the calling thread,...">sigguarded()</a></span>, and call the recovery function. </p>
+<tr><td class="fieldname"><a id="a70fb8ac86d13728a595708c1353f56faa66316a45082ded032b4fc237345e7f01" name="a70fb8ac86d13728a595708c1353f56faa66316a45082ded032b4fc237345e7f01"></a>sig_decision_call_recovery&#160;</td><td class="fielddoc"><p>Thread local signal deciders only: reset the stack and local state to entry to <span class="tt"><a class="el" href="#ab2b1d51eae8da17b873ef9d21538d1f5" title="THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal guard for the calling thread,...">sigguarded()</a></span>, and call the recovery function. </p>
 </td></tr>
 </table>
 
-<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00419">419</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
+<p class="definition">Definition at line <a class="el" href="thrd__signal__handle_8h_source.html#l00448">448</a> of file <a class="el" href="thrd__signal__handle_8h_source.html">thrd_signal_handle.h</a>.</p>
 
 </div>
 </div>
@@ -1046,6 +1050,73 @@ Functions</h2></td></tr>
 </div><div class="memdoc">
 
 <p>The type of the function called to recover from a signal being raised in a guarded section. </p>
+
+</div>
+</div>
+<a id="abf4a707c63520a2d13b65c4ed2b0d39b" name="abf4a707c63520a2d13b65c4ed2b0d39b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abf4a707c63520a2d13b65c4ed2b0d39b">&#9670;&#160;</a></span>sigdecider_abandon()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void sigdecider_abandon </td>
+          <td>(</td>
+          <td class="paramtype">struct <a class="el" href="structstdc__siginfo.html">stdc_siginfo</a> *</td>          <td class="paramname"><span class="paramname"><em>rsi</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel extern">extern</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>THREADSAFE ASYNC-SIGNAL-SAFE Lets the decider machinery know you won't be returning into it. Can be called from within <span class="tt"><a class="el" href="#ab2b1d51eae8da17b873ef9d21538d1f5" title="THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal guard for the calling thread,...">sigguarded()</a></span>'s <span class="tt">decider</span> functions or global deciders. You must NOT call this from within a recovery. </p>
+<p>If called within a local decider, it MUST be the topmost <span class="tt"><a class="el" href="#ab2b1d51eae8da17b873ef9d21538d1f5" title="THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal guard for the calling thread,...">sigguarded()</a></span> for the current thread, and it will effectively abandon the current <span class="tt"><a class="el" href="#ab2b1d51eae8da17b873ef9d21538d1f5" title="THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal guard for the calling thread,...">sigguarded()</a></span>.</p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">rsi</td><td>The siginfo passed to the decider function. </td></tr>
+  </table>
+  </dd>
+</dl>
+
+</div>
+</div>
+<a id="a279b4ad491bc8ace784b60c6e0dd3f11" name="a279b4ad491bc8ace784b60c6e0dd3f11"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a279b4ad491bc8ace784b60c6e0dd3f11">&#9670;&#160;</a></span>sigdecider_abandon_resume()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void sigdecider_abandon_resume </td>
+          <td>(</td>
+          <td class="paramtype">struct <a class="el" href="structstdc__siginfo.html">stdc_siginfo</a> *</td>          <td class="paramname"><span class="paramname"><em>rsi</em></span></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel extern">extern</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>THREADSAFE ASYNC-SIGNAL-SAFE Undoes a prior call of <span class="tt"><a class="el" href="#abf4a707c63520a2d13b65c4ed2b0d39b" title="THREADSAFE ASYNC-SIGNAL-SAFE Lets the decider machinery know you won&#39;t be returning into it....">sigdecider_abandon()</a></span>. Do not call except from the same decider function previously abandoned. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">rsi</td><td>The siginfo passed to the decider function. </td></tr>
+  </table>
+  </dd>
+</dl>
 
 </div>
 </div>
@@ -1190,7 +1261,8 @@ Functions</h2></td></tr>
   </table>
   </dd>
 </dl>
-<p>By "usually async signal safe" we mean that if any function from this library has been called from the called from the calling thread, this is async signal safe. If you need to set up this library for a calling thread without doing anything else, calling <span class="tt">stdc_raise(0, nullptr, nullptr)</span>, this will ensure the calling thread's thread local state is set up and return immediately doing nothing else. </p>
+<p>By "usually async signal safe" we mean that if any function from this library has been called from the called from the calling thread, this is async signal safe. If you need to set up this library for a calling thread without doing anything else, calling <span class="tt">stdc_raise(0, nullptr, nullptr)</span>, this will ensure the calling thread's thread local state is set up and return immediately doing nothing else.</p>
+<p>If you will never return from <span class="tt">decider</span>, you must call <span class="tt"><a class="el" href="#abf4a707c63520a2d13b65c4ed2b0d39b" title="THREADSAFE ASYNC-SIGNAL-SAFE Lets the decider machinery know you won&#39;t be returning into it....">sigdecider_abandon()</a></span> to let the runtime clean up its state. If after abandonment you realise that you actually shall return, you can call <span class="tt"><a class="el" href="#a279b4ad491bc8ace784b60c6e0dd3f11" title="THREADSAFE ASYNC-SIGNAL-SAFE Undoes a prior call of sigdecider_abandon(). Do not call except from the...">sigdecider_abandon_resume()</a></span> to undo the abandonment. </p>
 
 </div>
 </div>
@@ -1301,7 +1373,7 @@ POSIX only</h2>
 </table>
 </div><div class="memdoc">
 
-<p>THREADSAFE NOT REENTRANT Destroy a global signal continuation decider. Threadsafe with respect to other calls of this function, but not reentrant i.e. do not call whilst inside a global signal continuation decider. </p>
+<p>THREADSAFE NOT REENTRANT Destroy a global signal continuation decider. Threadsafe with respect to other calls of this function, but not reentrant i.e. do not call whilst inside a global signal continuation decider. Passing a handle that has already been destroyed is undefined behaviour: this reference implementation deliberately does not guard against it (plans/analysis.md <span class="tt">DEDE</span>). </p>
 <dl class="section return"><dt>Returns</dt><dd>True if recognised and thus removed. </dd></dl>
 
 </div>

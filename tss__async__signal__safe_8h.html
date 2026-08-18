@@ -230,7 +230,8 @@ Functions</h2></td></tr>
 </div><div class="memdoc">
 
 <p>Destroy an async signal safe thread local instance. </p>
-<p>All threads that initialised this instance must have exited (e.g. been joined) before this is called: a thread's exit-time deinitialisation handler may still access the instance otherwise. </p>
+<p>All threads that initialised this instance must have exited (e.g. been joined) before this is called: a thread's exit-time deinitialisation handler may still access the instance otherwise.</p>
+<p>Calling this function twice on the same value is undefined behaviour: the value is left dangling after this returns, and this reference implementation deliberately does not guard against its reuse (the C11 <span class="tt">tss_delete</span> / POSIX <span class="tt">pthread_key_delete</span> contract likewise leaves a second deletion undefined; plans/analysis.md <span class="tt">TSSD</span>). Zero the value after destroying it if it might be destroyed again. </p>
 
 </div>
 </div>

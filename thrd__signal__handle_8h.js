@@ -23,16 +23,18 @@ var thrd__signal__handle_8h =
     [ "WG14_SIGNALS_SIGFENCE_OVERLOAD_MACRO2", "thrd__signal__handle_8h.html#ac4efba9d848d691037114f805ef71af5", null ],
     [ "WG14_SIGNALS_SIGFENCE_RETURN_ARG_COUNT", "thrd__signal__handle_8h.html#a179a64313e23f67e9aeead43bd0c37ab", null ],
     [ "stdc_siginfo_context_t", "thrd__signal__handle_8h.html#aad7c9f029f23b61bb6b9443194200ec5", null ],
+    [ "stdc_siginfo_error_code_t", "thrd__signal__handle_8h.html#a6f72c8e3e7f7eaf3f12ce430fa07a053", null ],
     [ "stdc_siginfo_siginfo_t", "thrd__signal__handle_8h.html#a0d8f6995cac0677a460040238fb5ff9b", null ],
-    [ "thrd_raised_signal_error_code_t", "thrd__signal__handle_8h.html#ab2e00b715ed9675faa57179d7502f5ab", null ],
     [ "sig_decision_t", "thrd__signal__handle_8h.html#a70fb8ac86d13728a595708c1353f56fa", [
       [ "sig_decision_next_decider", "thrd__signal__handle_8h.html#a70fb8ac86d13728a595708c1353f56faac58287ed641b62e0fbe6d43c804dc5dd", null ],
       [ "sig_decision_resume_execution", "thrd__signal__handle_8h.html#a70fb8ac86d13728a595708c1353f56faa70106dc7123ac841eb873d9994ce1c85", null ],
-      [ "sig_decision_invoke_recovery", "thrd__signal__handle_8h.html#a70fb8ac86d13728a595708c1353f56faabe7327aa8a52aa1fe85b5457683f0635", null ]
+      [ "sig_decision_call_recovery", "thrd__signal__handle_8h.html#a70fb8ac86d13728a595708c1353f56faa66316a45082ded032b4fc237345e7f01", null ]
     ] ],
     [ "sig_decide_t", "thrd__signal__handle_8h.html#a4efe34b90244d9f416166c77a175a8d4", null ],
     [ "sig_func_t", "thrd__signal__handle_8h.html#a6e57ef267ba917c827509ad54ab5cf21", null ],
     [ "sig_recover_t", "thrd__signal__handle_8h.html#acb2d5d168f38f2df6ac5cd522a05d1e9", null ],
+    [ "sigdecider_abandon", "thrd__signal__handle_8h.html#abf4a707c63520a2d13b65c4ed2b0d39b", null ],
+    [ "sigdecider_abandon_resume", "thrd__signal__handle_8h.html#a279b4ad491bc8ace784b60c6e0dd3f11", null ],
     [ "sigfillset_asynchronous_debug", "thrd__signal__handle_8h.html#a7e430853e028d0f71b45f2e22015c909", null ],
     [ "sigfillset_asynchronous_nondebug", "thrd__signal__handle_8h.html#a03ae7667f515b1bf531cb35c1a12c33e", null ],
     [ "sigfillset_synchronous", "thrd__signal__handle_8h.html#aa05e597cf899864a642582cddb2d54f9", null ],
