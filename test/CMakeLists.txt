@@ -60,6 +60,10 @@ add_code_test(signo_map_verstable_init_test SOURCES "signo_map_verstable_init_te
 # Regression test for analysis.md 2.23/AA1: signal_decider_destroy after a
 # siguninstall -> siginstall cycle must not touch the orphaned decider node.
 add_code_test(decider_orphan_reinstall_test SOURCES "decider_orphan_reinstall_test.c" FEATURES c_std_11)
+# Regression test for analysis.md SDCF: signal_decider_destroy must return 0
+# (N3924 7.14.2.8) whenever the handle is removed, even when every slot is NULL
+# (no handler installed at create time); only a NULL handle is a failure.
+add_code_test(decider_destroy_return_test SOURCES "decider_destroy_return_test.c" FEATURES c_std_11)
 add_code_test(recovery_null_loop_test SOURCES "recovery_null_loop_test.c" FEATURES c_std_11)
 set_tests_properties(recovery_null_loop_test PROPERTIES TIMEOUT 60)
 

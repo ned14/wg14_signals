@@ -689,14 +689,17 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
         &state->signo_to_sighandler_map, signo);
         if(WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_is_end)(it))
         {
-          // We don't have a handler installed for that signal
+          // We don't have a handler installed for that signal: record the NULL
+          // slot and report the warning after releasing the lock --
+          // WG14_SIGNALS_STDERR_PRINTF is slow and can itself trigger a signal
+          // delivery while state->lock is held (plans/analysis.md SDCF, SPIN).
+          *retp++ = WG14_SIGNALS_NULLPTR;
+          UNLOCK(state->lock);
           WG14_SIGNALS_STDERR_PRINTF(
           "WARNING: signal_decider_create() installing decider for signal %d "
           "but "
           "handler was never installed for that signal.\n",
           signo);
-          *retp++ = WG14_SIGNALS_NULLPTR;
-          UNLOCK(state->lock);
           continue;
         }
         struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *i =
@@ -737,7 +740,15 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
       errno = EINVAL;
       return -1;
     }
-    int ret = -1;
+    // The handle is always recognised (a non-NULL opaque pointer) and is
+    // always freed below, so the destroy succeeds -- 0 per the N3924 7.14.2.8
+    // return contract ("If successful, this function returns zero"). The
+    // former -1-on-no-matching-slots was a misleading error signal: it fired
+    // exactly when the guarded signals have no live decider nodes (e.g. a
+    // partially built handle from signal_decider_create()'s failure path whose
+    // slots are all NULL) even though the handle was removed
+    // (plans/analysis.md SDCF).
+    int ret = 0;
     struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
     WG14_SIGNALS_PREFIX(sig_global_state)();
     const sigset_t *guarded = (const sigset_t *) p;
@@ -802,7 +813,6 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
               // He will be freed when the handler exits
               *retp = WG14_SIGNALS_NULLPTR;
             }
-            ret = 0;
           }
         }
       }

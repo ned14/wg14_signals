@@ -47,19 +47,19 @@ kernel thread id, drawn from a process-wide atomic counter on a thread's first l
 use; a thread id reused after a thread exited without running its deinit therefore maps
 to a fresh key, so the new thread can never observe or inherit the previous
 incarnation's stale entry — `get` returns NULL before its own `thread_init` and
-`thread_init` creates a fresh value, verified by `test/tid_reuse_test.c`).
+`thread_init` creates a fresh value, verified by `test/tid_reuse_test.c`), and
+`SDCF` (`signal_decider_destroy` now returns 0 — the N3924 7.14.2.8 success
+contract — whenever the handle is removed, even when every slot is NULL (no
+handler installed at create time), so the partially-built-handle destroy in
+`signal_decider_create`'s failure path and user destroys of warning-path
+handles no longer report a misleading -1; the `signal_decider_create`
+uninstalled-signal warning now prints after `state->lock` is released, so a
+stderr-triggered signal cannot land while the lock is held, verified by
+`test/decider_destroy_return_test.c`).
 
 ---
 
 ## 1. Findings, in priority order
-
-### `SDCF` signal_decider_create failure path partially self-destroys correctly but leaves warning-path signals uncounted
-
-When `calloc` fails mid-loop, `signal_decider_create` calls `signal_decider_destroy(ret)`
-on the partially-built handle, but `signal_decider_destroy` returns -1 (errno unchanged)
-when it finds no matching slots — a misleading error signal. Additionally,
-`WG14_SIGNALS_STDERR_PRINTF` runs while `state->lock` is held, which is slow and can
-itself trigger a signal while the lock is held (see `SPIN`).
 
 ### `UCLK` [code-level, both backends, Low] `tss_async_signal_safe_destroy` runs the user's `attr.destroy` callback with `mem->lock` held
 
@@ -1237,7 +1237,7 @@ Ranking criteria, applied in order of precedence:
    unknown-signal fallback — `UNKN` — was fixed the same way: `raw_signal_handler` no
    longer resets the kernel handler to `SIG_DFL` before the pass-on.)
 6. **Error-path and lock hygiene.** Allocation-failure correctness and lock discipline in
-    non-hot paths (`SDCF` `signal_decider_create` failure accounting, `TAOM` OOM terminate
+    non-hot paths (`TAOM` OOM terminate
     with exceptions disabled, `FPUN` function-pointer type pun).
 7. **API-contract and error-reporting violations.** Documented behaviour is not
    delivered, including the N3924 wording's return contracts. Leads with the findings
@@ -1303,7 +1303,6 @@ then backend scope.
 
 | Code | Category | Severity | Issue |
 |---|---|---|---|
-| `SDCF` | error | Low | `signal_decider_create` failure path |
 | `UCLK` | locking | Low | `tss_async_signal_safe_destroy` runs user `attr.destroy` under `mem->lock` (re-entrancy deadlock) |
 | `NSIH` | contract | Low-Med | NULL `siginfo` hand-off to pre-existing SA_SIGINFO handler |
 | `IGND` | contract | Low | `stdc_raise` true when previous handler ignored |
