@@ -2,6 +2,12 @@ add_code_test(async_signal_safe_tls_test SOURCES "async_signal_safe_tls_test.c" 
 add_code_test(benchmark_async_signal_safe_tls_test SOURCES "benchmark_async_signal_safe_tls_test.c" FEATURES c_std_11)
 add_code_test(tss_concurrent_exit_test SOURCES "tss_concurrent_exit_test.c" FEATURES c_std_11)
 set_tests_properties(tss_concurrent_exit_test PROPERTIES TIMEOUT 300)
+# Regression test for analysis.md UCLK: tss_async_signal_safe_destroy must run
+# the user's attr.destroy callbacks with mem->lock released (a re-entrant get()
+# from the callback would pre-fix deadlock on the spinlock). Bound the timeout
+# so the pre-fix hang is a fast failure instead of a ctest hang.
+add_code_test(tss_destroy_reentrancy_test SOURCES "tss_destroy_reentrancy_test.c" FEATURES c_std_11)
+set_tests_properties(tss_destroy_reentrancy_test PROPERTIES TIMEOUT 60)
 
 add_code_test(benchmark_thrd_signal_handle_test SOURCES "benchmark_thrd_signal_handle_test.c" FEATURES c_std_11)
 add_code_test(thrd_signal_handle_test SOURCES "thrd_signal_handle_test.c" FEATURES c_std_11)

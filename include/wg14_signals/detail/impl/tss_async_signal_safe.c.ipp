@@ -189,13 +189,27 @@ WG14_SIGNALS_THREAD_LOCAL
       mem->state->val = WG14_SIGNALS_NULLPTR;
       mem->state = WG14_SIGNALS_NULLPTR;
     }
+    // The user's attr.destroy callback must not run while mem->lock is held: a
+    // documented-valid re-entrant call from the callback -- e.g.
+    // tss_async_signal_safe_get() on the same handle, documented THREADSAFE
+    // ASYNC-SIGNAL-SAFE -- would self-deadlock on the non-recursive spinlock
+    // (plans/analysis.md UCLK, SPIN). Each value is therefore erased from the
+    // map under the lock first -- so a re-entrant get() can never observe a
+    // value whose destroy callback is running or has run -- and its callback is
+    // invoked after the lock is released, mirroring
+    // tss_async_signal_safe_thread_deinit. erase_itr() returns the next
+    // iterator, the verstable-supported pattern for erasing while iterating.
     for(WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_itr)
         it = WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_first)(
         &mem->thread_id_to_tls_map);
-        !WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_is_end)(it);
-        it = WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_next)(it))
+        !WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_is_end)(it);)
     {
-      mem->attr.destroy(it.data->val);
+      void *item = it.data->val;
+      it = WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_erase_itr)(
+      &mem->thread_id_to_tls_map, it);
+      UNLOCK(mem->lock);
+      mem->attr.destroy(item);
+      LOCK(mem->lock);
     }
     WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_cleanup)
     (&mem->thread_id_to_tls_map);

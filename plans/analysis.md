@@ -55,31 +55,17 @@ handler installed at create time), so the partially-built-handle destroy in
 handles no longer report a misleading -1; the `signal_decider_create`
 uninstalled-signal warning now prints after `state->lock` is released, so a
 stderr-triggered signal cannot land while the lock is held, verified by
-`test/decider_destroy_return_test.c`).
+`test/decider_destroy_return_test.c`), and `UCLK` (`tss_async_signal_safe_destroy`
+now erases each per-thread value from the map under `mem->lock` and invokes the
+user's `attr.destroy` callback after releasing it, so a documented-valid
+re-entrant call from the callback — e.g. `tss_async_signal_safe_get()` on the
+same handle — can no longer self-deadlock on the non-recursive spinlock, and a
+re-entrant `get` can never observe a value whose destroy callback is running or
+has run; verified by `test/tss_destroy_reentrancy_test.c`).
 
 ---
 
 ## 1. Findings, in priority order
-
-### `UCLK` [code-level, both backends, Low] `tss_async_signal_safe_destroy` runs the user's `attr.destroy` callback with `mem->lock` held
-
-`tss_async_signal_safe.c.ipp:122-146` — destroy acquires `mem->lock` and invokes
-`mem->attr.destroy(it.data->val)` for every registered thread while the lock is held
-(and while the map entries are still live). A re-entrant library call from the callback —
-e.g. `tss_async_signal_safe_get()` on the same handle, which the public header documents
-THREADSAFE ASYNC-SIGNAL-SAFE (`tss_async_signal_safe.h:68-72`) — self-deadlocks on the
-non-recursive spinlock, exactly the `SPIN` mechanism but triggered by a documented-valid
-callback pattern instead of a signal handler. This is the mirror of `UCRE` (whose `create`
-callback deliberately runs unlocked): `create` trades re-entrancy for cross-thread
-serialisation of the user callback, while `destroy` serialises it under the lock with no
-documented warning. Additionally the fallback path's `sig_global_tss_state_destroy` runs
-inside the library's *global* `state->lock` (`thrd_signal_handle_common.ipp.ipp:496-499`),
-so the last `siguninstall`'s per-thread value destruction executes user-visible callbacks
-under the global lock (its attr callbacks are library-internal `free`s today, so this is
-only a latent hazard if the sig TSS attr is ever customised). Fix direction: either
-document the re-entrancy constraint, or gather the values under the lock and invoke the
-callbacks after unlocking (with the destroy-vs-deinit lifetime rules of `DEIN` kept in
-mind).
 
 ### `NSIH` [confirmed, Low-Med] `stdc_raise(signo, NULL, NULL)` hands off to a pre-existing `SA_SIGINFO` handler with NULL `siginfo_t *` and NULL `ucontext_t *`
 
@@ -1303,7 +1289,6 @@ then backend scope.
 
 | Code | Category | Severity | Issue |
 |---|---|---|---|
-| `UCLK` | locking | Low | `tss_async_signal_safe_destroy` runs user `attr.destroy` under `mem->lock` (re-entrancy deadlock) |
 | `NSIH` | contract | Low-Med | NULL `siginfo` hand-off to pre-existing SA_SIGINFO handler |
 | `IGND` | contract | Low | `stdc_raise` true when previous handler ignored |
 | `ZERO` | contract | Low | `stdc_raise` returns true with zero deciders called (wording: false) |
