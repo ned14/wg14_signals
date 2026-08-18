@@ -244,14 +244,22 @@ static void __attribute__((noreturn)) default_abort(void)
     if(!WG14_SIGNALS_PREFIX(stdc_raise)(
        signo, siginfo, (WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) *) context))
     {
-      // It shouldn't happen that this handler gets called when we have no
-      // knowledge of the signal. We could default_abort() here, but it seems
-      // more reliable to remove the installation of ourselves and pass on the
-      // signal there
-      struct sigaction sa;
-      memset(&sa, 0, sizeof(sa));
-      sa.sa_handler = SIG_DFL;
-      WG14_SIGNALS_PREFIX(invoke_sigaction)(&sa, signo, siginfo, context);
+      // stdc_raise() returned false: the map has no entry covering this signal
+      // (or the entry is transiently absent under a concurrent
+      // install/uninstall, or the per-thread state setup failed). This
+      // shouldn't happen — raw_signal_handler is only installed for signals the
+      // library manages — but when it does we must pass the signal on to its
+      // default action rather than swallow it, and must NOT permanently reset
+      // the kernel handler to SIG_DFL: the previous code installed SIG_DFL and
+      // then took the default action, which silently discarded the library's
+      // installed handler even for a default-ignore signal where nothing was
+      // re-raised (analysis UNKN). invoke_sigaction()'s SIG_DFL branch performs
+      // the reset-and-raise and restores the current handler afterwards.
+      struct sigaction dfl;
+      memset(&dfl, 0, sizeof(dfl));
+      dfl.sa_handler = SIG_DFL;
+      (void) WG14_SIGNALS_PREFIX(invoke_sigaction)(&dfl, signo, siginfo,
+                                                   context);
     }
   }
 

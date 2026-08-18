@@ -37,6 +37,12 @@ add_code_test(stdc_raise_null_info_test SOURCES "stdc_raise_null_info_test.c" FE
 # the POSIX invoke_sigaction must restore the library's installed handler, not
 # leave the kernel handler reset to SIG_DFL (stop/continue default signals).
 add_code_test(sig_default_preserve_test SOURCES "sig_default_preserve_test.c" FEATURES c_std_11)
+# White-box regression test for analysis.md UNKN: raw_signal_handler's fallback
+# for a signal with no map entry must not permanently reset the kernel handler to
+# SIG_DFL (the installed handler must survive the default-action pass-on). Uses
+# header-only mode so the internal map/state statics are reachable to manufacture
+# the transient "unknown signal" window.
+add_code_test(sig_unknown_handler_test SOURCES "sig_unknown_handler_test.c" FEATURES c_std_11)
 add_code_test(stdc_raise_uninstalled_test SOURCES "stdc_raise_uninstalled_test.c" FEATURES c_std_11)
 add_code_test(sigguarded_tss_init_test SOURCES "sigguarded_tss_init_test.c" FEATURES c_std_11)
 add_code_test(guard_abandon_test SOURCES "guard_abandon_test.c" FEATURES c_std_11)
@@ -146,12 +152,36 @@ set_target_properties(header_only_c_multi_test PROPERTIES
 )
 add_test(NAME header_only_c_multi_test COMMAND $<TARGET_FILE:header_only_c_multi_test>)
 
+# White-box regression test for analysis.md TIDR (thread-ID reuse with stale
+# hash-table entries): header-only mode compiles tss_async_signal_safe.c.ipp
+# into the TU so the test can manufacture a stale map entry under an old
+# generation and prove a later incarnation of the tid does not observe it. It
+# deliberately does NOT link the library -- it references the internal
+# generation cache and composite-key helper, which are not exported symbols.
+add_executable(tid_reuse_test "tid_reuse_test.c")
+if(MSVC)
+  target_compile_options(tid_reuse_test PRIVATE /W4 /experimental:c11atomics)
+else()
+  target_compile_options(tid_reuse_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+target_include_directories(tid_reuse_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../include")
+target_compile_features(tid_reuse_test PRIVATE c_std_11)
+# This target creates threads (thrd_create/thrd_join in tid_reuse_test.c), so
+# on FreeBSD it must link libstdthreads itself: it deliberately does NOT link
+# the library, so it does not inherit the library's PUBLIC stdthreads link.
+target_link_libraries(tid_reuse_test PRIVATE $<$<PLATFORM_ID:FreeBSD>:stdthreads>)
+set_target_properties(tid_reuse_test PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+add_test(NAME tid_reuse_test COMMAND $<TARGET_FILE:tid_reuse_test>)
+set_tests_properties(tid_reuse_test PROPERTIES TIMEOUT 60)
+
 # The header-only targets above do not link the library, so propagate the
 # __cxa_thread_atexit() discovery (compile definition + supplying library)
 # made by the top-level configure test, and the WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS choice
 # (plans/ideas.md 2.1) so a fallback-forced build exercises the hash-table TLS
 # path in the header-only consumers too.
-set(_header_only_extra_targets header_only_test header_only_c_multi_test)
+set(_header_only_extra_targets header_only_test header_only_c_multi_test tid_reuse_test)
 if(WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT)
   foreach(_t IN LISTS _header_only_extra_targets)
     target_compile_definitions(${_t} PUBLIC WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT)

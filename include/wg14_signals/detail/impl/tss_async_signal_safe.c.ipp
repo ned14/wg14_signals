@@ -39,8 +39,12 @@ extern "C"
 #include <stdatomic.h>
 #endif
 
+// The map key is a composite of a per-thread generation counter (high 32 bits)
+// and the kernel thread id (low 32 bits), so a thread id reused after a thread
+// exited without running its exit-time deinit maps to a fresh key rather than
+// the previous incarnation's stale entry (plans/analysis.md TIDR).
 #define NAME WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t)
-#define KEY_TY WG14_SIGNALS_PREFIX(thread_id_t)
+#define KEY_TY uint64_t
 #define VAL_TY void *
 #define HASH_FN vt_hash_integer
 #define CMPR_FN vt_cmpr_integer
@@ -78,14 +82,56 @@ extern "C"
     WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t) thread_id_to_tls_map;
   };
 
+  // Per-thread generation counter shared across all translation units (weak /
+  // selectany so the linker merges the per-TU definitions of a header-only
+  // build): the first library use on a thread draws a fresh generation from the
+  // process-wide counter below, so a kernel thread id reused after a thread
+  // exited without running its exit-time deinit still yields a map key no
+  // previous incarnation used (plans/analysis.md TIDR). The kernel tid cache
+  // below stays per-TU (it holds the kernel tid, which is the same value in
+  // every TU); the generation cache must be shared, or two translation units
+  // would hand the same generation to two different threads whose tids collide.
+  // Async-safe TLS where the platform provides it (Linux/Windows), plain
+  // _Thread_local elsewhere (Apple fallback): the generation is assigned from
+  // outside the signal handler, so a handler-context read of an already-primed
+  // cache is the same fast path the kernel tid cache already relies on
+  // (plans/analysis.md 7.3/AA8).
+#if WG14_SIGNALS_ENABLE_HEADER_ONLY || defined(_WIN32)
+  WG14_SIGNALS_IGNORE_MULTIPLE_DEFINITIONS
+#endif
+#if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
+  WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL
+#else
+WG14_SIGNALS_THREAD_LOCAL
+#endif
+  WG14_SIGNALS_PREFIX(thread_id_t)
+  WG14_SIGNALS_PREFIX(tss_generation_cached) = 0;
+
+  // A single shared definition of the process-wide generation counter for all
+  // translation units (weak / selectany so the linker merges the per-TU
+  // definitions of a header-only multi-TU build): every thread's first library
+  // use draws on the same monotonic counter, so two threads can never share a
+  // generation. The `{0}` / `0` split is because C++ `std::atomic` rejects
+  // copy-initialisation from a scalar while C rejects brace-initialisation of
+  // `_Atomic` scalars.
+#if WG14_SIGNALS_ENABLE_HEADER_ONLY || defined(_WIN32)
+  WG14_SIGNALS_IGNORE_MULTIPLE_DEFINITIONS
+#endif
+  WG14_SIGNALS_ATOMIC_PREFIX
+  atomic_uintptr_t WG14_SIGNALS_PREFIX(tss_generation_counter) =
+#ifdef __cplusplus
+  {0};
+#else
+0;
+#endif
+
   // Keep a local cache of the current thread id. Use the async-signal-safe
   // TLS attribute where the platform provides it (Linux/Windows: initial-exec
   // ELF TLS or MSVC TLS, both async-signal-safe with no __tls_get_addr trap on
   // first access); on platforms without it (Apple fallback) fall back to plain
   // _Thread_local, where the cache is primed from outside the signal handler
   // so the first handler-context access is the fast path (analysis.md 7.3/AA8).
-  static WG14_SIGNALS_PREFIX(thread_id_t)
-  WG14_SIGNALS_PREFIX(my_current_thread_id)(void)
+  static uint64_t WG14_SIGNALS_PREFIX(my_current_thread_id)(void)
   {
 #ifdef WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL
     static WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL WG14_SIGNALS_PREFIX(thread_id_t)
@@ -98,7 +144,20 @@ extern "C"
     {
       current_thread_id_mycache = WG14_SIGNALS_PREFIX(current_thread_id)();
     }
-    return current_thread_id_mycache;
+    if(WG14_SIGNALS_PREFIX(tss_generation_cached) == 0)
+    {
+      // One-based: 0 is the tombstone meaning "no generation assigned yet".
+      WG14_SIGNALS_PREFIX(tss_generation_cached) =
+      (WG14_SIGNALS_PREFIX(thread_id_t))(
+      1 + atomic_fetch_add_explicit(
+          &WG14_SIGNALS_PREFIX(tss_generation_counter), 1,
+          WG14_SIGNALS_ATOMIC_PREFIX memory_order_relaxed));
+    }
+    // The composite key: generation in the high half, kernel thread id in the
+    // low half. Two threads always differ in generation, so the low-half
+    // truncation cannot alias distinct tids with distinct generations.
+    return ((uint64_t) WG14_SIGNALS_PREFIX(tss_generation_cached) << 32) |
+           (uint64_t) (uint32_t) current_thread_id_mycache;
   }
 
   int WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(

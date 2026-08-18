@@ -37,29 +37,21 @@ initialises the `signo_to_sighandler_map` exactly once behind an atomic single-w
 gate, so two threads' first concurrent calls cannot race on the table fields), and
 `DFLT` (the POSIX `invoke_sigaction` SIG_DFL default-action re-raise now saves and
 restores the library's installed handler, so stop/continue defaults no longer leave the
-kernel handler reset to `SIG_DFL` after the process resumes from a stop).
+kernel handler reset to `SIG_DFL` after the process resumes from a stop), and `UNKN`
+(the POSIX `raw_signal_handler` fallback for a signal with no map entry no longer resets
+the kernel handler to `SIG_DFL` before taking the default action — it routes through
+`invoke_sigaction`, which restores the installed handler, so a transient unknown-signal
+window no longer silently discards the library's handler), and `TIDR` (the
+`tss_async_signal_safe` map keys are now composites of a per-thread generation and the
+kernel thread id, drawn from a process-wide atomic counter on a thread's first library
+use; a thread id reused after a thread exited without running its deinit therefore maps
+to a fresh key, so the new thread can never observe or inherit the previous
+incarnation's stale entry — `get` returns NULL before its own `thread_init` and
+`thread_init` creates a fresh value, verified by `test/tid_reuse_test.c`).
 
 ---
 
 ## 1. Findings, in priority order
-
-### `UNKN` raw_signal_handler on unknown signals silently installs SIG_DFL and re-raises
-
-`thrd_signal_handle_posix.c.ipp:223-239`: if `stdc_raise` returns false, the handler
-replaces itself with `SIG_DFL` and invokes `invoke_sigaction(&sa, ...)` where `sa` is the
-freshly-minted SIG_DFL struct — for a default-ignore signal it returns false (no re-raise,
-signal silently dropped); for others it re-raises as default. Reasonable, but the comment
-admits "It shouldn't happen that this handler gets called when we have no knowledge of
-the signal".
-
-### `TIDR` Thread-ID reuse with stale hash-table entries
-
-`tss_async_signal_safe` maps are keyed by kernel thread ID (`current_thread_id`). If a
-thread exits without running its atexit deinit (abnormal termination, `_exit` within a
-thread is process-wide, cancellation corner cases, or `thread_atexit` registration
-failing), the map retains the entry under that TID. A later thread that reuses the same
-TID will observe the *previous* thread's value (never its own), and destruction may run
-with stale state. There is no TID-generation counter.
 
 ### `SDCF` signal_decider_create failure path partially self-destroys correctly but leaves warning-path signals uncounted
 
@@ -302,7 +294,9 @@ Consequences on this path:
 1. `tss_async_signal_safe_thread_init`'s `thread_atexit(func, mem->state)`
    (`tss_async_signal_safe.c.ipp:264-266`) never runs `tss_async_signal_safe_thread_deinit`:
    the per-thread map entry, the TID key and the shared `deinit_state` leak at every
-   thread exit, and `TIDR`'s stale-entry trigger becomes the *normal* case.
+   thread exit. (The leaked entry can no longer be *observed* by a reused TID — the
+   `TIDR` generation fix gives a fresh thread its own key — but the entry and state
+   still leak, and they are only reclaimed by a later `destroy`.)
 2. `sig_global_tss_state_init`'s `thread_atexit(free, mem)`
    (`thrd_signal_handle_common.ipp.ipp:296-317`) never frees the per-thread raise state.
 
@@ -1195,8 +1189,8 @@ Verdicts:
 The severity label in the tables classifies each finding's worst-case impact; the row
 order is the remediation priority, which applies the criteria below to the label *and*
 the finding's trigger likelihood. It is not a strict severity sort: the 37 adjudicated
-wontfix findings rank *last* regardless of severity, and the Med items
-`TIDR`, `TLSD` and `TOPL` follow Low items that are more dangerous in practice.
+wontfix findings rank *last* regardless of severity, and the remaining Med items
+`TLSD` and `TOPL` follow Low items that are more dangerous in practice.
 The main table lists the fixable findings; the wontfix findings have their own
 summary table below it. The ranking criteria below describe the original priority
 assessment; items adjudicated wontfix (see tier 13) are retained in the
@@ -1235,11 +1229,13 @@ Ranking criteria, applied in order of precedence:
 5. **Silent alteration of host-process semantics.** POSIX install flags and
    default-action handling that change the behaviour of the host process for the whole
    tenure of an install: `SA_NOCLDWAIT`/no `SA_RESTART`/`SA_NODEFER` on the default
-   `siginstall(NULL)` path used by every test and the README (`FLGS`), unknown-signal
-   fallback (`UNKN`), and stale TID reuse (`TIDR`). Default-path triggers precede rarer
-   ones. (The stop/continue and realtime re-raise discarding the library's handler —
-   `DFLT` — was fixed: `invoke_sigaction` now restores the installed handler after the
-   default action.)
+   `siginstall(NULL)` path used by every test and the README (`FLGS`). (The stale-TID
+   reuse finding — `TIDR` — was fixed: the `tss_async_signal_safe` map keys now carry a
+   per-thread generation.) Default-path triggers precede rarer ones. (The stop/continue and
+   realtime re-raise discarding the library's handler — `DFLT` — was fixed:
+   `invoke_sigaction` now restores the installed handler after the default action. The
+   unknown-signal fallback — `UNKN` — was fixed the same way: `raw_signal_handler` no
+   longer resets the kernel handler to `SIG_DFL` before the pass-on.)
 6. **Error-path and lock hygiene.** Allocation-failure correctness and lock discipline in
     non-hot paths (`SDCF` `signal_decider_create` failure accounting, `TAOM` OOM terminate
     with exceptions disabled, `FPUN` function-pointer type pun).
@@ -1307,8 +1303,6 @@ then backend scope.
 
 | Code | Category | Severity | Issue |
 |---|---|---|---|
-| `UNKN` | semantics | Low | `raw_signal_handler` unknown signals |
-| `TIDR` | identity | Med | thread-ID reuse with stale entries |
 | `SDCF` | error | Low | `signal_decider_create` failure path |
 | `UCLK` | locking | Low | `tss_async_signal_safe_destroy` runs user `attr.destroy` under `mem->lock` (re-entrancy deadlock) |
 | `NSIH` | contract | Low-Med | NULL `siginfo` hand-off to pre-existing SA_SIGINFO handler |
