@@ -38,7 +38,7 @@ struct shared_t
    exception back to the faulting instruction, which re-faulted forever
    (POSIX: stdc_raise returns true; Windows: EXCEPTION_CONTINUE_EXECUTION).
    Detect that infinite loop and terminate the test fast instead of hanging. */
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 inner_decider_func(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   struct shared_t *shared = (struct shared_t *) rsi->value.ptr_value;
@@ -49,7 +49,7 @@ inner_decider_func(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
   return WG14_SIGNALS_PREFIX(sig_decision_call_recovery);
 }
 
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 outer_decider_func(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   struct shared_t *shared = (struct shared_t *) rsi->value.ptr_value;

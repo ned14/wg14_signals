@@ -42,7 +42,7 @@ static atomic_int decider_entered;
 static atomic_int uninstall_done;
 static atomic_int raise_result;
 
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 decider_func(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   (void) rsi;

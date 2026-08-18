@@ -294,9 +294,7 @@ static void __attribute__((noreturn)) default_abort(void)
     }
     if(0 != WG14_SIGNALS_PREFIX(sig_global_tss_state_init)())
     {
-      union WG14_SIGNALS_PREFIX(stdc_siginfo_value) ret;
-      ret.int_value = -1;
-      return ret;
+      return WG14_SIGNALS_PREFIX(SIGGUARDED_FAILURE_VALUE);
     }
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
     WG14_SIGNALS_PREFIX(sig_global_tss_state)();
@@ -449,7 +447,7 @@ static void __attribute__((noreturn)) default_abort(void)
         // In case they wish to abandon
         rsi.internal_sighandler = item;
         rsi.internal_global_decider = current;
-        const enum WG14_SIGNALS_PREFIX(sig_decision_t) res =
+        const enum WG14_SIGNALS_PREFIX(sig_decision) res =
         current->decider(&rsi);
         LOCK(state->lock);
         if(0 == --current->refcount)

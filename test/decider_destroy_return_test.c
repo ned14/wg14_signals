@@ -21,7 +21,7 @@
 // from both SIGNAL_TO_USE values).
 #define OTHER_SIGNAL SIGTERM
 
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 claiming_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   (void) rsi;

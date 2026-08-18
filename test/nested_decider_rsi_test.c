@@ -37,7 +37,7 @@ static volatile int nested_saw_bad_info = 0;
 // passed NULL info, so raw_info must still be NULL; the nested delivery carries
 // the kernel's real siginfo, which is what the old shared-frame-rsi bug would
 // leave in the outer decider's view).
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 nested_rsi_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   if(0 == atomic_fetch_add(&outer_decider_calls, 1))

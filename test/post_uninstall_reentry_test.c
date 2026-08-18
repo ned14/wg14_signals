@@ -40,7 +40,7 @@ reentry_recovery(const struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   return rsi->value;
 }
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 reentry_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   (void) rsi;
@@ -50,7 +50,7 @@ reentry_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 // The raise-while-installed step is claimed by a global decider: on Windows an
 // unclaimed stdc_raise terminates the process (analysis.md W5), so a bare raise
 // with no frame or decider cannot be used (cf. thrd_sigfpe_test.c test 2).
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 raise_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   (void) rsi;

@@ -84,49 +84,6 @@ for SIGUSR1, then `siginstall`, then raise): "decider ran 0 times, raise returne
 ordering constraint is nowhere documented; either document it or re-link deciders into
 newly created containers.
 
-### `AMBI` sigguarded failure return is indistinguishable from a legitimate -1
-
-`sigguarded` failure returns `ret.int_value = -1`, which is indistinguishable from a
-guarded function legitimately returning -1; no error return is documented for `sigguarded`.
-The header's `\return` doc (`thrd_signal_handle.h:531`, "The value returned by `guarded`,
-or `recovery`") documents only the success values and never mentions the -1 failure
-sentinel (the former §3 note, merged 2026-08-18).
-
-### `ORDR` [semantics, both backends, Med] global-decider iteration order is the reverse of the N3924 7.14.1 ordering clauses **[probe-verified]**
-
-N3924 (7.14.1, global deciders): "The deciders are called in order of: those with
-`callfirst == true` most recently installed last, and then those with `callfirst == false`
-in order of most recently installed first." The implementation:
-`signal_decider_create` inserts callfirst nodes at the list front and tail nodes at the
-back (`thrd_signal_handle_common.ipp.ipp:698-707`), and both `stdc_raise` paths walk the
-list front-to-back (`thrd_signal_handle_posix.c.ipp:373-402`,
-`thrd_signal_handle_windows.c.ipp:485-533`). So the callfirst group runs *newest first*
-and the tail group runs *oldest first* — the exact inverse of the wording's clause in
-both groups. Probe 2 (create A callfirst, B tail, C tail, D callfirst; raise): call order
-`D A B C` (then the previous handler), i.e. callfirst newest-first, tail oldest-first.
-Same reversed phrasing appears for the thread-local sequence ("in order of most recently
-installed last for that thread"): the implementation's frame walk is newest-first
-(`thrd_signal_handle_posix.c.ipp:322-347`), which is the only sane stacking order (the
-innermost guard must see the raise first).
-
-Important nuance — the wording is internally contradictory, and the implementation follows
-the *other* clause: `signal_decider_create`'s own description says callfirst "installs the
-function at the top of the list to be called before any other functions currently in the
-list", and "otherwise it is installed at the end of the list" — which is exactly the
-implementation's behavior. The 7.14.1 Introduction ordering clauses describe the opposite
-iteration in all three places. Either the Introduction clauses are a systematic wording
-bug (most likely: "most recently installed last" should read "first", and vice versa), or
-the reference implementation must reverse all three iteration orders. A WG14 wording
-clarification is required before this can be fixed without breaking either the create()
-descriptions or the stacking intuition; flag for the wording group.
-
-**Note (2026-08-18):** adjudicated — the proposed wording (N3924 7.14.1 Introduction) is
-wrong and should be fixed, not the implementation: "most recently installed last" should
-read "first" (and vice versa) in the three ordering clauses, in `docs/proposed-wording.md`.
-The reference implementation follows `signal_decider_create`'s own description (callfirst
-at the top / tail at the end) and the thread-local stacking intuition, and will not be
-reversed. `ORDR` stays open only as the record of the required wording fix.
-
 ### `TLSD` WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL detection is too optimistic; forcing it on Apple is silently unsafe
 
 `config.h:51-61` enables async-safe TLS for *any* `__GNUC__` (which includes clang) on
@@ -416,14 +373,14 @@ thread performs the `my_current_thread_id()` cache fill (`MAST`) and a spinlocke
 `thrd_signal_handle.h:616-619` — "a decider function, which must return `true` if
 execution is to resume, `false` if the next decider function should be called", and "A
 user supplied value to set in the `raised_signal_info`". The decider type is
-`enum sig_decision_t` (`sig_decision_next_decider` / `sig_decision_resume_execution` /
+`enum sig_decision` (`sig_decision_next_decider` / `sig_decision_resume_execution` /
 `sig_decision_call_recovery`), and the `raised_signal_info` identifier was renamed to
 `stdc_siginfo` — both descriptions are stale. The bool text happens to be accidentally
 consistent with the current enum layout (`false` == 0 == `next_decider`,
 `true` == 1 == `resume_execution`, both on the POSIX frame switch and on the global
 `if(res)` claim test), so a decider written from the docs compiles and behaves
 sensibly — but a decider can never express `sig_decision_call_recovery` that way, and
-the wording's own `sig_decision_t` semantics (7.14.1) are the contract a reference
+the wording's own `sig_decision` semantics (7.14.1) are the contract a reference
 implementation should document. Pure documentation hygiene; flagged because the stale
 contract text is the first thing a consumer of this API reads.
 
@@ -964,6 +921,21 @@ Verdicts:
 
 ### Minor proposal-conformance notes (N3924 rev 4 wording)
 
+- **`signal_decider_destroy` reentrancy.** The N3924 7.14.2.8 wording and the header now
+  document that calling `signal_decider_destroy` from within a decider function is
+  permitted (the free of a currently-executing decider's node is deferred until the raise
+  completes); verified by `test/decider_reentrant_destroy_test.c`. `signal_decider_create`
+  remains not reentrant (allocation and warning-path `fprintf` in handler context).
+- **`sigaddset`/`sigdelset`/`sigismember` out-of-range signo on macOS/BSD.** The wording
+  (N3924 7.14.2.2) now requires a negative value for an out-of-range signo (the C standard
+  never states errno-setting in Returns clauses; the POSIX imperative -1 with
+  `errno = EINVAL` remains a POSIX-level mandate that the Windows in-tree helpers and the
+  glibc/musl host libcs implement). On POSIX the reference
+  implementation delegates to the host libc: glibc/musl conform, but the macOS/BSD libcs
+  deviate (probe-verified: `sigaddset(&ss, 0)` returns 0 without errno; `sigismember` is
+  a shift-count macro, undefined behaviour out of range) — documented at
+  `thrd_signal_handle.h:41-53`; `sigset_helpers_contract_test` asserts the out-of-range
+  path on Windows only.
 - **Async-signal-safe claims.** The wording marks `sigguarded` and `stdc_raise`
   "thread-safe and async-signal-safe" (7.14.4.1, 7.14.3.2). The implementation documents
   both as "USUALLY ASYNC-SIGNAL-SAFE" with a per-thread pre-call requirement
@@ -1052,15 +1024,13 @@ Ranking criteria, applied in order of precedence:
    returns/hands off in-process (`PREI`), the no-op `siguninstall_system` stub (`SUST`),
    `siginstall` silently
    skipping SIGKILL/SIGSTOP/Fil-C signals yet reporting success (`SKIP`),
-   `signal_decider_create` before `siginstall` silently losing the decider (`PRCR`), and
-   `sigguarded`'s failure value colliding with a legitimate -1 (`AMBI`). The iteration-order
-    deviation (`ORDR`) follows: its trigger is exotic and the wording contradicts its own
-    `signal_decider_create` description, so it awaits a WG14 decision. The three public
+   `signal_decider_create` before `siginstall` silently losing the decider (`PRCR`). The three public
     identifier/signature deviations from the wording are all fixed: `VSDT` (the Windows
-    `sigemptyset`/`sigfillset`/`sigaddset`/`sigdelset` helpers now return `int` as the
-    N3924 7.14.2.1/7.14.2.2 synopses require, with the POSIX host-libc divergence from
-    "always returns zero" for out-of-range signo documented in the header), `ENUM` (the
-    `sig_decision_t` member is now `sig_decision_call_recovery`), and `TYDF` (the error-code
+    `sigemptyset`/`sigfillset`/`sigaddset`/`sigdelset`/`sigismember` helpers now return
+    `int` as the N3924 7.14.2.1/7.14.2.2 synopses require, and both backends implement
+    the POSIX contract -- 0 on success, -1 with errno = EINVAL for an out-of-range signo
+    in sigaddset/sigdelset/sigismember), `ENUM` (the
+    `sig_decision` member is now `sig_decision_call_recovery`), and `TYDF` (the error-code
     typedef is now `stdc_siginfo_error_code_t`), so the tier no longer ends in loud
     compile-time API-identifier failures.
 8. **Portability and platform gaps.** Compile failures or safety-claim gaps outside the
@@ -1114,8 +1084,6 @@ then backend scope.
 |---|---|---|---|
 | `IGND` | contract | Low | `stdc_raise` true when raise silently ignored (SIG_IGN/default-ignore, or zero deciders called) |
 | `PRCR` | contract | Low | `signal_decider_create` before `siginstall` silently loses the decider |
-| `AMBI` | contract | Low | `sigguarded` -1 indistinguishable from legit -1 (undocumented) |
-| `ORDR` | semantics | Med | decider iteration order is the inverse of the 7.14.1 ordering clauses (wording self-contradictory) |
 | `TLSD` | portability | Med | async-safe TLS detection too optimistic; forced-on-Apple unsafe |
 | `PTHD` | portability | Med | pthread-key `thread_atexit` fallback drops every callback on Darwin (TLS torn down before key destructors) **[confirmed]** |
 | `MUSL` | portability | Low-Med | `siginfo_t`/`ucontext_t` dispatch breaks musl |

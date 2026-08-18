@@ -26,7 +26,7 @@ struct observed_t
 
 static struct observed_t observed;
 
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 capture_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   observed.decider_calls++;

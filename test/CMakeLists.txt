@@ -84,7 +84,13 @@ add_code_test(decider_orphan_reinstall_test SOURCES "decider_orphan_reinstall_te
 # Regression test for analysis.md SDCF: signal_decider_destroy must return 0
 # (N3924 7.14.2.8) whenever the handle is removed, even when every slot is NULL
 # (no handler installed at create time); only a NULL handle is a failure.
+# Regression test for the reentrant signal_decider_destroy contract (plans
+# proposed-wording-fixes.md 7.3/17, N3924 7.14.2.8): destroying a decider from
+# within a decider function -- its own node (deferred free via the refcount
+# protocol) or a sibling node (mid-walk LIST_REMOVE relinking) -- must not
+# deadlock, and the destroyed decider must not be invoked again.
 add_code_test(decider_destroy_return_test SOURCES "decider_destroy_return_test.c" FEATURES c_std_11)
+add_code_test(decider_reentrant_destroy_test SOURCES "decider_reentrant_destroy_test.c" FEATURES c_std_11)
 add_code_test(recovery_null_loop_test SOURCES "recovery_null_loop_test.c" FEATURES c_std_11)
 set_tests_properties(recovery_null_loop_test PROPERTIES TIMEOUT 60)
 

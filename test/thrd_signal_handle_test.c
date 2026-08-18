@@ -27,7 +27,7 @@ sigill_recovery_func(const struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
   shared->count_recovery++;
   return rsi->value;
 }
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 sigill_decider_func(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   struct shared_t *shared = (struct shared_t *) rsi->value.ptr_value;

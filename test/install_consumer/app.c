@@ -45,7 +45,7 @@ static int decider_calls = 0;
     checks++;                                                                  \
   } while(0)
 
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 decider_func(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   decider_calls++;

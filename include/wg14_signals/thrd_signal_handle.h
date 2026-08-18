@@ -22,6 +22,7 @@ limitations under the License.
 
 #include "config.h"
 
+#include <errno.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -40,14 +41,15 @@ extern "C"
 
 #ifdef _WIN32
   // MSVC may be missing necessary signal support, so the sigset helpers are
-  // defined here. The N3924 synopses (7.14.2.1/7.14.2.2) declare
-  // sigemptyset/sigfillset/sigaddset/sigdelset as `int` "always returns zero"
-  // and sigismember as "positive one if set, zero if not", so these match the
-  // proposal exactly. On POSIX the four `int` helpers are the host libc's (from
-  // <signal.h>), which follow the POSIX contract -- 0 on success, but -1 with
-  // errno = EINVAL for an out-of-range signo in sigaddset/sigdelset -- a
-  // documented divergence from the proposal's "always returns zero" that only
-  // matters for out-of-range input (plans/analysis.md VSDT).
+  // defined here. The N3924 synopses (7.14.2.1/7.14.2.2) follow the POSIX
+  // contract for these APIs: 0 on success, -1 with errno = EINVAL for an
+  // out-of-range signo in sigaddset/sigdelset/sigismember, and "positive one
+  // if set, zero if not" for a valid signo in sigismember. On POSIX the
+  // helpers are the host libc's (from <signal.h>): glibc and musl follow the
+  // same POSIX contract, but the macOS/BSD libcs deviate for out-of-range
+  // input (sigaddset/sigdelset return 0 without errno; sigismember is a
+  // shift-count macro, undefined behaviour out of range) -- the reference
+  // implementation passes the host through there (plans/analysis.md 3).
   typedef uint32_t sigset_t;
   static inline int sigemptyset(sigset_t *ss)
   {
@@ -61,31 +63,39 @@ extern "C"
   }
   // The shifts below are bounds-checked against the 32-signal bit set
   // (analysis.md 4.5): for signo outside [1, 32], 1u << (signo - 1) is
-  // undefined behaviour. sigaddset/sigdelset become no-ops out of range (and
-  // still "always return zero", matching the proposal rather than the POSIX
-  // -1/EINVAL divergence); sigismember is kept total (returns false) so the
-  // Windows sigfillset_* lazy-init checks never read a torn set
-  // (plans/ideas.md 4.3). These helpers run in signal-handler context too, so
-  // no error reporting.
+  // undefined behaviour, and the POSIX contract requires -1 with errno =
+  // EINVAL out of range (same as the host libc on POSIX). The internal
+  // sigismember call sites (the Windows sigfillset_* lazy-init checks and the
+  // install/create/destroy loops, all bounded by NSIG <= 32 on MSVC) only ever
+  // pass valid signal numbers, so the EINVAL path is never taken there.
   static inline int sigaddset(sigset_t *ss, const int signo)
   {
-    if(signo >= 1 && signo <= 32)
+    if(signo < 1 || signo > 32)
     {
-      *ss |= (1u << (signo - 1));
+      errno = EINVAL;
+      return -1;
     }
+    *ss |= (1u << (signo - 1));
     return 0;
   }
   static inline int sigdelset(sigset_t *ss, const int signo)
   {
-    if(signo >= 1 && signo <= 32)
+    if(signo < 1 || signo > 32)
     {
-      *ss &= ~(1u << (signo - 1));
+      errno = EINVAL;
+      return -1;
     }
+    *ss &= ~(1u << (signo - 1));
     return 0;
   }
-  static inline bool sigismember(const sigset_t *ss, const int signo)
+  static inline int sigismember(const sigset_t *ss, const int signo)
   {
-    return (signo >= 1 && signo <= 32) && (*ss & (1u << (signo - 1))) != 0;
+    if(signo < 1 || signo > 32)
+    {
+      errno = EINVAL;
+      return -1;
+    }
+    return (*ss & (1u << (signo - 1))) != 0;
   }
 
   // The 32-signal bit-set scheme above (sigfillset == UINT32_MAX, shifts
@@ -361,6 +371,23 @@ extern "C"
     }
 #endif
   };
+
+  /*! \brief A `constexpr` variable of type `union stdc_siginfo_value`
+  whose `int_value` member is -99, returned by `sigguarded()` if it fails to
+  install the guard. `constexpr` on C23 and C++11-or-later compilers; on
+  compilers without `constexpr` support (C11/C17) it is a macro expanding to a
+  compound literal.
+  */
+#if defined(__cplusplus)
+  constexpr WG14_SIGNALS_PREFIX(stdc_siginfo_value) SIGGUARDED_FAILURE_VALUE{
+  -99};
+#elif defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 202311L)
+static constexpr union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
+SIGGUARDED_FAILURE_VALUE = {.int_value = -99};
+#else
+#define SIGGUARDED_FAILURE_VALUE                                               \
+  ((union WG14_SIGNALS_PREFIX(stdc_siginfo_value)) {.int_value = -99})
+#endif
   //! \brief Typedef to a system specific error code type
 #ifdef _WIN32
   typedef long WG14_SIGNALS_PREFIX(stdc_siginfo_error_code_t);
@@ -445,7 +472,7 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   sig_recover_t))(const struct WG14_SIGNALS_PREFIX(stdc_siginfo) *);
 
   //! \brief The decision taken by the decider function
-  enum WG14_SIGNALS_PREFIX(sig_decision_t)
+  enum WG14_SIGNALS_PREFIX(sig_decision)
   {
     //! \brief We have decided to do nothing
     WG14_SIGNALS_PREFIX(sig_decision_next_decider),
@@ -459,7 +486,7 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
 
   //! \brief The type of the function called when a signal is raised. Returns
   //! a decision of how to handle the signal.
-  typedef enum WG14_SIGNALS_PREFIX(sig_decision_t)(WG14_SIGNALS_PREFIX(
+  typedef enum WG14_SIGNALS_PREFIX(sig_decision)(WG14_SIGNALS_PREFIX(
   sig_decide_t))(struct WG14_SIGNALS_PREFIX(stdc_siginfo) *);
 
   /*! \brief THREADSAFE ASYNC-SIGNAL-SAFE Fills the set of synchronous signals
@@ -528,7 +555,9 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   /*! \brief THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Installs a thread-local signal
   guard for the calling thread, and calls the guarded function `guarded`.
 
-  \return The value returned by `guarded`, or `recovery`.
+  \return The value returned by `guarded`, or `recovery`. If the per-thread
+  state required by this facility cannot be set up, `SIGGUARDED_FAILURE_VALUE`
+  is returned.
   \param signals The set of signals to guard against.
   \param guarded A function whose execution is to be guarded against signal
   raises.
@@ -688,13 +717,15 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   const sigset_t *guarded, bool callfirst,
   WG14_SIGNALS_PREFIX(sig_decide_t) decider,
   union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value);
-  /*! \brief THREADSAFE NOT REENTRANT Destroy a global signal continuation
-  decider. Threadsafe with respect to other calls of this function, but not
-  reentrant i.e. do not call whilst inside a global signal continuation decider.
-  Passing a handle that has already been destroyed is undefined behaviour: this
-  reference implementation deliberately does not guard against it
-  (plans/analysis.md `DEDE`).
-  \return True if recognised and thus removed.
+  /*! \brief THREADSAFE Destroy a global signal continuation
+  decider. Threadsafe with respect to other calls of this function. It is
+  permitted to call this function from within a signal decider function: if the
+  decider whose storage is being destroyed is currently executing, it completes
+  its execution and its registry entry is released after the raise completes.
+  This function is NOT async signal handler safe. Passing a handle that has
+  already been destroyed is undefined behaviour: this reference implementation
+  deliberately does not guard against it (plans/analysis.md `TSSD`).
+  \return 0 if successful, a negative value if `decider` was a null pointer.
   */
   WG14_SIGNALS_EXTERN int
   WG14_SIGNALS_PREFIX(signal_decider_destroy)(void *decider);

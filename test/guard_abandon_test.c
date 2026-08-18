@@ -35,7 +35,7 @@ static int global_decider_calls = 0;
 // declaration is retracted before the decider returns, so the raise completes
 // and its post-decider bookkeeping runs exactly as if neither call had been
 // made.
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 global_abandon_resume_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   global_decider_calls++;
@@ -52,7 +52,7 @@ static jmp_buf global_abandon_env;
 // to a caller-owned buffer), declares exactly that with sigdecider_abandon(),
 // and then never returns. The raise machinery is left at exactly steady state,
 // so later raises on the thread consult the decider again.
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 global_abandon_never_returns_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) *
                                      rsi)
 {
@@ -67,7 +67,7 @@ static int frame_decider_calls = 0;
 // Abandon then immediately resume within the same thread-local frame decider
 // call: the frame must remain consultable both by this raise's continued
 // processing and by later raises inside the same guard.
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 flicker_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   frame_decider_calls++;
@@ -125,7 +125,7 @@ static jmp_buf frame_abandon_env;
 // abandonment with sigdecider_abandon() so the machinery pops this frame, then
 // never return (here by longjmping to a caller-owned buffer outside the guard).
 // The raise machinery is left at exactly steady state.
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 frame_abandon_never_returns_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) *
                                     rsi)
 {
@@ -138,7 +138,7 @@ frame_abandon_never_returns_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) *
 static int fresh_decider_calls = 0;
 static int fresh_recovery_calls = 0;
 
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 fresh_claiming_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   (void) rsi;
@@ -158,7 +158,7 @@ static int flicker_recover_calls = 0;
 // Abandon twice and resume twice (the repeats must be no-ops), then on the
 // second call claim via recovery: a resumed frame must still longjmp through
 // its intact buffer.
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 flicker_then_recover_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   flicker_recover_calls++;
@@ -181,7 +181,7 @@ static jmp_buf nested_abandon_env;
 
 // The inner (topmost) guard's decider abandons the inner frame and longjmps to
 // an environment inside the outer guard's guarded body, which is still live.
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 nested_inner_abandon_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   nested_inner_abandon_calls++;
@@ -190,7 +190,7 @@ nested_inner_abandon_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
   return WG14_SIGNALS_PREFIX(sig_decision_resume_execution);
 }
 
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 outer_claiming_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   (void) rsi;

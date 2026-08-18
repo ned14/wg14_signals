@@ -26,14 +26,14 @@ static int global_decider_called = 0;
 // The thread-local frame decider declines, so the raise propagates past the
 // guarded frame to the global decider for the same signal -- the path which
 // runs inside the vectored exception function on Windows.
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 declining_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   (void) rsi;
   return WG14_SIGNALS_PREFIX(sig_decision_next_decider);
 }
 
-static enum WG14_SIGNALS_PREFIX(sig_decision_t)
+static enum WG14_SIGNALS_PREFIX(sig_decision)
 claiming_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   (void) rsi;
@@ -68,6 +68,10 @@ guarded_func(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 int main(void)
 {
   int ret = 0;
+
+  // The documented failure sentinel of sigguarded() (N3924 7.14.4.1,
+  // SIGGUARDED_FAILURE_VALUE): int_value == -99.
+  CHECK(WG14_SIGNALS_PREFIX(SIGGUARDED_FAILURE_VALUE).int_value == -99);
 
   sigset_t guarded;
   sigemptyset(&guarded);
