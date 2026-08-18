@@ -1,7 +1,7 @@
 # Ideas and techniques to adopt from `wg14_atomic_waits` — concretised
 
 Review date: 2026-08-06 (concretised against the `wg14_signals` implementation source);
-2026-08-14 reconciliation, merge, and renumbering passes; items renumbered to 1-14 in §6
+2026-08-14 reconciliation, merge, and renumbering passes; items renumbered to 1-11 in §5
 priority order. Source reviewed: `../wg14_atomic_waits` at `8b40d4d` (HEAD), derived from
 this project. Every idea is tied to a specific file and function in this tree, shows the
 current code, and gives the concrete replacement (or a test design that would have caught
@@ -226,31 +226,7 @@ sibling's pattern at `../wg14_atomic_waits/Readme.md:243-249`).
 
 ---
 
-## 4. Documentation and process
-
-### 12 `docs/proposal.md` — vendor the N3924 rev 4 wording
-
-The sibling carries the WG14 wording it implements (`docs/proposal.md`); this repo
-implements N3924 rev 4 but does not vendor it. Add `docs/proposal.md` with the N3924 rev 4
-text so `plans/analysis.md` deviations can cite "§X of the wording" instead of prose.
-
-### 13 `plans/test-review-todos.md` companion
-
-Port the sibling's `plans/test-review-todos.md` structure: for *every* item in
-`plans/analysis.md`, a verdict (testable / not testable / characterization-only /
-CI-change) with the test design in items 8-10, plus an explicit "do not naively complete
-these" section for deliberately-untested behaviours (e.g. Windows SEH real-fault paths,
-the SIGFPE trap behaviour noted in `TRAP`).
-
-### 14 `.gitattributes` trim
-
-`wg14_signals/.gitattributes` (102 lines) references `cmake/headers.cmake`,
-`cmake/interface.cmake`, `cmake/sources.cmake`, `cmake/tests.cmake` which do not exist.
-Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattributes`).
-
----
-
-## 5. What NOT to adopt (cautionary notes)
+## 4. What NOT to adopt (cautionary notes)
 
 - **The `cmake_minimum_required(3.15)` + `PROJECT_IS_TOP_LEVEL` mismatch is shared by both
   projects** (3.21 feature; `TOPL`). Fix it here (bump minimum to 3.21 or replace
@@ -273,7 +249,7 @@ Trim to the sibling's 12-line shape (`../wg14_atomic_waits/.gitattributes`).
 
 ---
 
-## 6. Priority-ordered adoption plan
+## 5. Priority-ordered adoption plan
 
 The adoption order is driven by (a) the priority of the `analysis.md` findings each
 change fixes and (b) impact-to-effort ratio, grouped into: fixes to the library core,
@@ -283,10 +259,10 @@ top findings, then CI and process hygiene.
 **Why this order.**
 - **The TSS core rework leads (item 1).** The lock-free per-thread cached `get` is the
   single change that makes the fallback path's "ASYNC-SIGNAL-SAFE" claim true: it removes
-  the top-tier spinlock-in-handler deadlock vector (`SPIN`) and, with the
-  re-check-under-lock init, the `REEN`/`TAFL` lifecycle leaks — three findings (`SPIN`, `REEN`, `TAFL`)
-  with one coherent change with one coherent change, which outranks any
-  single-finding fix below it.
+   the top-tier spinlock-in-handler deadlock vector (`SPIN`) and, with the
+   re-check-under-lock init, the `REEN`/`TAFL` lifecycle leaks — three findings (`SPIN`, `REEN`, `TAFL`)
+   with one coherent change, which outranks any
+   single-finding fix below it.
 - **Small fixes to Med findings are pulled up (item 2).** Dropping `SA_NOCLDWAIT` and
   adding `SA_RESTART` fixes the Med `FLGS` finding (silent `waitpid`/`EINTR` alteration on
   every default `siginstall(NULL)`) with Small effort, so it precedes the Low/C11
@@ -299,8 +275,8 @@ top findings, then CI and process hygiene.
 - **Regression tests then guard the top findings (items 8-10), ordered by the priority
   of what they guard:** spinlock discipline (`SPIN`), then `thread_atexit` failure
   propagation (`CXAT`), then header/compile behaviours (`SFAR`, `SFQL`, `NDBS`).
-- **CI/benchmark hygiene and process items last (items 11-14):** no runtime impact;
-  worthwhile only once the code fixes and their tests are in place.
+- **CI/benchmark hygiene last (item 11):** no runtime impact; worthwhile only once the
+  code fixes and their tests are in place.
 
 | # | Category | Priority | Change | Fixes (analysis.md) | Effort |
 |---|----------|----------|--------|--------------------|--------|
@@ -315,6 +291,3 @@ top findings, then CI and process hygiene.
 | 9 | test | Med | White-box tests (`lock_whitebox_test`, `tss_map_whitebox_test`) | `SPIN` discipline | Medium |
 | 10 | test | Low | Compile-fail suite (`expect_compile_fail.cmake`) | `SFAR`, `SFQL`, `NDBS` | Medium |
 | 11 | build | Low | Benchmark structure (`EXCLUDE_FROM_ALL`) | CI hygiene | Small |
-| 12 | docs | Low | `docs/proposal.md` (vendor N3924 rev 4) | process | Small |
-| 13 | docs | Low | `plans/test-review-todos.md` companion | process | Small |
-| 14 | docs | Low | `.gitattributes` trim | process | Small |

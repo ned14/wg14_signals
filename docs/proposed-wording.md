@@ -910,7 +910,7 @@ syscall `rt_tgsigqueueinfo`.
 
 > Calling this function is thread-safe.
 
-> Creates the thread-specific storage pointer for the calling thread by invoking the original `attr->create()`.
+> Creates the thread-specific storage pointer for the calling thread by invoking the original `attr->create()`. You can call it multiple times, all later calls do nothing.
 
 > It is implementation-defined if the thread-specific storage pointer created has the original `attr->destroy()` called upon it on thread exit, if that occurs before the call to `tss_async_signal_safe_destroy()`.
 

@@ -415,6 +415,9 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
     struct WG14_SIGNALS_PREFIX(sighandler_info) * internal_sighandler;
     struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *
     internal_global_decider;
+#ifdef _WIN32
+    void *internal_win_state;
+#endif
     bool internal_decider_is_abandoned;
   };
 

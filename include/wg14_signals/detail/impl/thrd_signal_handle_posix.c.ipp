@@ -429,6 +429,83 @@ static void __attribute__((noreturn)) default_abort(void)
     return true;
   }
 
+  // You must NOT do anything async signal unsafe in here!
+  void WG14_SIGNALS_PREFIX(sigdecider_abandon)(
+  struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
+  {
+    if(!rsi->internal_decider_is_abandoned)
+    {
+      if(rsi->internal_local_decider != WG14_SIGNALS_NULLPTR)
+      {
+        struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+        WG14_SIGNALS_PREFIX(sig_global_tss_state)();
+        if(tss->front != rsi->internal_local_decider)
+        {
+          // sigdecider_abandon not called on topmost sigguarded()
+          assert(tss->front == rsi->internal_local_decider);
+          abort();
+        }
+        // Pop the top most sigguarded()
+        tss->front = tss->front->prev;
+      }
+      if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR ||
+         rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
+      {
+        struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+        WG14_SIGNALS_PREFIX(sig_global_state)();
+        LOCK(state->lock);
+        if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR)
+        {
+          rsi->internal_sighandler->lifetime_refcount--;
+        }
+        if(rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
+        {
+          rsi->internal_global_decider->refcount--;
+        }
+        UNLOCK(state->lock);
+      }
+      rsi->internal_decider_is_abandoned = true;
+    }
+  }
+
+  // You must NOT do anything async signal unsafe in here!
+  void WG14_SIGNALS_PREFIX(sigdecider_abandon_resume)(
+  struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
+  {
+    if(rsi->internal_decider_is_abandoned)
+    {
+      if(rsi->internal_local_decider != WG14_SIGNALS_NULLPTR)
+      {
+        struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+        WG14_SIGNALS_PREFIX(sig_global_tss_state)();
+        if(tss->front != rsi->internal_local_decider->prev)
+        {
+          // sigdecider_abandon not called on topmost sigguarded()
+          assert(tss->front == rsi->internal_local_decider->prev);
+          abort();
+        }
+        tss->front = rsi->internal_local_decider;
+      }
+      if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR ||
+         rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
+      {
+        struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+        WG14_SIGNALS_PREFIX(sig_global_state)();
+        LOCK(state->lock);
+        if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR)
+        {
+          rsi->internal_sighandler->lifetime_refcount++;
+        }
+        if(rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
+        {
+          rsi->internal_global_decider->refcount++;
+        }
+        UNLOCK(state->lock);
+      }
+      rsi->internal_decider_is_abandoned = false;
+    }
+  }
+
   static bool WG14_SIGNALS_PREFIX(install_sighandler_impl)(
   struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo)
   {

@@ -268,16 +268,9 @@ extern "C"
   {
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) * front;
 #ifdef _WIN32
-    // Set by stdc_raise() while one of its RaiseException() software raises is
-    // being dispatched, and only then. This lets the vectored exception
-    // function distinguish an unclaimed library raise (must return false) from
-    // a genuine fault on an uninstalled signal (must stay unhandled)
-    // (analysis.md 2.16/W5).
-    int software_raise_in_progress;
-    // Set by the vectored exception function when such a software raise had no
-    // installed handler/decider; stdc_raise() reads it after RaiseException()
-    // returns to report false (analysis.md 2.16/W5).
-    int software_raise_unclaimed;
+    // Used to detect when stdc_raise() initiated an exception raise
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) *
+    stdc_raise_initiated_exception;
 #endif
   };
 #if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
@@ -809,84 +802,6 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
     free(p);
     return ret;
   }
-
-  // You must NOT do anything async signal unsafe in here!
-  void WG14_SIGNALS_PREFIX(sigdecider_abandon)(
-  struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
-  {
-    if(!rsi->internal_decider_is_abandoned)
-    {
-      if(rsi->internal_local_decider != WG14_SIGNALS_NULLPTR)
-      {
-        struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
-        WG14_SIGNALS_PREFIX(sig_global_tss_state)();
-        if(tss->front != rsi->internal_local_decider)
-        {
-          // sigdecider_abandon not called on topmost sigguarded()
-          assert(tss->front == rsi->internal_local_decider);
-          abort();
-        }
-        // Pop the top most sigguarded()
-        tss->front = tss->front->prev;
-      }
-      if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR ||
-         rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
-      {
-        struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
-        WG14_SIGNALS_PREFIX(sig_global_state)();
-        LOCK(state->lock);
-        if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR)
-        {
-          rsi->internal_sighandler->lifetime_refcount--;
-        }
-        if(rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
-        {
-          rsi->internal_global_decider->refcount--;
-        }
-        UNLOCK(state->lock);
-      }
-      rsi->internal_decider_is_abandoned = true;
-    }
-  }
-
-  // You must NOT do anything async signal unsafe in here!
-  void WG14_SIGNALS_PREFIX(sigdecider_abandon_resume)(
-  struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
-  {
-    if(rsi->internal_decider_is_abandoned)
-    {
-      if(rsi->internal_local_decider != WG14_SIGNALS_NULLPTR)
-      {
-        struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
-        WG14_SIGNALS_PREFIX(sig_global_tss_state)();
-        if(tss->front != rsi->internal_local_decider->prev)
-        {
-          // sigdecider_abandon not called on topmost sigguarded()
-          assert(tss->front == rsi->internal_local_decider->prev);
-          abort();
-        }
-        tss->front = rsi->internal_local_decider;
-      }
-      if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR ||
-         rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
-      {
-        struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
-        WG14_SIGNALS_PREFIX(sig_global_state)();
-        LOCK(state->lock);
-        if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR)
-        {
-          rsi->internal_sighandler->lifetime_refcount++;
-        }
-        if(rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
-        {
-          rsi->internal_global_decider->refcount++;
-        }
-        UNLOCK(state->lock);
-      }
-      rsi->internal_decider_is_abandoned = false;
-    }
-  }
-
 
 #ifdef _MSC_VER
 #pragma warning(pop)

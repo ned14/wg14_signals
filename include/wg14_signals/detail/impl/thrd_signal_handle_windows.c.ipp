@@ -46,6 +46,17 @@ limitations under the License.
 #endif
 #include <windows.h>
 
+struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t)
+{
+  struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) * prev;
+  bool exception_was_unclaimed;
+
+  DWORD ExceptionCode;
+  DWORD ExceptionFlags;
+  DWORD NumberParameters;
+  ULONG_PTR ExceptionInformationFirst;
+};
+
 #include "thrd_signal_handle_common.ipp.ipp"
 
 #ifdef __cplusplus
@@ -262,8 +273,11 @@ extern "C"
   {
     if(sigismember(guarded, signo))
     {
+      struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+      WG14_SIGNALS_PREFIX(sig_global_tss_state)();
       WG14_SIGNALS_PREFIX(prepare_rsi)(rsi, signo, ptrs);
       rsi->value = value;
+      rsi->internal_local_decider = tss->front;
       switch(decider(rsi))
       {
       case WG14_SIGNALS_PREFIX(sig_decision_next_decider):
@@ -362,23 +376,23 @@ extern "C"
                                                                        current;
     memset(&current, 0, sizeof(current));
     current.prev = old;
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) current2;
+    memset(&current2, 0, sizeof(current2));
+    current2.prev = tss->stdc_raise_initiated_exception;
     if(setjmp(current.buf) != 0)
     {
       // A global decider claimed the raise and longjmp'd back to us.
       tss->front = old;
-      tss->software_raise_in_progress = 0;
-      tss->software_raise_unclaimed = 0;
+      tss->stdc_raise_initiated_exception = current2.prev;
       return true;
     }
     tss->front = &current;
-
+    tss->stdc_raise_initiated_exception = &current2;
     const DWORD win32sehcode =
     WG14_SIGNALS_PREFIX(win32_exception_code_from_signal)(signo);
     // info->ExceptionInformation[0] = 0=read 1=write 8=DEP
     // info->ExceptionInformation[1] = causing address
-    // info->ExceptionInformation[2] = NTSTATUS causing exception
-    tss->software_raise_in_progress = 1;
-    tss->software_raise_unclaimed = 0;
+    // info->ExceptionInformatio n[2] = NTSTATUS causing exception
     if(info != WG14_SIGNALS_NULLPTR)
     {
       if(raw_context != WG14_SIGNALS_NULLPTR &&
@@ -389,25 +403,134 @@ extern "C"
         info->ExceptionInformation[info->NumberParameters++] =
         (ULONG_PTR) raw_context;
       }
+      // Put the vectored exception handler into "we raised this exception"
+      // mode. This means it kicks back to us instead of invoking the Windows
+      // handler if it was unhandled.
+      current2.ExceptionCode = win32sehcode;
+      current2.ExceptionFlags = info->ExceptionFlags;
+      current2.NumberParameters = info->NumberParameters;
+      current2.ExceptionInformationFirst = info->ExceptionInformation[0];
       RaiseException(win32sehcode, info->ExceptionFlags, info->NumberParameters,
                      info->ExceptionInformation);
     }
     else
     {
+      current2.ExceptionCode = win32sehcode;
       RaiseException(win32sehcode, 0, 0, WG14_SIGNALS_NULLPTR);
     }
     // RaiseException() returns when the exception was continued (no handler
     // claimed it). Pop the frame pushed above so tss->front never points at
     // this dead stack frame (analysis.md 1.6).
     tss->front = old;
-    const int unclaimed = tss->software_raise_unclaimed;
-    tss->software_raise_in_progress = 0;
-    tss->software_raise_unclaimed = 0;
+    tss->stdc_raise_initiated_exception = current2.prev;
     // An unclaimed software raise of a signal with no installed handler or
     // decider returns false instead of letting Windows Error Reporting
     // terminate the process (analysis.md 2.16/W5).
-    return (unclaimed) ? false : true;
+    return (current2.exception_was_unclaimed) ? false : true;
   }
+
+  // You must NOT do anything async signal unsafe in here!
+  void WG14_SIGNALS_PREFIX(sigdecider_abandon)(
+  struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
+  {
+    if(!rsi->internal_decider_is_abandoned)
+    {
+      struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+      WG14_SIGNALS_PREFIX(sig_global_tss_state)();
+      if(rsi->internal_local_decider != WG14_SIGNALS_NULLPTR)
+      {
+        if(tss->front != rsi->internal_local_decider)
+        {
+          // sigdecider_abandon not called on topmost sigguarded()
+          assert(tss->front == rsi->internal_local_decider);
+          abort();
+        }
+        // Pop the top most sigguarded()
+        tss->front = tss->front->prev;
+      }
+      if(tss->stdc_raise_initiated_exception != WG14_SIGNALS_NULLPTR)
+      {
+        rsi->internal_win_state = tss->stdc_raise_initiated_exception;
+        tss->stdc_raise_initiated_exception =
+        tss->stdc_raise_initiated_exception->prev;
+      }
+      if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR ||
+         rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
+      {
+        struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+        WG14_SIGNALS_PREFIX(sig_global_state)();
+        LOCK(state->lock);
+        if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR)
+        {
+          rsi->internal_sighandler->lifetime_refcount--;
+        }
+        if(rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
+        {
+          rsi->internal_global_decider->refcount--;
+        }
+        UNLOCK(state->lock);
+        // Pop the top most sigguarded()
+        if(tss->front != WG14_SIGNALS_NULLPTR)
+        {
+          rsi->internal_local_decider = tss->front;
+          tss->front = tss->front->prev;
+        }
+      }
+      rsi->internal_decider_is_abandoned = true;
+    }
+  }
+
+  // You must NOT do anything async signal unsafe in here!
+  void WG14_SIGNALS_PREFIX(sigdecider_abandon_resume)(
+  struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
+  {
+    if(rsi->internal_decider_is_abandoned)
+    {
+      struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+      WG14_SIGNALS_PREFIX(sig_global_tss_state)();
+      if(rsi->internal_win_state != WG14_SIGNALS_NULLPTR)
+      {
+        struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) *newstate =
+        (struct WG14_SIGNALS_PREFIX(
+        sig_global_state_tss_state_win_t) *) rsi->internal_win_state;
+        if(newstate->prev != tss->stdc_raise_initiated_exception)
+        {
+          // sigdecider_abandon not called on topmost sigguarded()
+          assert(newstate->prev == tss->stdc_raise_initiated_exception);
+          abort();
+        }
+        tss->stdc_raise_initiated_exception = newstate;
+      }
+      if(rsi->internal_local_decider != WG14_SIGNALS_NULLPTR)
+      {
+        if(tss->front != rsi->internal_local_decider->prev)
+        {
+          // sigdecider_abandon not called on topmost sigguarded()
+          assert(tss->front == rsi->internal_local_decider->prev);
+          abort();
+        }
+        tss->front = rsi->internal_local_decider;
+      }
+      if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR ||
+         rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
+      {
+        struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+        WG14_SIGNALS_PREFIX(sig_global_state)();
+        LOCK(state->lock);
+        if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR)
+        {
+          rsi->internal_sighandler->lifetime_refcount++;
+        }
+        if(rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
+        {
+          rsi->internal_global_decider->refcount++;
+        }
+        UNLOCK(state->lock);
+      }
+      rsi->internal_decider_is_abandoned = false;
+    }
+  }
+
 
   // The same vectored function is registered BOTH as the unhandled exception
   // filter and as a vectored continue handler (install_sighandler_impl below):
@@ -455,19 +578,23 @@ extern "C"
     &state->signo_to_sighandler_map, signo);
     if(WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_is_end)(it))
     {
-      // We don't have a handler installed for that signal. If this exception
-      // is one of OUR software raises (stdc_raise() of a signal with no
-      // installed handler/decider), continue execution so RaiseException()
-      // returns and stdc_raise() reports false, instead of the default
-      // unhandled behaviour which invokes Windows Error Reporting and
-      // terminates the process (analysis.md 2.16/W5). Genuine faults keep
-      // EXCEPTION_CONTINUE_SEARCH.
       UNLOCK(state->lock);
       struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
       WG14_SIGNALS_PREFIX(sig_global_tss_state)();
-      if(tss != WG14_SIGNALS_NULLPTR && tss->software_raise_in_progress)
+      if(tss != WG14_SIGNALS_NULLPTR &&
+         tss->stdc_raise_initiated_exception != WG14_SIGNALS_NULLPTR &&
+         tss->stdc_raise_initiated_exception->ExceptionCode ==
+         record->ExceptionCode &&
+         tss->stdc_raise_initiated_exception->ExceptionFlags ==
+         record->ExceptionFlags &&
+         tss->stdc_raise_initiated_exception->NumberParameters ==
+         record->NumberParameters &&
+         (record->NumberParameters > 0 &&
+          tss->stdc_raise_initiated_exception->ExceptionInformationFirst ==
+          record->ExceptionInformation[0]))
       {
-        tss->software_raise_unclaimed = 1;
+        // Return to stdc_raise() now and say we didn't have a handler.
+        tss->stdc_raise_initiated_exception->exception_was_unclaimed = true;
         return EXCEPTION_CONTINUE_EXECUTION;
       }
       return EXCEPTION_CONTINUE_SEARCH;
