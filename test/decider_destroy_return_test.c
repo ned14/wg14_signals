@@ -16,8 +16,10 @@
 #endif
 
 // Deliberately never installed in this test, so it exercises the warning-path
-// NULL slot in signal_decider_create().
-#define OTHER_SIGNAL SIGUSR1
+// NULL slot in signal_decider_create(). SIGUSR1 would be the natural choice but
+// is not defined on MSVC, so use SIGTERM (defined on every target and distinct
+// from both SIGNAL_TO_USE values).
+#define OTHER_SIGNAL SIGTERM
 
 static enum WG14_SIGNALS_PREFIX(sig_decision_t)
 claiming_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)

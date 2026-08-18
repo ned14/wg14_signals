@@ -601,6 +601,12 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   to that handler. If that handler was defaulted and the default handling is not
   to ignore, we reset the handler installation and execute
   `pthread_kill(pthread_self(), signo)` in order to invoke the default handling.
+  If that hand-off reaches a previously installed `SA_SIGINFO` handler while
+  `raw_info` is NULL (e.g. `stdc_raise(signo, NULL, NULL)`), a minimal
+  zeroed `siginfo_t` with `si_signo` set to `signo` and `si_code` set to
+  `SI_USER` is synthesised and passed instead of NULL, so a handler that reads
+  `si->si_signo`/`si->si_code` without a NULL check does not crash;
+  `raw_context` is passed through unchanged and may be NULL.
 
   It is important to note that this call does not raise signals itself except in
   that final handling step as just described. Therefore, if your code overwrites

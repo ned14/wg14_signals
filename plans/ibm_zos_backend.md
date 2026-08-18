@@ -807,8 +807,22 @@ confirm against `<__le_cib.h>`/`<__le_mch.h>` on the machine (Appendix A.4).
       // if it returns while our catcher is still on the stack and this was a
       // program-check/ABEND-driven SIGABND/SIGFPE/SIGILL/SIGSEGV, z/OS
       // terminates the process — exactly what the old handler would have
-      // experienced itself, so behaviour is preserved.
-      sa->sa_sigaction(signo, siginfo, context);
+      // experienced itself, so behaviour is preserved. A stdc_raise(signo,
+      // NULL, NULL) hand-off (analysis.md NSIH) synthesises a minimal zeroed
+      // siginfo_t with si_signo/si_code set instead of passing NULL, exactly
+      // as the POSIX backend does.
+      if(siginfo == WG14_SIGNALS_NULLPTR)
+      {
+        siginfo_t synthesized;
+        memset(&synthesized, 0, sizeof(synthesized));
+        synthesized.si_signo = signo;
+        synthesized.si_code = SI_USER;
+        sa->sa_sigaction(signo, &synthesized, context);
+      }
+      else
+      {
+        sa->sa_sigaction(signo, siginfo, context);
+      }
       return true;
     }
     if(sa->sa_handler == SIG_DFL)

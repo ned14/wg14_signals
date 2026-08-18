@@ -44,6 +44,11 @@ add_code_test(stdc_raise_zero_test SOURCES "stdc_raise_zero_test.c" FEATURES c_s
 # Windows helpers returned void and this failed to compile there).
 add_code_test(sigset_helpers_contract_test SOURCES "sigset_helpers_contract_test.c" FEATURES c_std_11)
 add_code_test(stdc_raise_null_info_test SOURCES "stdc_raise_null_info_test.c" FEATURES c_std_11)
+# Regression test for analysis.md NSIH: stdc_raise(signo, NULL, NULL) handed off
+# to a pre-existing SA_SIGINFO handler with a NULL siginfo_t *; the POSIX
+# invoke_sigaction must synthesise a minimal siginfo_t (si_signo/si_code set)
+# instead. POSIX-only, no-op on Windows.
+add_code_test(nsih_siginfo_handoff_test SOURCES "nsih_siginfo_handoff_test.c" FEATURES c_std_11)
 # Regression test for analysis.md DFLT: the SIG_DFL default-action re-raise in
 # the POSIX invoke_sigaction must restore the library's installed handler, not
 # leave the kernel handler reset to SIG_DFL (stop/continue default signals).

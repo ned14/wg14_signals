@@ -156,7 +156,23 @@ static void __attribute__((noreturn)) default_abort(void)
   {
     if((sa->sa_flags & SA_SIGINFO) != 0)
     {
-      sa->sa_sigaction(signo, siginfo, context);
+      if(siginfo == WG14_SIGNALS_NULLPTR)
+      {
+        // stdc_raise(signo, NULL, NULL) hands off to the previously installed
+        // handler with no OS info (analysis.md NSIH). A real delivery always
+        // carries a valid siginfo_t, and a SA_SIGINFO handler may read
+        // si->si_signo / si->si_code without checking for NULL, so synthesise a
+        // minimal zeroed siginfo_t instead of passing NULL through.
+        siginfo_t synthesized;
+        memset(&synthesized, 0, sizeof(synthesized));
+        synthesized.si_signo = signo;
+        synthesized.si_code = SI_USER;
+        sa->sa_sigaction(signo, &synthesized, context);
+      }
+      else
+      {
+        sa->sa_sigaction(signo, siginfo, context);
+      }
       return true;
     }
     if(sa->sa_handler == SIG_DFL)
