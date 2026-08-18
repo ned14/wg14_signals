@@ -214,7 +214,7 @@ run via `ctest -E benchmark`.
   cannot install fault handlers for them and synchronous-fault recovery is not
   possible on Fil-C. Everything else works.
 
-- A global decider returning `sig_decision_invoke_recovery` is only
+- A global decider returning `sig_decision_call_recovery` is only
   meaningful for thread-local guards. For global deciders POSIX claims the
   raise without performing any recovery, whereas Windows unwinds to the top
   guard frame: use `sig_decision_next_decider` or

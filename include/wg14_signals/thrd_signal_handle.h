@@ -39,35 +39,49 @@ extern "C"
 #endif
 
 #ifdef _WIN32
-  // MSVC may be missing necessary signal support
+  // MSVC may be missing necessary signal support, so the sigset helpers are
+  // defined here. The N3924 synopses (7.14.2.1/7.14.2.2) declare
+  // sigemptyset/sigfillset/sigaddset/sigdelset as `int` "always returns zero"
+  // and sigismember as "positive one if set, zero if not", so these match the
+  // proposal exactly. On POSIX the four `int` helpers are the host libc's (from
+  // <signal.h>), which follow the POSIX contract -- 0 on success, but -1 with
+  // errno = EINVAL for an out-of-range signo in sigaddset/sigdelset -- a
+  // documented divergence from the proposal's "always returns zero" that only
+  // matters for out-of-range input (plans/analysis.md VSDT).
   typedef uint32_t sigset_t;
-  static inline void sigemptyset(sigset_t *ss)
+  static inline int sigemptyset(sigset_t *ss)
   {
     *ss = 0;
+    return 0;
   }
-  static inline void sigfillset(sigset_t *ss)
+  static inline int sigfillset(sigset_t *ss)
   {
     *ss = UINT32_MAX;
+    return 0;
   }
   // The shifts below are bounds-checked against the 32-signal bit set
   // (analysis.md 4.5): for signo outside [1, 32], 1u << (signo - 1) is
-  // undefined behaviour. sigaddset/sigdelset become no-ops out of range;
-  // sigismember is kept total (returns false) so the Windows sigfillset_*
-  // lazy-init checks never read a torn set (plans/ideas.md 4.3). These
-  // helpers run in signal-handler context too, so no error reporting.
-  static inline void sigaddset(sigset_t *ss, const int signo)
+  // undefined behaviour. sigaddset/sigdelset become no-ops out of range (and
+  // still "always return zero", matching the proposal rather than the POSIX
+  // -1/EINVAL divergence); sigismember is kept total (returns false) so the
+  // Windows sigfillset_* lazy-init checks never read a torn set
+  // (plans/ideas.md 4.3). These helpers run in signal-handler context too, so
+  // no error reporting.
+  static inline int sigaddset(sigset_t *ss, const int signo)
   {
     if(signo >= 1 && signo <= 32)
     {
       *ss |= (1u << (signo - 1));
     }
+    return 0;
   }
-  static inline void sigdelset(sigset_t *ss, const int signo)
+  static inline int sigdelset(sigset_t *ss, const int signo)
   {
     if(signo >= 1 && signo <= 32)
     {
       *ss &= ~(1u << (signo - 1));
     }
+    return 0;
   }
   static inline bool sigismember(const sigset_t *ss, const int signo)
   {
@@ -349,9 +363,9 @@ extern "C"
   };
   //! \brief Typedef to a system specific error code type
 #ifdef _WIN32
-  typedef long WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
+  typedef long WG14_SIGNALS_PREFIX(stdc_siginfo_error_code_t);
 #else
-typedef int WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t);
+typedef int WG14_SIGNALS_PREFIX(stdc_siginfo_error_code_t);
 #endif
 
 //! \brief A placeholder type for an OS specific `siginfo_t *` (POSIX) or
@@ -394,7 +408,7 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
     //! \brief The system specific error code for this signal, the `si_errno`
     //! code (POSIX) or `NTSTATUS` code (Windows). Zero when the raise carried
     //! no OS info (e.g. `stdc_raise(signo, NULL, NULL)`).
-    WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t) error_code;
+    WG14_SIGNALS_PREFIX(stdc_siginfo_error_code_t) error_code;
     void *addr;  //!< Memory location which caused fault, if appropriate. NULL
                  //!< when the raise carried no OS info.
     union WG14_SIGNALS_PREFIX(
@@ -440,7 +454,7 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
     //! \brief Thread local signal deciders only: reset the stack and local
     //! state to entry to `sigguarded()`, and call the recovery
     //! function.
-    WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery)
+    WG14_SIGNALS_PREFIX(sig_decision_call_recovery)
   };
 
   //! \brief The type of the function called when a signal is raised. Returns

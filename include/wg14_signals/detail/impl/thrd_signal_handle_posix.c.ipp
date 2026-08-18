@@ -340,6 +340,21 @@ static void __attribute__((noreturn)) default_abort(void)
       // Caller is doing the non-async safe setup
       return false;
     }
+    if(signo < 1 || signo >= NSIG)
+    {
+      // No frame can guard an out-of-range signo and no handler can be
+      // installed for one. On macOS/BSD sigismember() is a shift-count macro,
+      // so a negative or >= NSIG signo is UB there and probe-verified to
+      // deterministically alias another signal's frame decider --
+      // stdc_raise(-1) inside a frame guarding SIGUSR2 invoked that frame's
+      // decider with rsi->signo == -1 (the masking turns 1u << -2 into 1u <<
+      // 30, i.e. signal 31); glibc's sigismember returns 0 and Windows' is
+      // total, so the bug was invisible there (plans/analysis.md NEGS). Reject
+      // before the frame walk: the signo-to-sighandler map's get() would report
+      // absence anyway, so this is the documented "no decider installed for
+      // that signal" return.
+      return false;
+    }
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
     WG14_SIGNALS_PREFIX(sig_global_tss_state)();
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *frame =
@@ -367,7 +382,7 @@ static void __attribute__((noreturn)) default_abort(void)
         case WG14_SIGNALS_PREFIX(sig_decision_resume_execution):
           frame = frame->prev;
           return true;
-        case WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery):
+        case WG14_SIGNALS_PREFIX(sig_decision_call_recovery):
           if(frame->recovery == WG14_SIGNALS_NULLPTR)
           {
             // No recovery routine: fall through to the outer frame / global

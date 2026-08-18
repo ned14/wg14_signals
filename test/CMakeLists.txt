@@ -38,11 +38,21 @@ add_code_test(post_uninstall_reentry_test SOURCES "post_uninstall_reentry_test.c
 set_tests_properties(post_uninstall_reentry_test PROPERTIES TIMEOUT 300)
 add_code_test(standalone_setup_test SOURCES "standalone_setup_test.c" FEATURES c_std_11)
 add_code_test(stdc_raise_zero_test SOURCES "stdc_raise_zero_test.c" FEATURES c_std_11)
+# Regression test for analysis.md VSDT: the N3924 7.14.2.1/7.14.2.2 sigset
+# helpers return int ("always returns zero"), so the documented
+# `if(sigemptyset(&ss) != 0)` idiom must compile on Windows too (pre-fix the
+# Windows helpers returned void and this failed to compile there).
+add_code_test(sigset_helpers_contract_test SOURCES "sigset_helpers_contract_test.c" FEATURES c_std_11)
 add_code_test(stdc_raise_null_info_test SOURCES "stdc_raise_null_info_test.c" FEATURES c_std_11)
 # Regression test for analysis.md DFLT: the SIG_DFL default-action re-raise in
 # the POSIX invoke_sigaction must restore the library's installed handler, not
 # leave the kernel handler reset to SIG_DFL (stop/continue default signals).
 add_code_test(sig_default_preserve_test SOURCES "sig_default_preserve_test.c" FEATURES c_std_11)
+# Regression test for analysis.md NEGS: out-of-range/negative signo must be
+# rejected before the POSIX frame walk, so stdc_raise(-1) / stdc_raise(NSIG)
+# return false without invoking any frame decider (on macOS/BSD sigismember's
+# shift-count wrap pre-fix aliased another signal's frame decider).
+add_code_test(out_of_range_signo_test SOURCES "out_of_range_signo_test.c" FEATURES c_std_11)
 # White-box regression test for analysis.md UNKN: raw_signal_handler's fallback
 # for a signal with no map entry must not permanently reset the kernel handler to
 # SIG_DFL (the installed handler must survive the default-action pass-on). Uses

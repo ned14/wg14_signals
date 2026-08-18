@@ -256,7 +256,7 @@ extern "C"
     if(ptrs->ExceptionRecord->NumberParameters >= 3)
     {
       rsi->error_code =
-      (WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t))
+      (WG14_SIGNALS_PREFIX(stdc_siginfo_error_code_t))
       ptrs->ExceptionRecord->ExceptionInformation[2];  // NTSTATUS
     }
     if(ptrs->ExceptionRecord->NumberParameters >= 2)
@@ -284,7 +284,7 @@ extern "C"
         break;
       case WG14_SIGNALS_PREFIX(sig_decision_resume_execution):
         return EXCEPTION_CONTINUE_EXECUTION;
-      case WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery):
+      case WG14_SIGNALS_PREFIX(sig_decision_call_recovery):
         // No recovery routine: continue the exception search (outer frames,
         // then the unhandled filter / global deciders, then default handling)
         // instead of EXCEPTION_CONTINUE_EXECUTION, which would re-execute the

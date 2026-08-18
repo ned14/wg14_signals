@@ -19,7 +19,7 @@ struct observed_t
 {
   int decider_calls;
   int signo;
-  WG14_SIGNALS_PREFIX(thrd_raised_signal_error_code_t) error_code;
+  WG14_SIGNALS_PREFIX(stdc_siginfo_error_code_t) error_code;
   void *addr;
   void *raw_info;
 };

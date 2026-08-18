@@ -30,7 +30,7 @@ static enum WG14_SIGNALS_PREFIX(sig_decision_t)
 decider_func(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   (void) rsi;
-  return WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery);
+  return WG14_SIGNALS_PREFIX(sig_decision_call_recovery);
 }
 
 int main(void)

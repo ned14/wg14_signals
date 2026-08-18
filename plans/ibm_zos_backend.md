@@ -370,7 +370,7 @@ Remaining open points:
    - `stdc_siginfo_context_t` (lines 375-381): the non-Windows
      `typedef ucontext_t ...` branch already works (`<ucontext.h>` exists,
      the sa_sigaction third argument points at it); no change. The
-     `thrd_raised_signal_error_code_t` non-Windows `int` branch (line 354)
+     `stdc_siginfo_error_code_t` non-Windows `int` branch (line 354)
      fits `si_code`; no change.
 4. `include/wg14_signals/detail/impl/thrd_signal_handle_common.ipp.ipp`:
    - the per-frame `buf` member becomes `sigjmp_buf` under `__MVS__`

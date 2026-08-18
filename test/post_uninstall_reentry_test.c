@@ -44,7 +44,7 @@ static enum WG14_SIGNALS_PREFIX(sig_decision_t)
 reentry_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   (void) rsi;
-  return WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery);
+  return WG14_SIGNALS_PREFIX(sig_decision_call_recovery);
 }
 
 // The raise-while-installed step is claimed by a global decider: on Windows an
@@ -54,7 +54,7 @@ static enum WG14_SIGNALS_PREFIX(sig_decision_t)
 raise_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   (void) rsi;
-  return WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery);
+  return WG14_SIGNALS_PREFIX(sig_decision_call_recovery);
 }
 
 int main(void)

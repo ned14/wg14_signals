@@ -70,7 +70,7 @@ sigfpe_decider_func(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
   {
     shared->test_value = SIGFPE;
   }
-  return WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery); /* handled */
+  return WG14_SIGNALS_PREFIX(sig_decision_call_recovery); /* handled */
 }
 
 /* Guarded function that triggers SIGFPE via division by zero */

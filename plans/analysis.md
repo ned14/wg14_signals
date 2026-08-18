@@ -61,7 +61,23 @@ user's `attr.destroy` callback after releasing it, so a documented-valid
 re-entrant call from the callback — e.g. `tss_async_signal_safe_get()` on the
 same handle — can no longer self-deadlock on the non-recursive spinlock, and a
 re-entrant `get` can never observe a value whose destroy callback is running or
-has run; verified by `test/tss_destroy_reentrancy_test.c`).
+has run; verified by `test/tss_destroy_reentrancy_test.c`), and `NEGS` (the
+POSIX `stdc_raise` now rejects `signo < 1 || signo >= NSIG` before the frame
+walk, returning the documented false with no frame decider invoked; on
+macOS/BSD `sigismember`'s shift-count wrap pre-fix made `stdc_raise(-1)` alias
+signal 31 = SIGUSR2 and invoke that frame's decider, verified by
+`test/out_of_range_signo_test.c`), and `VSDT` (the Windows
+`sigemptyset`/`sigfillset`/`sigaddset`/`sigdelset` helpers now return `int` —
+the N3924 7.14.2.1/7.14.2.2 "always returns zero" contract — instead of `void`,
+so the documented `if(sigemptyset(&ss) != 0)` idiom compiles on Windows too;
+the POSIX host-libc divergence from "always returns zero" for out-of-range
+`sigaddset`/`sigdelset` is documented in the header, verified by
+`test/sigset_helpers_contract_test.c`), and `ENUM` and `TYDF` (the two remaining
+`thrd_*`/pre-N3924 public identifiers were renamed to the wording's names: the
+`sig_decision_t` member is `sig_decision_call_recovery` and the error-code
+typedef is `stdc_siginfo_error_code_t`, swept across the header, both backends,
+every test, the README, the z/OS backend plan, and the GDIR/DECR analysis
+prose).
 
 ---
 
@@ -134,11 +150,11 @@ both a guarding frame and a global decider:
    (`:466-473`) *before* the frame filter can run, so the thread-local frame decider
    is never invoked and `stdc_raise` returns false — while POSIX walks the frames
    first and invokes the frame decider for the same call
-   (`thrd_signal_handle_posix.c.ipp:322-347`), which may even recover via
-   `sig_decision_invoke_recovery`. A frame that guards a signal thus protects the
-   raise on POSIX but not on Windows when the signal is not installed globally.
+    (`thrd_signal_handle_posix.c.ipp:322-347`), which may even recover via
+    `sig_decision_call_recovery`. A frame that guards a signal thus protects the
+    raise on POSIX but not on Windows when the signal is not installed globally.
 
-GDIR covers what `sig_decision_invoke_recovery` *means* for a global decider; this
+GDIR covers what `sig_decision_call_recovery` *means* for a global decider; this
 finding is the separate dispatch-precedence inversion, and it is a silent
 cross-platform behavioural divergence in the core raise machinery (the same source
 line `stdc_raise(...)` inside `sigguarded(...)` behaves differently per backend).
@@ -202,53 +218,6 @@ The reference implementation follows `signal_decider_create`'s own description (
 at the top / tail at the end) and the thread-local stacking intuition, and will not be
 reversed. `ORDR` stays open only as the record of the required wording fix.
 
-### `ENUM` [public API, both backends, Low] enum member is named `sig_decision_invoke_recovery`, the N3924 wording names it `sig_decision_call_recovery`
-
-`thrd_signal_handle.h:419-429` declares the third member of `sig_decision_t` as
-`WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery)`. The N3924 wording's required member
-list is `sig_decision_next_decider`, `sig_decision_resume_execution`,
-`sig_decision_call_recovery` (7.14.1 "The `sig_decision_t` enumeration shall contain at
-least the following members..."). The name `sig_decision_call_recovery` appears nowhere in
-the tree; `sig_decision_invoke_recovery` is used by the backends
-(`thrd_signal_handle_posix.c.ipp:334`, `thrd_signal_handle_windows.c.ipp:273`), seven
-tests, the README, and the generated Doxygen. The N3924 revision history
-("Renamed `thrd_signal_invoke` to `sigguarded`" etc.) does not mention this member being
-renamed, so the implementation kept a pre-N3924 name. Consequence: code written against
-the proposal wording (`return sig_decision_call_recovery;`) fails to compile against this
-reference implementation — the one public identifier that a consumer's decider must
-literally spell.
-
-### `TYDF` [public API, both backends, Low] typedef is named `thrd_raised_signal_error_code_t`, the N3924 wording names it `stdc_siginfo_error_code_t`
-
-`thrd_signal_handle.h:351-355` defines `thrd_raised_signal_error_code_t` (the only
-remaining `thrd_*` public identifier; the struct itself was renamed to `stdc_siginfo`).
-The N3924 wording requires "`stdc_siginfo_error_code_t` which is an implementation-defined
-complete native error code type" (7.14.1), matching the revision history's blanket
-"Renamed `thrd_raised_signal_info*` to `stdc_siginfo*`". Used at
-`thrd_signal_handle.h:393` (`stdc_siginfo::error_code`) and `thrd_signal_handle_windows.c.ipp:248`;
-no occurrence of `stdc_siginfo_error_code_t` exists. Same consequence as `ENUM`: consumer code
-using the proposal's type name fails to compile. Both `ENUM` and this renaming are mechanical renames;
-the enum-member rename additionally needs a README + doc + test sweep.
-
-### `VSDT` [public API, Windows, Low] Windows `sigemptyset`/`sigfillset`/`sigaddset`/`sigdelset` return `void`, the N3924 synopses return `int` and "always return zero"
-
-`thrd_signal_handle.h:44-75` defines the four helpers as `static inline void` on `_WIN32`
-(`sigismember` returns `bool`). The N3924 synopses (7.14.2.1/7.14.2.2) declare
-`int sigemptyset(sigset_t *setp)`, `int sigfillset(...)`, `int sigaddset(...)`,
-`int sigdelset(...)` with "This function always returns zero". Code written against the
-proposal, e.g. `if(sigemptyset(&ss) != 0)`, compiles on POSIX (the platform's `int`
-functions are used there) and fails to compile on Windows (comparison of `void`). Two
-further consequences:
-
-1. On POSIX the implementation forwards to the host libc's sigset functions, which may
-   return `-1`/`EINVAL` for an out-of-range `signo` (e.g. `sigaddset(&ss, 64)` on glibc)
-   — the proposal's "always returns zero" contract is not guaranteed by the reference
-   implementation on POSIX either (the platform contract is "0 on success, -1 on error").
-   As a standard-library drop-in (the stated goal of the project) this needs wrapping or
-   a documented divergence.
-2. `sigismember`'s `bool` return satisfies "positive one is returned... zero" only by
-   accident of `bool` layout; it is fine in practice.
-
 ### `TLSD` WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL detection is too optimistic; forcing it on Apple is silently unsafe
 
 `config.h:51-61` enables async-safe TLS for *any* `__GNUC__` (which includes clang) on
@@ -309,19 +278,6 @@ without `#ifdef` guards (only `SIGPOLL` is guarded). On a POSIX platform that om
 these the file fails to compile. The library build now compiles with explicit feature-test
 macros (plans/ideas.md §2), so glibc/musl consistently expose these
 signals; the missing `#ifdef` guards remain for platforms that omit the signals entirely.
-
-### `NEGS` [code-level, Low] out-of-range and negative `signo` in `stdc_raise` is UB on the POSIX frame walk
-
-`thrd_signal_handle_posix.c.ipp:310-336` — the frame loop tests
-`sigismember(frame->guarded, signo)` with no `signo < NSIG` check. On macOS/BSD
-`sigismember` is a shift-count macro, so a negative `signo` is a negative shift count —
-**probe-verified** to deterministically *alias another signal's frame decider*, not just
-UB: `stdc_raise(-1)` inside a frame guarding SIGUSR2 invoked that frame's decider with
-`rsi->signo == -1` (the masking turns `1u << -2` into `1u << 30`, i.e. signal 31; on
-pre-Xcode-15 SDKs positive out-of-range signos wrap similarly, `stdc_raise(33)` matching a
-frame guarding signal 1). On glibc `sigismember` returns 0 for out-of-range values, so the
-bug is invisible there; on Windows both cases return false. Fix: bounds-check `signo`
-before the walk.
 
 ### `RTIM` [code-level, Linux/glibc, Low] `siginstall(NULL)` installs handlers for glibc-internal signals 32/33 and realtime signals 34-64
 
@@ -423,13 +379,13 @@ sibling is `uninstall_sighandler_impl`
 threadsafe with respect to other code modifying the global signal handlers") is framed as
 a concurrency caveat and does not cover the sequential case.
 
-### `GDIR` [code-level, both backends, Low] a *global* decider returning `sig_decision_invoke_recovery` has divergent, undocumented semantics
+### `GDIR` [code-level, both backends, Low] a *global* decider returning `sig_decision_call_recovery` has divergent, undocumented semantics
 
-The enum documentation (`thrd_signal_handle.h:254-257`) says `sig_decision_invoke_recovery`
+The enum documentation (`thrd_signal_handle.h:254-257`) says `sig_decision_call_recovery`
 is "Thread local signal deciders only", yet global deciders share the same `sig_decide_t`
 type and both backends accept it. **POSIX** (`thrd_signal_handle_posix.c.ipp:384-389`):
 `if(res)` treats *any* non-zero decision as "claim and `return true`" — for
-`invoke_recovery` the raise is claimed, no recovery is ever called, and for a genuine
+`call_recovery` the raise is claimed, no recovery is ever called, and for a genuine
 fault the handler returns and the faulting instruction re-executes (an infinite re-fault
 livelock),
 **even when a guarding `sigguarded` frame exists**. **Windows**
@@ -525,12 +481,12 @@ thread performs the `my_current_thread_id()` cache fill (`MAST`) and a spinlocke
 execution is to resume, `false` if the next decider function should be called", and "A
 user supplied value to set in the `raised_signal_info`". The decider type is
 `enum sig_decision_t` (`sig_decision_next_decider` / `sig_decision_resume_execution` /
-`sig_decision_invoke_recovery`), and the `raised_signal_info` identifier was renamed to
+`sig_decision_call_recovery`), and the `raised_signal_info` identifier was renamed to
 `stdc_siginfo` — both descriptions are stale. The bool text happens to be accidentally
 consistent with the current enum layout (`false` == 0 == `next_decider`,
 `true` == 1 == `resume_execution`, both on the POSIX frame switch and on the global
 `if(res)` claim test), so a decider written from the docs compiles and behaves
-sensibly — but a decider can never express `sig_decision_invoke_recovery` that way, and
+sensibly — but a decider can never express `sig_decision_call_recovery` that way, and
 the wording's own `sig_decision_t` semantics (7.14.1) are the contract a reference
 implementation should document. Pure documentation hygiene; flagged because the stale
 contract text is the first thing a consumer of this API reads.
@@ -1236,11 +1192,15 @@ Ranking criteria, applied in order of precedence:
    skipping SIGKILL/SIGSTOP/Fil-C signals yet reporting success (`SKIP`),
    `signal_decider_create` before `siginstall` silently losing the decider (`PRCR`), and
    `sigguarded`'s failure value colliding with a legitimate -1 (`AMBI`). The iteration-order
-   deviation (`ORDR`) follows: its trigger is exotic and the wording contradicts its own
-   `signal_decider_create` description, so it awaits a WG14 decision. The three public
-   identifier/signature deviations from the wording (`ENUM` enum member name, `TYDF` error-code
-   typedef name, `VSDT` Windows sigset helpers returning `void` instead of `int`) close the
-   tier: they are loud compile-time failures, not silent ones.
+    deviation (`ORDR`) follows: its trigger is exotic and the wording contradicts its own
+    `signal_decider_create` description, so it awaits a WG14 decision. The three public
+    identifier/signature deviations from the wording are all fixed: `VSDT` (the Windows
+    `sigemptyset`/`sigfillset`/`sigaddset`/`sigdelset` helpers now return `int` as the
+    N3924 7.14.2.1/7.14.2.2 synopses require, with the POSIX host-libc divergence from
+    "always returns zero" for out-of-range signo documented in the header), `ENUM` (the
+    `sig_decision_t` member is now `sig_decision_call_recovery`), and `TYDF` (the error-code
+    typedef is now `stdc_siginfo_error_code_t`), so the tier no longer ends in loud
+    compile-time API-identifier failures.
 8. **Portability and platform gaps.** Compile failures or safety-claim gaps outside the
    exercised CI matrix. The Med items lead this tier because they also break the
    async-safety claim or are real functional gaps on a supported platform: optimistic
@@ -1296,14 +1256,10 @@ then backend scope.
 | `PRCR` | contract | Low | `signal_decider_create` before `siginstall` silently loses the decider |
 | `AMBI` | contract | Low | `sigguarded` -1 indistinguishable from legit -1 |
 | `ORDR` | semantics | Med | decider iteration order is the inverse of the 7.14.1 ordering clauses (wording self-contradictory) |
-| `ENUM` | api | Low | enum member `sig_decision_invoke_recovery` vs wording's `sig_decision_call_recovery` |
-| `TYDF` | api | Low | typedef `thrd_raised_signal_error_code_t` vs wording's `stdc_siginfo_error_code_t` |
-| `VSDT` | api | Low | Windows sigset helpers `void` vs wording's `int` (and POSIX "always returns zero" not guaranteed) |
 | `TLSD` | portability | Med | async-safe TLS detection too optimistic; forced-on-Apple unsafe |
 | `PTHD` | portability | Med | pthread-key `thread_atexit` fallback drops every callback on Darwin (TLS torn down before key destructors) **[confirmed]** |
 | `MUSL` | portability | Low-Med | `siginfo_t`/`ucontext_t` dispatch breaks musl |
 | `SIGN` | portability | Low | missing `SIGSYS`/`SIGXCPU`/`SIGXFSZ` guards |
-| `NEGS` | ub | Low | out-of-range/negative `signo` UB frame walk |
 | `RTIM` | semantics | Low | `siginstall(NULL)` installs glibc-internal/realtime |
 | `TOPL` | build | Med | `PROJECT_IS_TOP_LEVEL` needs CMake >= 3.21 |
 | `CPPR` | build | Low | C++ runtime dependency undeclared |

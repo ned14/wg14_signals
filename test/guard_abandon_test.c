@@ -18,10 +18,11 @@
 // wording). The signal used is never installed in the POSIX-only parts and
 // only installed around the global-decider parts, so an unclaimed raise simply
 // returns false instead of reaching any previously installed handler. Fil-C's
-// runtime reserves SIGILL/SIGSEGV/SIGFPE for its own memory-safety mechanism, so
-// the tests use SIGUSR2 there; SIGILL is defined, installable and continuable
-// everywhere else, including Windows/MSVC (SIGABRT is non-continuable on
-// Windows -- analysis.md `SABA` -- and SIGUSR* are undefined on MSVC).
+// runtime reserves SIGILL/SIGSEGV/SIGFPE for its own memory-safety mechanism,
+// so the tests use SIGUSR2 there; SIGILL is defined, installable and
+// continuable everywhere else, including Windows/MSVC (SIGABRT is
+// non-continuable on Windows -- analysis.md `SABA` -- and SIGUSR* are undefined
+// on MSVC).
 #ifdef __FILC__
 #define SIGNAL_TO_USE SIGUSR2
 #else
@@ -142,7 +143,7 @@ fresh_claiming_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   (void) rsi;
   fresh_decider_calls++;
-  return WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery);
+  return WG14_SIGNALS_PREFIX(sig_decision_call_recovery);
 }
 
 static union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
@@ -167,7 +168,7 @@ flicker_then_recover_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
   WG14_SIGNALS_PREFIX(sigdecider_abandon_resume)(rsi);
   if(flicker_recover_calls >= 2)
   {
-    return WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery);
+    return WG14_SIGNALS_PREFIX(sig_decision_call_recovery);
   }
   return WG14_SIGNALS_PREFIX(sig_decision_resume_execution);
 }
@@ -194,7 +195,7 @@ outer_claiming_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   (void) rsi;
   outer_decider_calls++;
-  return WG14_SIGNALS_PREFIX(sig_decision_invoke_recovery);
+  return WG14_SIGNALS_PREFIX(sig_decision_call_recovery);
 }
 
 static union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
