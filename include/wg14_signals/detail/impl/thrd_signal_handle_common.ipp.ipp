@@ -240,13 +240,38 @@ extern "C"
     // The verstable-variant signo_to_sighandler_map_t is not self-initialising:
     // a zero-initialised table has metadata == NULL, which _get/_insert
     // dereference, crashing every map-touching library operation on an NSIG
-    // >= 1024 platform (analysis.md 2.21/Z1). Initialise it once: _init()
-    // points metadata at the empty-bucket placeholder, and all its writes are
-    // constant and idempotent on the still-empty table.
-    if(v.signo_to_sighandler_map.metadata == WG14_SIGNALS_NULLPTR)
+    // >= 1024 platform (analysis.md 2.21/Z1). Initialise it exactly once: the
+    // original check-and-write ran with no lock and no atomics, a C11 data race
+    // between two threads' first concurrent calls (analysis GLIN). The gate
+    // below is an atomic single-writer init: the winner's _init() writes are
+    // published by its release store below, and every loser spins on an acquire
+    // load until the table is visible, so the non-atomic table fields never
+    // race. The fast path is a lock-free acquire load.
+    static WG14_SIGNALS_ATOMIC_PREFIX atomic_uint map_inited;
+    if(!atomic_load_explicit(&map_inited,
+                             WG14_SIGNALS_ATOMIC_PREFIX memory_order_acquire))
     {
-      WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_init)(
-      &v.signo_to_sighandler_map);
+      unsigned expected = 0;
+      if(!atomic_compare_exchange_strong_explicit(
+         &map_inited, &expected, 1,
+         WG14_SIGNALS_ATOMIC_PREFIX memory_order_acq_rel,
+         WG14_SIGNALS_ATOMIC_PREFIX memory_order_acquire))
+      {
+        // Another thread is initialising the table: wait for it to publish.
+        while(atomic_load_explicit(
+              &map_inited, WG14_SIGNALS_ATOMIC_PREFIX memory_order_acquire) !=
+              2)
+        {
+          /* spin */;
+        }
+      }
+      else
+      {
+        WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_init)(
+        &v.signo_to_sighandler_map);
+        atomic_store_explicit(&map_inited, 2,
+                              WG14_SIGNALS_ATOMIC_PREFIX memory_order_release);
+      }
     }
 #endif
     return &v;

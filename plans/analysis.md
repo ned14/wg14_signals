@@ -31,44 +31,17 @@ the residual is safe by construction), `PFXM` (the `WG14_SIGNALS_PREFIX` misuse 
 was refuted and the test spellings fixed), and `VDED` (the Windows V5 dedup cache is now
 invalidated on every dispatch: the unhandled filter clears the entry before each pass and
 the vectored continue handler consumes it when reusing the recorded decision, so a later
-exception reusing a record's stack address can never skip the global-decider pass).
+exception reusing a record's stack address can never skip the global-decider pass),
+and `GLIN` (the `NSIG >= 1024` verstable-map branch: `sig_global_state()` now
+initialises the `signo_to_sighandler_map` exactly once behind an atomic single-writer
+gate, so two threads' first concurrent calls cannot race on the table fields), and
+`DFLT` (the POSIX `invoke_sigaction` SIG_DFL default-action re-raise now saves and
+restores the library's installed handler, so stop/continue defaults no longer leave the
+kernel handler reset to `SIG_DFL` after the process resumes from a stop).
 
 ---
 
 ## 1. Findings, in priority order
-
-### `GLIN` [code-level, race, Low] `sig_global_state()`'s lazy verstable `_init` on the NSIG >= 1024 branch is an unsynchronised double-checked write race (sibling of `SIGF`)
-
-`thrd_signal_handle_common.ipp.ipp:239-251`: on the verstable-map branch the check
-`v.signo_to_sighandler_map.metadata == NULL` and the following
-`signo_to_sighandler_map_t_init(&v.signo_to_sighandler_map)` run with no lock and no
-atomics, and `sig_global_state()` is called *before* `LOCK(state->lock)` by every
-map-touching entry point (`install_sighandler`, `uninstall_sighandler`,
-`signal_decider_create/destroy`, `stdc_raise`). Two threads' first concurrent calls
-both observe NULL and both write the same constant values (`key_count = 0`,
-`buckets_mask = 0`, `buckets = NULL`, `metadata = &vt_empty_placeholder_metadatum`,
-`verstable.h:908-922`) — a C11 data race (UB in the abstract machine) whose outcome
-is benign in practice because every written value is constant and the placeholder
-`metadata[0] == VT_EMPTY` makes `_get` return end on the still-empty table
-(`verstable.h:1426-1435`). Unlike `SIGF`, no `__attribute__((constructor))` mitigates
-it; the branch is reached only by the white-box test TU (`signo_map_verstable_init_test.c`,
-which drives it single-threaded) since no CI libc has NSIG >= 1024. Fix direction:
-perform the `_init` under `state->lock` (move it into the locked section of
-`install_sighandler`/`siginstall`'s first-call path), or make the check-and-write
-atomic.
-
-### `DFLT` invoke_sigaction default handling is wrong for stop/continue signals and re-raises under `SA_NODEFER`
-
-`thrd_signal_handle_posix.c.ipp:152-193`: the "default is to ignore" list only covers
-SIGCHLD/SIGURG/SIGWINCH. Signals whose default action is "stop" (SIGSTOP, SIGTSTP,
-SIGTTIN, SIGTTOU, SIGCONT) fall into the "reset to SIG_DFL and `pthread_kill(self)`"
-branch. **Correction:** re-raising with the handler reset to `SIG_DFL` permanently
-discards the library's handler for stop/continue signals — after the process resumes from
-a stop, the map still claims the signal installed while the kernel handler is now
-`SIG_DFL`, so subsequent raises bypass the library until a re-install. **Correction
-(realtime):** the same applies to glibc realtime signals 34-64 installed by `siginstall(NULL)`
-(`RTIM`) — the documented `sigfillset_*` sets deliberately exclude them, yet the re-raise
-path discards the library's handler for them.
 
 ### `UNKN` raw_signal_handler on unknown signals silently installs SIG_DFL and re-raises
 
@@ -379,8 +352,10 @@ glibc's internal pthread-cancellation/setxid signals) and for all 31 realtime si
 chains to it on each delivery, adding latency to every pthread cancellation, allowing a
 decider to swallow cancellation, and `SA_NODEFER` changes glibc's expected blocking
 semantics. Realtime signals: the default path in `invoke_sigaction` resets to `SIG_DFL`
-and re-raises, so a realtime-signal delivery routes through the library and its default
-re-raise discards the library handler permanently (the `DFLT`/C10 family), even though
+and re-raises, so a realtime-signal delivery routed through the library and then the
+default re-raise terminates the process (the `DFLT` permanent-discard defect was fixed
+in the working tree 2026-08-18 — the re-raise restores the installed handler — but a
+terminating default still terminates), even though
 `sigfillset_synchronous`/`_asynchronous_*` deliberately do not include realtime signals.
 The internal and realtime ranges are neither skipped nor documented.
 
@@ -1221,7 +1196,7 @@ The severity label in the tables classifies each finding's worst-case impact; th
 order is the remediation priority, which applies the criteria below to the label *and*
 the finding's trigger likelihood. It is not a strict severity sort: the 37 adjudicated
 wontfix findings rank *last* regardless of severity, and the Med items
-`DFLT`, `TIDR`, `TLSD` and `TOPL` follow Low items that are more dangerous in practice.
+`TIDR`, `TLSD` and `TOPL` follow Low items that are more dangerous in practice.
 The main table lists the fixable findings; the wontfix findings have their own
 summary table below it. The ranking criteria below describe the original priority
 assessment; items adjudicated wontfix (see tier 13) are retained in the
@@ -1260,9 +1235,11 @@ Ranking criteria, applied in order of precedence:
 5. **Silent alteration of host-process semantics.** POSIX install flags and
    default-action handling that change the behaviour of the host process for the whole
    tenure of an install: `SA_NOCLDWAIT`/no `SA_RESTART`/`SA_NODEFER` on the default
-   `siginstall(NULL)` path used by every test and the README (`FLGS`), stop/continue and
-   realtime re-raise discarding the library's handler (`DFLT`), unknown-signal fallback
-   (`UNKN`), and stale TID reuse (`TIDR`). Default-path triggers precede rarer ones.
+   `siginstall(NULL)` path used by every test and the README (`FLGS`), unknown-signal
+   fallback (`UNKN`), and stale TID reuse (`TIDR`). Default-path triggers precede rarer
+   ones. (The stop/continue and realtime re-raise discarding the library's handler —
+   `DFLT` — was fixed: `invoke_sigaction` now restores the installed handler after the
+   default action.)
 6. **Error-path and lock hygiene.** Allocation-failure correctness and lock discipline in
     non-hot paths (`SDCF` `signal_decider_create` failure accounting, `TAOM` OOM terminate
     with exceptions disabled, `FPUN` function-pointer type pun).
@@ -1330,8 +1307,6 @@ then backend scope.
 
 | Code | Category | Severity | Issue |
 |---|---|---|---|
-| `GLIN` | race | Low | `sig_global_state()` lazy verstable `_init` race (NSIG >= 1024 branch) |
-| `DFLT` | semantics | Med | `invoke_sigaction` default handling wrong for stop/continue |
 | `UNKN` | semantics | Low | `raw_signal_handler` unknown signals |
 | `TIDR` | identity | Med | thread-ID reuse with stale entries |
 | `SDCF` | error | Low | `signal_decider_create` failure path |

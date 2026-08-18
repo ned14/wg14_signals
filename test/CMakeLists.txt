@@ -33,6 +33,10 @@ set_tests_properties(post_uninstall_reentry_test PROPERTIES TIMEOUT 300)
 add_code_test(standalone_setup_test SOURCES "standalone_setup_test.c" FEATURES c_std_11)
 add_code_test(stdc_raise_zero_test SOURCES "stdc_raise_zero_test.c" FEATURES c_std_11)
 add_code_test(stdc_raise_null_info_test SOURCES "stdc_raise_null_info_test.c" FEATURES c_std_11)
+# Regression test for analysis.md DFLT: the SIG_DFL default-action re-raise in
+# the POSIX invoke_sigaction must restore the library's installed handler, not
+# leave the kernel handler reset to SIG_DFL (stop/continue default signals).
+add_code_test(sig_default_preserve_test SOURCES "sig_default_preserve_test.c" FEATURES c_std_11)
 add_code_test(stdc_raise_uninstalled_test SOURCES "stdc_raise_uninstalled_test.c" FEATURES c_std_11)
 add_code_test(sigguarded_tss_init_test SOURCES "sigguarded_tss_init_test.c" FEATURES c_std_11)
 add_code_test(guard_abandon_test SOURCES "guard_abandon_test.c" FEATURES c_std_11)

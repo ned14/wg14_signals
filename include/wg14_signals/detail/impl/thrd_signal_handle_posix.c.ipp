@@ -172,13 +172,26 @@ static void __attribute__((noreturn)) default_abort(void)
         return false;
       default:
       {
-        // The default is to abort, so reset the signal handler
-        // to default and send ourselves the signal
-        struct sigaction sa;
-        memset(&sa, 0, sizeof(sa));
-        sa.sa_handler = SIG_DFL;
-        (void) sigaction(signo, &sa, WG14_SIGNALS_NULLPTR);
+        // The default is to terminate (possibly with a core dump), stop, or
+        // continue. Take it by resetting to SIG_DFL and re-delivering the
+        // signal to this thread. Save the current (library) handler first and
+        // restore it afterwards: the restore is dead code when a terminating
+        // default kills the process in the delivery, but for a stop/continue
+        // default (SIGSTOP/SIGTSTP/SIGTTIN/SIGTTOU/SIGCONT) the process
+        // survives the stop, and leaving the kernel handler reset to SIG_DFL
+        // would make later deliveries of that signal bypass the library until
+        // a re-install (analysis DFLT). The stop happens during the signal
+        // delivery that completes this thread's re-raise, so the restore below
+        // runs only after the process has been resumed.
+        struct sigaction current;
+        memset(&current, 0, sizeof(current));
+        (void) sigaction(signo, WG14_SIGNALS_NULLPTR, &current);
+        struct sigaction dfl;
+        memset(&dfl, 0, sizeof(dfl));
+        dfl.sa_handler = SIG_DFL;
+        (void) sigaction(signo, &dfl, WG14_SIGNALS_NULLPTR);
         (void) pthread_kill(pthread_self(), signo);
+        (void) sigaction(signo, &current, WG14_SIGNALS_NULLPTR);
         return true;
       }
       }
