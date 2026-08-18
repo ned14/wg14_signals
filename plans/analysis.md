@@ -27,45 +27,15 @@ delivery `rsi` race (fixed 2026-08-17) are no longer listed. Also removed on 202
 fixed/done: `NDEC` (never-returning decider pinning the per-raise
 `stdc_raise_initiated_exception` chain and `tss->front`; both consequences fixed in the
 working tree), `SDDF` (out-of-lock `free` of decider nodes; the in-lock fix is applied and
-the residual is safe by construction), and `PFXM` (the `WG14_SIGNALS_PREFIX` misuse claim
-was refuted and the test spellings fixed).
+the residual is safe by construction), `PFXM` (the `WG14_SIGNALS_PREFIX` misuse claim
+was refuted and the test spellings fixed), and `VDED` (the Windows V5 dedup cache is now
+invalidated on every dispatch: the unhandled filter clears the entry before each pass and
+the vectored continue handler consumes it when reusing the recorded decision, so a later
+exception reusing a record's stack address can never skip the global-decider pass).
 
 ---
 
 ## 1. Findings, in priority order
-
-### `VDED` [code-level, Windows, Med] the V5 decider-dedup cache is never invalidated; a later exception reusing the record's stack address silently skips the global-decider pass
-
-`thrd_signal_handle_windows.c.ipp:427-449` — the TLS pair
-`wg14_last_global_decider_record`/`wg14_last_global_decider_result` records the
-`EXCEPTION_RECORD` pointer and the decision of the last global-decider pass, and the
-vectored function short-circuits any later invocation whose record pointer matches
-(the no-debugger path invokes the same function as the unhandled filter and then as the
-vectored continue handler for the *same* exception, which is what the dedup exists for).
-The cache is never invalidated: `siguninstall` does not clear it, the
-claim-via-`longjmp` path (`:522-525`) returns without writing it and leaves the *previous*
-exception's record in place, and the second pass that consumes it does not reset it.
-The kernel builds the `EXCEPTION_RECORD` for successive exceptions on the same thread at
-the same stack offset whenever the call depth matches (e.g. repeated `stdc_raise` from
-the same frame, or two faults in the same function at the same stack depth), so a
-different, later exception can hit the dedup and reuse the recorded decision without
-running a single decider:
-
-1. After a pass recorded `EXCEPTION_CONTINUE_EXECUTION` (a global decider claimed a
-   genuine fault with `resume_execution` and no guard frame — the "generally end the
-   process" path), a later genuine fault at the same stack depth returns the recorded
-   `CONTINUE_EXECUTION` from the dedup: the faulting instruction re-executes and
-   re-faults forever with the deciders never consulted — a silent livelock even when a
-   decider for the second signal would have claimed or recovered it.
-2. After a pass recorded `EXCEPTION_CONTINUE_SEARCH` (installed signal, nothing
-   claimed), a later exception at the same address skips its deciders and goes straight
-   to the unhandled path.
-
-Fix direction: invalidate the cache when the second pass consumes it, or clear it at
-`siguninstall`/on the claim path, or key the dedup on (record pointer, `ExceptionCode`,
-`NumberParameters`) — or restrict the dedup to the same-dispatch case by having the
-unhandled filter record a generation token that the continue-handler pass must match.
-Severity Med: silent misbehaviour in the core raise machinery, no memory corruption.
 
 ### `GLIN` [code-level, race, Low] `sig_global_state()`'s lazy verstable `_init` on the NSIG >= 1024 branch is an unsynchronised double-checked write race (sibling of `SIGF`)
 
@@ -1360,7 +1330,6 @@ then backend scope.
 
 | Code | Category | Severity | Issue |
 |---|---|---|---|
-| `VDED` | windows | Med | V5 dedup cache never invalidated; later exception at same record address skips deciders (livelock, skipped pass) |
 | `GLIN` | race | Low | `sig_global_state()` lazy verstable `_init` race (NSIG >= 1024 branch) |
 | `DFLT` | semantics | Med | `invoke_sigaction` default handling wrong for stop/continue |
 | `UNKN` | semantics | Low | `raw_signal_handler` unknown signals |

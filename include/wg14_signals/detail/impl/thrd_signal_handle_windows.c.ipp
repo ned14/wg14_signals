@@ -532,27 +532,49 @@ extern "C"
   }
 
 
-  // The same vectored function is registered BOTH as the unhandled exception
-  // filter and as a vectored continue handler (install_sighandler_impl below):
-  // the unhandled filter runs on the no-debugger path, the continue handler is
-  // what runs under a debugger (the OS does not call the installed filter
-  // there). On the no-debugger path Windows invokes the continue handler AFTER
-  // the unhandled filter for the SAME exception, so without this marker the
+  // The vectored exception function is split into two registered entry points
+  // (install_sighandler_impl below): the unhandled exception filter runs the
+  // global-decider pass on the no-debugger path, and the vectored continue
+  // handler is what runs over a debugger (the OS does not call the installed
+  // filter there). On the no-debugger path Windows invokes the continue handler
+  // AFTER the unhandled filter for the SAME exception, so without a marker the
   // global deciders would run twice per exception — a double invocation of
-  // every side-effecting decider (analysis.md 3.15/V5). We record the exact
-  // EXCEPTION_RECORD the global-decider pass last ran for and the decision it
-  // produced; a second invocation for the same record returns the recorded
-  // decision instead of re-running the deciders. Per-thread: exception
-  // dispatch is per-thread, each dispatch has its own EXCEPTION_RECORD (so a
-  // nested exception raised by a decider has a different record and runs the
-  // pass fresh), and under a debugger only the continue handler runs so the
-  // pass executes exactly once.
-  static WG14_SIGNALS_THREAD_LOCAL const EXCEPTION_RECORD
-  *wg14_last_global_decider_record;
+  // every side-effecting decider (analysis.md 3.15/V5). The filter therefore
+  // snapshots the identity fields of the EXCEPTION_RECORD the global-decider
+  // pass last ran for, and the decision it produced; the continue handler
+  // reuses the recorded decision for the same exception instead of running the
+  // deciders again, then consumes the entry (analysis VDED) so a later
+  // exception can never silently skip the pass. Per-thread: exception dispatch
+  // is per-thread, each dispatch has its own EXCEPTION_RECORD (so a nested
+  // exception raised by a decider has a different record and runs the pass
+  // fresh), and under a debugger only the continue handler runs so the pass
+  // executes exactly once.
+  static WG14_SIGNALS_THREAD_LOCAL struct WG14_SIGNALS_PREFIX(
+  sig_global_state_tss_state_win_t) wg14_last_global_decider_record;
   static WG14_SIGNALS_THREAD_LOCAL LONG wg14_last_global_decider_result;
 
-  static long __stdcall WG14_SIGNALS_PREFIX(win32_vectored_exception_function)(
-  EXCEPTION_POINTERS *ptrs)
+  // Compares a sig_global_state_tss_state_win_t snapshot (a raise-initiated-
+  // exception frame or the V5 dedup entry above) against a live
+  // EXCEPTION_RECORD, exactly as the raise detection in
+  // win32_global_decider_pass does: the two describe the same exception when
+  // the exception code, flags, parameter count and (when parameters are
+  // present) the first parameter all agree (analysis.md 3.15/V5).
+  static bool WG14_SIGNALS_PREFIX(win32_exception_record_matches)(
+  const struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) * state,
+  const EXCEPTION_RECORD *record)
+  {
+    return state->ExceptionCode == record->ExceptionCode &&
+           state->ExceptionFlags == record->ExceptionFlags &&
+           state->NumberParameters == record->NumberParameters &&
+           (record->NumberParameters > 0 && state->ExceptionInformationFirst ==
+                                            record->ExceptionInformation[0]);
+  }
+
+  // Runs the global-decider pass for one exception dispatch and, when the pass
+  // returns a disposition whose record the follow-up vectored continue handler
+  // must reuse, records the decision (analysis.md 3.15/V5).
+  static long __stdcall
+  WG14_SIGNALS_PREFIX(win32_global_decider_pass)(EXCEPTION_POINTERS *ptrs)
   {
     const EXCEPTION_RECORD *record = ptrs->ExceptionRecord;
     const int signo = WG14_SIGNALS_PREFIX(signal_from_win32_exception_code)(
@@ -561,14 +583,6 @@ extern "C"
     {
       // Not a supported exception code
       return EXCEPTION_CONTINUE_SEARCH;
-    }
-    // V5 dedup: if the global-decider pass already ran for this exact
-    // exception record (the continue handler re-invoking us after the unhandled
-    // filter on the no-debugger path), return its recorded decision instead of
-    // re-running every side-effecting decider a second time (analysis.md 3.15).
-    if(record == wg14_last_global_decider_record)
-    {
-      return wg14_last_global_decider_result;
     }
     struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
     WG14_SIGNALS_PREFIX(sig_global_state)();
@@ -583,15 +597,8 @@ extern "C"
       WG14_SIGNALS_PREFIX(sig_global_tss_state)();
       if(tss != WG14_SIGNALS_NULLPTR &&
          tss->stdc_raise_initiated_exception != WG14_SIGNALS_NULLPTR &&
-         tss->stdc_raise_initiated_exception->ExceptionCode ==
-         record->ExceptionCode &&
-         tss->stdc_raise_initiated_exception->ExceptionFlags ==
-         record->ExceptionFlags &&
-         tss->stdc_raise_initiated_exception->NumberParameters ==
-         record->NumberParameters &&
-         (record->NumberParameters > 0 &&
-          tss->stdc_raise_initiated_exception->ExceptionInformationFirst ==
-          record->ExceptionInformation[0]))
+         WG14_SIGNALS_PREFIX(win32_exception_record_matches)(
+         tss->stdc_raise_initiated_exception, record))
       {
         // Return to stdc_raise() now and say we didn't have a handler.
         tss->stdc_raise_initiated_exception->exception_was_unclaimed = true;
@@ -654,9 +661,16 @@ extern "C"
             longjmp(tss->front->buf, 1);
           }
           // This will generally end the process. Record the decision so the
-          // continue handler's second invocation of this function for the
-          // same exception reuses it (analysis.md 3.15/V5).
-          wg14_last_global_decider_record = record;
+          // vectored continue handler's follow-up invocation for the same
+          // exception reuses it instead of re-running the deciders
+          // (analysis.md 3.15/V5).
+          wg14_last_global_decider_record.ExceptionCode = record->ExceptionCode;
+          wg14_last_global_decider_record.ExceptionFlags =
+          record->ExceptionFlags;
+          wg14_last_global_decider_record.NumberParameters =
+          record->NumberParameters;
+          wg14_last_global_decider_record.ExceptionInformationFirst =
+          (record->NumberParameters > 0) ? record->ExceptionInformation[0] : 0;
           wg14_last_global_decider_result = EXCEPTION_CONTINUE_EXECUTION;
           return EXCEPTION_CONTINUE_EXECUTION;
         }
@@ -664,11 +678,54 @@ extern "C"
     }
     // None of our deciders want this, so call previously installed signal
     // handler. Record the decision for the V5 dedup (analysis.md 3.15).
-    wg14_last_global_decider_record = record;
+    wg14_last_global_decider_record.ExceptionCode = record->ExceptionCode;
+    wg14_last_global_decider_record.ExceptionFlags = record->ExceptionFlags;
+    wg14_last_global_decider_record.NumberParameters = record->NumberParameters;
+    wg14_last_global_decider_record.ExceptionInformationFirst =
+    (record->NumberParameters > 0) ? record->ExceptionInformation[0] : 0;
     wg14_last_global_decider_result = EXCEPTION_CONTINUE_SEARCH;
     WG14_SIGNALS_PREFIX(sighandler_info_release)(item);
     UNLOCK(state->lock);
     return EXCEPTION_CONTINUE_SEARCH;
+  }
+
+  // Registered via SetUnhandledExceptionFilter(). On the no-debugger path this
+  // is the first invocation for an exception, so it always resolves the global-
+  // decider pass fresh; the pass's recorded decision is what the vectored
+  // continue handler reuses. Clear the entry first so a preceding pass that did
+  // not record a decision (an unclaimed software raise, or a decider that
+  // abandoned via longjmp) can never leave a previous exception's identity to
+  // be spuriously reused by a later exception (analysis VDED).
+  static long __stdcall WG14_SIGNALS_PREFIX(win32_unhandled_exception_filter)(
+  EXCEPTION_POINTERS *ptrs)
+  {
+    memset(&wg14_last_global_decider_record, 0,
+           sizeof(wg14_last_global_decider_record));
+    return WG14_SIGNALS_PREFIX(win32_global_decider_pass)(ptrs);
+  }
+
+  // Registered via AddVectoredContinueHandler(). Under a debugger this is the
+  // only invocation for an exception, so when no decision was recorded for the
+  // current exception identity it resolves the global-decider pass fresh and
+  // leaves nothing cached. On the no-debugger path it is the second invocation
+  // for the same exception, right after the unhandled exception filter above:
+  // return the recorded decision and consume the entry (analysis VDED) so a
+  // later exception cannot silently skip the pass.
+  static long __stdcall
+  WG14_SIGNALS_PREFIX(win32_vectored_continue_handler)(EXCEPTION_POINTERS *ptrs)
+  {
+    const EXCEPTION_RECORD *record = ptrs->ExceptionRecord;
+    if(WG14_SIGNALS_PREFIX(win32_exception_record_matches)(
+       &wg14_last_global_decider_record, record))
+    {
+      memset(&wg14_last_global_decider_record, 0,
+             sizeof(wg14_last_global_decider_record));
+      return wg14_last_global_decider_result;
+    }
+    const long result = WG14_SIGNALS_PREFIX(win32_global_decider_pass)(ptrs);
+    memset(&wg14_last_global_decider_record, 0,
+           sizeof(wg14_last_global_decider_record));
+    return result;
   }
 
   /* The interaction between AddVectoredContinueHandler,
@@ -713,13 +770,13 @@ extern "C"
     if(0 == state->sighandlers_count)
     {
       state->vectored_continue_handler = AddVectoredContinueHandler(
-      true, WG14_SIGNALS_PREFIX(win32_vectored_exception_function));
+      true, WG14_SIGNALS_PREFIX(win32_vectored_continue_handler));
       if(state->vectored_continue_handler == WG14_SIGNALS_NULLPTR)
       {
         return false;
       }
       state->old_unhandled_exception_filter = SetUnhandledExceptionFilter(
-      WG14_SIGNALS_PREFIX(win32_vectored_exception_function));
+      WG14_SIGNALS_PREFIX(win32_unhandled_exception_filter));
     }
     return true;
   }

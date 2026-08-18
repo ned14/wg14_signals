@@ -14,9 +14,7 @@ file under `include/` or `src/`.
 cause flaky tests. ALWAYS use a proper synchronisation between threads;
 sleeps within proper synchronisation are permitted.
 6. When a defect or work item tracked in `plans/` is fixed, update the
-document to say so: mark the finding as fixed in its section heading,
-record the fix location and verification in the body, and update the
-priority summary table. Do not leave fixed items listed as open.
+document to remove that item.
 7. For every public API, if its doyxgen API documentation comment contains
 `THREADSAFE`, that means that function must be thread-safe. Analyse the
 implementation of those APIs for every possible cause of thread-unsafety.
