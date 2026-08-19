@@ -29,9 +29,170 @@ were merged into their primaries (which absorb them): `ZERO`->`IGND`, `REEN`->`U
 `CXAT`->`TAFL`, `LEAK`->`SPIN`, `WRET`->`PREI`, `SJMS`->`SJSP`, `MSQR`->`MUTR`,
 `DEDE`->`TSSD`.
 
+On 2026-08-19 a fresh exhaustive comparison against the merged rev-5 wording
+(`docs/proposed-wording.md`, HEAD `ef43686`) added seven findings at the top of §1 —
+`RFLK`, `RAIS`, `HNDF`, `SIGM`, `NRAI`, `WVLD`, `ABRS` — and amended `ACTV` (Windows
+frame filter is not activation-gated), `IGND` (facet 2's Windows arm changed by the V5
+dispatch rework), `SKIP` (the skip is now conforming; the reverse NULL-on-failure arm
+is the deviation), `TSSG` (destroy half resolved by rev-5 7.30.6.6 p3), `GDIR`
+(rev-5 p11 defines global `call_recovery`), `SPIN` (destroy-in-decider is not
+async-signal-safe), `SFNK` (rev-5 5.2.2.4 p7 guarantee rests on a QoI assumption on the
+fallback), and the §3 minor-conformance notes.
+
 ---
 
 ## 1. Findings, in priority order
+
+### Rev-5 wording conformance review (2026-08-19)
+
+A fresh exhaustive re-comparison of the implementation against the current
+`docs/proposed-wording.md` (rev 5, merged at HEAD 2026-08-19) found the
+following new deviations, all of which post-date or were missed by the
+rev-4-based findings below. The rev-5 wording differs materially from rev 4 in
+four places that invalidate or weaken earlier findings: 7.14.1 p14 (default
+handling when the ordered sequence is empty; the `signal`-function handler is
+*not used* while activated), 7.14.2.9 p3/p4 (`stdc_raise` behaves as-if
+`raise` when not activated), 7.14.2.5 p4 (silently-not-installed signals
+report success), and 7.30.6.6 p3 (destroy-while-threads-live is now explicit
+UB). Each is marked with its affected wording paragraph.
+
+### `RAIS` [semantics, both backends, Med] `stdc_raise` of a non-activated signal does not behave as-if `raise()` (7.14.2.9 p3, p4)
+
+The wording: "This function behaves as if it called the `raise` function
+(7.14.2.4) with the argument `signo`" and "If `signo` is not activated, this
+function behaves as if it called the `raise` function and no signal deciders
+are invoked." The implementation never performs the as-if `raise`: POSIX
+returns `false` with no delivery (`thrd_signal_handle_posix.c.ipp:417-428`),
+Windows raises an SEH exception that round-trips to `false` when the library's
+vectored handler is installed (`thrd_signal_handle_windows.c.ipp:389-427`) and
+reaches Windows Error Reporting when it is not (finding `PREI`). Consequences
+on both backends: the `signal`-function handler is never called, and the
+default action never occurs — `stdc_raise(SIGTERM)` on a fresh process
+returns `false` instead of terminating the process as `raise(SIGTERM)` would.
+(7.14.2.3 p4 as amended — "If the signal occurs as the result of calling the
+`abort`, `raise`, or `stdc_raise` function, the signal handler shall not call
+the `raise` or `stdc_raise` function" — confirms the wording intends the
+handler to be callable as a result of `stdc_raise`.) The header documents the
+implementation's narrower contract ("returning false if we have no decider
+installed for that signal", `thrd_signal_handle.h:622-626`); the wording
+deviates from it. Related but distinct from `IGND` (return-value contract when
+deciders *were* consulted) and `ACTV` (deciders consulted without activation).
+
+### `HNDF` [semantics, both backends, Med] activated-signal hand-off to the previously installed handler where the wording requires default handling (7.14.1 p14)
+
+The wording: "If every signal decider in the ordered sequence returns
+`sig_decision_next_decider`, or if the ordered sequence is empty, the default
+handling for that signal number on that implementation is performed. While a
+signal number is activated, the signal handler installed by the `signal`
+function for that signal number is not used to handle signals with that
+number." The POSIX backend, when no decider claims, calls
+`invoke_sigaction(&sa)` with `sa` = the handler that predated `siginstall`
+(`thrd_signal_handle_posix.c.ipp:474-479`): an application handler installed
+via `signal()`/`sigaction` before `siginstall` *is* invoked while the signal is
+activated — the exact behaviour p14 forbids — and the default handling never
+runs. (Only when the old handler is `SIG_DFL`/`SIG_IGN` does the behaviour
+coincide with the wording.) Windows has no chaining at all: the unclaimed
+raise terminates via WER (`PREI`), and CRT `signal()`-installed handlers never
+run (`CRTS`). The chaining is the library's documented design
+(`thrd_signal_handle.h:628-640`); the rev-5 wording contradicts it. Note the
+interaction with `RAIS`: for an activated signal with zero deciders the POSIX
+hand-off calls the `signal`-function handler, so both p14 sentences are
+violated by the same path. Either the wording should explicitly permit
+chaining to the previously installed handler as the "default handling" (it
+does not say this), or the implementation should reset to `SIG_DFL` and
+re-deliver.
+
+### `SIGM` [code-level, Windows, Med] the sigguarded frame filter treats `sigismember`'s -1 as membership: non-signal exceptions invoke the decider with `signo == 0` or a bogus signo
+
+`win32_exception_filter` (`thrd_signal_handle_windows.c.ipp:268-297`) guards
+its decider call with `if(sigismember(guarded, signo))`. The Windows sigset
+helpers return `-1` for `signo` outside 1..32 (`thrd_signal_handle.h:91-99`),
+and `-1` is truthy — so the decider is invoked whenever
+`signal_from_win32_exception_code` produced an unmapped or out-of-range
+signo. That happens for: C++ exceptions under `/EHa` (code `0xE06D7363` →
+signo 0), `EXCEPTION_GUARD_PAGE`/`EXCEPTION_BREAKPOINT`/any unmapped genuine
+fault (signo 0), and application `RaiseException` calls in the user-defined
+range `0x40000000`-`0x7FFFFFFF` (signo up to `0x3FFFFFFF`, the `UECL`
+collision). The decider therefore runs with `rsi->signo == 0` or a bogus
+signo for exceptions that are not signals; a decider returning
+`sig_decision_call_recovery` runs recovery for a non-signal, and one returning
+`resume_execution` issues `EXCEPTION_CONTINUE_EXECUTION` on e.g. a C++ throw.
+The global pass checks `signo == 0` explicitly before doing anything
+(`thrd_signal_handle_windows.c.ipp:580-584`); only the frame filter is
+missing the check. Fix: `if(sigismember(guarded, signo) == 1)`. Not exercised
+by CI (no `/EHa` build, no app-SEH-in-guard test).
+
+### `RFLK` [code-level, Windows, Med] a sigguarded frame decider claiming a `stdc_raise`-initiated raise via `call_recovery` leaves the raise frame dangling on `tss->front`
+
+`stdc_raise` pushes its raise frame and Win-state marker onto the per-thread
+chain before `RaiseException` (`thrd_signal_handle_windows.c.ipp:370-388`)
+and pops them only on the unclaimed return path (`:422-423`) or the
+`longjmp`-back path. But exception dispatch runs the enclosing sigguarded
+`__except` filters *first* (frame EH precedes the unhandled filter and the
+vectored continue handler, `:729-759`): when the frame decider returns
+`sig_decision_call_recovery`, the filter returns `EXCEPTION_EXECUTE_HANDLER`
+(`:287-293`), the SEH unwind discards `stdc_raise`'s frame, and the `__except`
+block calls `recovery` — `tss->front` and
+`tss->stdc_raise_initiated_exception` still point at the unwound raise frame.
+Every later raise on the thread re-links its own frames onto the dangling ones
+(the pop paths restore `old`/`current2.prev`, i.e. the dead pointers, so the
+leak persists), and a *genuine* fault on the thread claimed by a global decider
+then `longjmp`s into the dead environment (`:657-660`) — crash/arbitrary-call
+class; `sigdecider_abandon` similarly dereferences the dead frame
+(`:438-447`). The POSIX equivalent is clean: a
+frame claim longjmps into the frame's own `sigguarded`, which restores
+`tss->front` before recovery. Unexercised by CI: on x64 the SIGFPE test's
+divide traps before the `stdc_raise` fallback line, and the fallback (and
+hence this path) runs only on non-trapping architectures (`TRAP`); the
+nested-delivery test is POSIX-only (`#ifndef _WIN32`). Fix direction: the
+filter's `EXECUTE_HANDLER` path (or the `__except` block) must pop the
+raise-initiated frames when the claimed exception carries the
+`0xdeadbeefdeadbeef` marker, or `stdc_raise` must clean up in an SEH-aware
+manner (e.g. `__try` around `RaiseException` with a filter that pops its own
+frames).
+
+### `NRAI` [code-level, Windows, Low] `stdc_raise` of an invalid signo raises an exception instead of "returns false without raising a signal" (7.14.2.9 p6)
+
+The wording: "If `signo` is not a valid signal number (7.14.1), this function
+returns false without raising a signal." POSIX conforms (bounds-rejects before
+any action, `thrd_signal_handle_posix.c.ipp:357-371`). Windows maps any
+non-zero signo through `win32_exception_code_from_signal`
+(`thrd_signal_handle_windows.c.ipp:389-418`): an invalid signo — including a
+negative one — becomes `0x40000000 | (signo & 0x3FFFFFFF)` and is actually
+raised via `RaiseException`. With the library's vectored handler installed the
+exception round-trips to `false` (invisible unless a debugger is attached, in
+which case the continue handler runs the pass), but without a `siginstall` the
+raise reaches WER and terminates the process (`PREI`). The p6 guarantee
+"without raising" does not hold on Windows in either configuration.
+
+### `WVLD` [code-level, Windows, Low] Windows sigset helpers accept signal numbers 23..32 that are not valid signal numbers (7.14.2.2)
+
+MSVC defines signals 1..22 (`NSIG == 23`), and the header adds `SIGBUS`(7),
+`SIGKILL`(9), `SIGSTOP`(19) — all within 1..22. The Windows helpers
+(`thrd_signal_handle.h:71-99`) accept 1..32: `sigaddset`/`sigdelset` set the
+bit and return 0, and `sigismember` returns 1, for signo 23..32, which are
+not signal numbers of signals defined by the implementation. The wording
+requires "If `signo` is not a valid signal number (7.14.1), the set is not
+modified" and "returns zero if `signo` is a valid signal number and a negative
+value otherwise". Likewise `sigfillset` (`= UINT32_MAX`) includes bits for the
+undefined signals 23..32 where the wording defines the full set as "the set of
+all signals defined by the implementation". (`siginstall`'s loop bounds at
+`NSIG == 23` never installs them, so the damage is confined to the helpers.)
+
+### `ABRS` [code-level, both backends, Low] `sigdecider_abandon_resume` aborts when a nested signal's processing changed `tss->front` between the abandon and the resume — in a call sequence the wording permits
+
+A thread-local decider calls `sigdecider_abandon` (frame popped, `tss->front`
+= the frame below), a nested signal is delivered before the resume (possible
+via `SA_NODEFER`), and the nested raise's processing claims via a recovery
+`longjmp` into an outer frame, rewriting `tss->front`. The decider then calls
+`sigdecider_abandon_resume` with the same `rsi` in the same decider call —
+every condition of 7.14.3.3 is satisfied — and the implementation's topmost
+check (`tss->front != rsi->internal_local_decider->prev`) fails
+(`thrd_signal_handle_posix.c.ipp:531-536`, Windows `:504-509`), aborting the
+process. The abandonment state is a plain bool on the `rsi`; the machinery
+cannot tell that the intervening rewrite was legitimate. Niche (needs the
+nested delivery inside the abandon/resume window) but a genuine wording-valid
+call that terminates the program.
 
 ### `IGND` [code-level, both backends, Low] `stdc_raise` returns `true` even when the raise was silently ignored (SIG_IGN/default-ignore hand-off, or zero deciders called)
 
@@ -52,13 +213,15 @@ Two facets of the same `stdc_raise` return-value contract defect, merged 2026-08
 
 2. **Zero deciders called (both backends).** N3924 (7.14.2.9): "returns true if at least
    one signal decider installed under this facility was called." With a map entry for the
-   signal but an empty decider list, both backends hand off to the previously installed
-   handler and return `true`:
-   `thrd_signal_handle_posix.c.ipp:404-409` (`invoke_sigaction` then unconditional
-   `return true`) and `thrd_signal_handle_windows.c.ipp:535-541` (`CONTINUE_SEARCH`;
-   `stdc_raise_initiated_exception_was_unclaimed` stays 0 so `stdc_raise` returns `true`).
-   On Windows the same deviation occurs when the raise is caught by the *user's own*
-   `__try/__except` frame (no library decider involved, `unclaimed == 0`). Probe
+   signal but an empty decider list, the POSIX backend hands off to the previously
+   installed handler and returns `true`:
+   `thrd_signal_handle_posix.c.ipp:474-479` (`invoke_sigaction` then unconditional
+   `return true`). The Windows facet of this half changed with the V5 dispatch rework: a
+   `stdc_raise`-initiated raise of an installed signal with no claiming decider now
+   returns `CONTINUE_SEARCH` from the pass and terminates via WER — `stdc_raise` never
+   returns (finding `PREI`, facet 2) — so the "returns `true`" Windows arm of this
+   finding survives only in the user's-own-`__except` case (`unclaimed == 0`, so
+   `stdc_raise` returns `true`). Probe
    (`stdc_raise(SIGUSR1, NULL, NULL)` with SIGUSR1 installed and zero deciders, previous
    handler installed via `signal()`): returned `true`, old handler called. The proposal's
    criterion is "decider called", not "decider claimed", so the case where deciders were
@@ -67,30 +230,39 @@ Two facets of the same `stdc_raise` return-value contract defect, merged 2026-08
    scenario is likewise conforming to the proposal when a decider was called — both facets
    are deviations from the header's own "returning false if we have no decider installed
    for that signal" contract (`thrd_signal_handle.h:593-626`), which the header does not
-   qualify.
+   qualify. Re-verified 2026-08-19: unchanged by the rev-5 wording; the zero-decider
+   `true` additionally conflicts with the rev-5 p14 default-handling rule — see finding
+   `HNDF`.
 
-### `ACTV` [semantics, POSIX, Low] `stdc_raise` consults thread-local deciders without activation, contrary to the rev-5 wording's activation gate
+### `ACTV` [semantics, both backends, Low] deciders are consulted without activation, contrary to the rev-5 wording's activation gate
 
-Logged 2026-08-19 against the rev-5 wording. The activation model (N3924 7.14.1: decider
-invocation only while the thread-safe implementation is activated for the signal number)
-is stated in `stdc_raise` itself: "Signal deciders are invoked for `signo` only if the
-thread-safe implementation is activated for `signo`. Otherwise, this function behaves as
-if it called the `raise` function without invoking any signal deciders." The POSIX
+Logged 2026-08-19 against the rev-5 wording. The activation model (7.14.1:
+decider invocation only while the signal number is activated; "no signal
+deciders are invoked for it" while not activated) is stated in `stdc_raise`
+itself: "Signal deciders are invoked for `signo` only if `signo` is activated.
+If `signo` is not activated, this function behaves as if it called the `raise`
+function and no signal deciders are invoked." The POSIX
 backend walks the per-thread `sigguarded` frames **before** consulting the activation
-map (`thrd_signal_handle_posix.c.ipp:366-406`): a frame guarding a never-installed (or
+map (`thrd_signal_handle_posix.c.ipp:372-415`): a frame guarding a never-installed (or
 fully-uninstalled) signal has its decider invoked, may claim the raise (including via a
 recovery longjmp), and makes `stdc_raise` return `true` — the wording's "as if `raise`,
 no deciders" fallback never runs in that case. Real-signal delivery on POSIX is
 conformant (the library's handler exists only while installed); only the simulated-raise
-path deviates. The Windows backend is conformant: frames are consulted only for
-map-present signals, and an unclaimed `stdc_raise`-initiated exception with no map entry
-returns without invoking any decider (`thrd_signal_handle_windows.c.ipp:596-606`).
+path deviates. The Windows backend is **not** conformant either — the rev-4-era claim
+below is wrong (re-verified 2026-08-19): `win32_exception_filter`
+(`thrd_signal_handle_windows.c.ipp:268-297`) runs the frame decider whenever
+`sigismember(guarded, signo)` is truthy, with no map/activation check, for both genuine
+faults on never-installed signals and `stdc_raise` of never-installed signals — and a
+frame claim there leaks the raise frame (finding `RFLK`). Only the Windows *global*
+pass is activation-gated (map lookup, `:585-606`). Both backends therefore violate
+7.14.1 p15's "no signal deciders are invoked" for non-activated signals.
 Interaction with `IGND`: a decider invoked for a non-activated signal satisfies the
 "returns true if at least one … decider … was called" criterion, so the ill-gotten
 invocation also legitimises an otherwise-zero-decider `true` return.
 
-Fix: gate the POSIX frame walk on the map (as Windows does), or, if the activation gate
-is softened, align `stdc_raise`'s description accordingly.
+Fix: gate the POSIX frame walk on the map (as the Windows global pass does), and gate
+the Windows frame filter on the map as well; or, if the activation gate is softened,
+align `stdc_raise`'s description accordingly.
 
 ### `PRCR` [semantics, both backends, Low] `signal_decider_create` before `siginstall` silently loses the decider **[probe-verified]**
 
@@ -302,7 +474,8 @@ remain installed — the former §3 note, merged 2026-08-18. (POSIX has no analo
 
 The enum documentation (`thrd_signal_handle.h:254-257`) says `sig_decision_call_recovery`
 is "Thread local signal deciders only", yet global deciders share the same `sig_decide_t`
-type and both backends accept it. **POSIX** (`thrd_signal_handle_posix.c.ipp:384-389`):
+type and both backends accept it. **Rev-5 wording (2026-08-19):** 7.14.1 p11 now
+explicitly defines the global-decider contract for this value — "`sig_decision_call_recovery`: the default handling for that signal number on that implementation is performed" — so both backends deviate from the wording, not merely from the header. **POSIX** (`thrd_signal_handle_posix.c.ipp:466-471`):
 `if(res)` treats *any* non-zero decision as "claim and `return true`" — for
 `call_recovery` the raise is claimed, no recovery is ever called, and for a genuine
 fault the handler returns and the faulting instruction re-executes (an infinite re-fault
@@ -313,7 +486,8 @@ livelock),
 `tss != NULL && tss->front != NULL`, `:659-660`, so the former NULL-deref facet is
 gone), or records the decision and returns `EXCEPTION_CONTINUE_EXECUTION`
 (`:667-675`) otherwise — generally ending the process. So one enum value produces "claim,
-no recovery, re-fault" on POSIX and "unwind to top frame" on Windows. Neither backend
+no recovery, re-fault" on POSIX and "unwind to top frame" on Windows, where the wording
+requires default handling on both. Neither backend
 documents or diagnoses this for global deciders.
 
 ### `CATM` [code-level, C++ conformance, Low] `calloc` allocates C++ objects containing `std::atomic_uint` members without starting their lifetime
@@ -382,26 +556,27 @@ thread-safe and reentrant, so the unlocked call window is a user contract rather
 implementation defect; the double-create leak in facet 2 remains an implementation issue
 for user functions that do not satisfy the contract.
 
-### `TSSG` [docs/API contract, both backends, Low] `tss_async_signal_safe_destroy`'s documented precondition is stricter than the N3924 wording; `tss_async_signal_safe_get`'s header omits the wording's precondition
+### `TSSG` [docs/API contract, both backends, Low] `tss_async_signal_safe_get`'s header omits the wording's precondition (destroy half resolved by rev-5)
 
-N3924 (7.30.6.6): destroy makes no requirement that the initialising threads have
-exited. The implementation's header instead requires "All threads that initialised this
-instance must have exited (e.g. been joined) before this is called"
-(`tss_async_signal_safe.h:46-52`) and genuinely cannot destroy live threads' pointers
-safely (the `DEIN` race) — a documented restriction the wording does not impose, and one
-the library's own fallback path violates (`UNTL`). The double-destroy half was resolved
-by the `TSSD` wontfix adjudication (2026-08-16); the `get` half below remains open.
+**Rev-5 amendment (2026-08-19):** the destroy half is resolved — rev-5
+7.30.6.6 p3 now states exactly what the implementation's header requires: "It
+is undefined behavior if this function is called while any thread that has
+called the `tss_async_signal_safe_thread_init` function for this instance has
+not yet exited." The implementation's documented precondition
+(`tss_async_signal_safe.h:46-52`) therefore matches the wording, and the
+"stricter than the wording" half of this finding no longer applies (the
+implementation's inability to destroy live threads' pointers safely — the
+`DEIN` race — is now inside the wording's UB). The `get` half remains open,
+re-verified below.
 
-`tss_async_signal_safe_get`: the wording requires `tss_async_signal_safe_thread_init()`
-"shall have been called on the calling thread beforehand... otherwise the behavior is
+The wording requires `tss_async_signal_safe_get()`: `tss_async_signal_safe_thread_init()`
+"shall have been called on the same thread for the instance identified by `val`... otherwise the behavior is
 undefined." The implementation returns NULL for an uninitialised thread
 (`tss_async_signal_safe.c.ipp:273-290`) — a defined, benignly stronger behaviour — but the
 header (`tss_async_signal_safe.h:68-72`) documents neither the precondition nor the NULL
 fallback, so the "ASYNC-SIGNAL-SAFE" claim is asserted for a function whose first call per
 thread performs the `my_current_thread_id()` cache fill (`MAST`) and a spinlocked map lookup
-(`SPIN`) — see §2. Re-verified 2026-08-19 against the rev-5 wording, which adds
-per-instance scoping ("shall have been called on the same thread for the instance
-identified by `val` beforehand"): the NULL extension (defining formerly-undefined
+(`SPIN`) — see §2. The NULL extension (defining formerly-undefined
 behaviour) remains conforming.
 
 ### `DECR` [docs, both backends, Low] `signal_decider_create`'s documentation describes a bool decider contract that no longer matches the enum `sig_decide_t`
@@ -423,13 +598,17 @@ contract text is the first thing a consumer of this API reads.
 ### `MLAS` [wontfix] Modified-local-after-setjmp UB in POSIX `sigguarded`
 **Adjudicated wontfix 2026-08-18:** no remediation scheduled; see the §4 wontfix legend. The analysis below is retained for the record.
 
-`thrd_signal_handle_posix.c.ipp:241-287`: `current.rsi` is written by `prepare_rsi` (via
+`thrd_signal_handle_posix.c.ipp:282-326`: `current.rsi` is written by `prepare_rsi` (via
 the frame pointer in the signal handler, i.e. after `setjmp` executed) and then read after
 `longjmp`. Per C11 7.13.2.1p3, non-volatile automatic objects modified between `setjmp`
 and `longjmp` have indeterminate values after `longjmp` — this is UB (works in practice on
 mainstream compilers because the frame is a memory object, but a conforming compiler may
 cache `current` in registers). The struct should be `volatile` (or the members accessed
-post-longjmp should be).
+post-longjmp should be). Re-verified 2026-08-19 against the rev-5 wording: the
+non-local-jump paragraphs (5.2.2.4 p9/p10) codify the same indeterminate-representation
+rule for non-volatile automatic objects changed between save and jump; the finding is
+unchanged (the frame's `rsi` is read by recovery after the jump, and 5.2.2.4 p10's
+sigfence exception does not apply).
 
 ### `PREI` [wontfix] [Windows, Med] an unclaimed `stdc_raise` (before any `siginstall`, or of an installed signal with no decider/frame/user `__except`) terminates the process via Windows Error Reporting; POSIX returns `false` / hands off in-process
 
@@ -486,8 +665,27 @@ the codebase. An API that reports success for an operation it never performs is 
 trap for future callers (and for the eventual C standard library integration this library
 targets).
 
-### `SKIP` [wontfix] [semantics, both backends, Low] `siginstall` silently skips un-installable signals yet returns a valid handle
+### `SKIP` [wontfix, superseded in part] `siginstall` silently skips un-installable signals yet returns a valid handle
 **Adjudicated wontfix 2026-08-18:** no remediation scheduled; see the §4 wontfix legend. The analysis below is retained for the record.
+
+**Rev-5 amendment (2026-08-19):** the skip half of this finding is now
+*conforming*: rev-5 7.14.2.5 p4 explicitly permits exactly this — "a signal
+number that cannot be installed for reasons specific to the implementation is
+silently not installed and the call reports success. It is implementation-defined
+which signal numbers are not installed; an implementation should document the set
+of signal numbers for which it silently does not install." The implementation
+skips `SIGKILL`/`SIGSTOP` and the Fil-C-reserved signals and documents the
+behaviour (header + this finding), so that half is resolved by the new wording.
+The *reverse* arm now deviates: when `install_sighandler` fails for a signal
+(e.g. `sigaction` returns an error for a signal the platform will not let the
+library catch — the prototypical "cannot be installed for reasons specific to
+the implementation" case), the implementation rolls back and returns NULL
+(`thrd_signal_handle_common.ipp.ipp:552-586`) where p4 requires the signal to be
+silently not installed and the call to report success. Only genuine resource
+exhaustion (malloc/calloc failure) plausibly qualifies as "the installation was
+unsuccessful" (p5) and justifies NULL; a per-signal `sigaction` failure does
+not. Either treat per-signal install failures as silent skips (matching
+`SIGKILL`/`SIGSTOP`), or obtain a wording change permitting the rollback.
 
 N3924 (7.14.2.5): "For all signals in the signal set `guarded`, the threadsafe
 implementation shall be activated according to the Introduction above" and "If the
@@ -628,6 +826,15 @@ interrupted thread holds that lock (e.g. mid-`siguninstall`/`signal_decider_dest
 spins forever. Fixing SPIN (lock-free atomic formulation, or signal masking around the
 lock) is what the abandon/resume deadlock needs.
 
+**Rev-5 extension (2026-08-19):** 7.14.2.8 p2 makes `signal_decider_destroy`
+async-signal-safe "only when it is called by a signal decider to destroy the storage of
+the decider that is currently executing" — i.e. in that context the wording requires
+async-signal-safety. The implementation's destroy in that exact context still
+`LOCK(state->lock)` (the spinlock, once per signal in the handle's set) and
+`free(p)`/`free(node)` (`thrd_signal_handle_common.ipp.ipp:736-838`) — neither the
+spinlock nor `free` is async-signal-safe, so the wording's claim does not hold on the
+implementation for the one context in which the wording requires it.
+
 ### `ALOC` [wontfix] First signal delivery on a fresh thread performs allocation inside the handler
 **Adjudicated wontfix 2026-08-17:** no remediation scheduled; see the §4 wontfix legend. The analysis below is retained for the record.
 
@@ -701,7 +908,14 @@ in scope of a raised signal gets skipped destructors silently.
 "`sigfence()` is *async-signal-safe*" (7.14.1) unconditionally, so on the
 MSVC/`DISABLE_INLINE_ASM` fallback path the shared `sigfence_sink` barrier-slot writes
 make the macro not strictly async-signal-safe and that wording claim does not hold on
-those configurations.
+those configurations. **Also re-verified 2026-08-19:** the rev-5 5.2.2.4 p7 guarantee
+("no access to the memory is performed on the other side of the call from where it is
+sequenced") rests on the compiler treating the volatile sink accesses as scheduling
+barriers for plain stores — formally, plain stores to bytes of a fenced object other
+than the one volatile-read can be sunk past the barrier when the abstract machine cannot
+observe the difference. All mainstream compilers in practice treat volatile as a
+scheduling barrier, so this is a QoI assumption, but the formal guarantee is only
+delivered by the GNU/Clang asm path (`"+m"` operands), not by the fallback.
 
 The GNU/Clang asm path (`thrd_signal_handle.h:171-201`) is a pure `__asm__` with no shared
 mutable state. The MSVC (and `DISABLE_INLINE_ASM`/Fil-C) fallback (`:202-311`) uses a
@@ -978,11 +1192,12 @@ Verdicts:
   `thrd_signal_handle.h:41-53`; `sigset_helpers_contract_test` asserts the out-of-range
   path on Windows only.
 - **Async-signal-safe claims.** The rev-5 wording marks both `sigguarded` (7.14.3.1) and
-  `stdc_raise` (7.14.2.9) "thread-safe and async-signal-safe", with qualifications that
-  are now internally inconsistent: `stdc_raise` is undefined when called during the
-  handling of a signal by a thread on which neither it nor `sigguarded` has previously
-  been called (per-thread priming), while `sigguarded`'s only qualification is the
-  activation precondition (no call of `siginstall` with a signal set containing that
+  `stdc_raise` (7.14.2.9) "async-signal-safe" with no per-thread-priming qualification
+  (the rev-4 priming restriction was dropped from the wording; the analysis's earlier
+  "internally inconsistent" note is obsolete): `stdc_raise` is undefined when called
+  during the handling of a signal by a thread on which neither it nor `sigguarded` has
+  previously been called (per-thread priming), while `sigguarded`'s only qualification is
+  the activation precondition (no call of `siginstall` with a signal set containing that
   signal number performed) — yet both share the same per-thread init path
   (`sig_global_tss_state_init` → `tss_async_signal_safe_thread_init` → allocation).
   Under the current wording, `sigguarded` called from a handler on a fresh unprimed
@@ -990,11 +1205,12 @@ Verdicts:
   implementation allocates inside the handler (findings `ALOC`/`SPIN`), so it does not
   satisfy the wording's claim in that case; the header's "USUALLY ASYNC-SIGNAL-SAFE"
   (`thrd_signal_handle.h:499-518, 533-563`) is the honest contract. `stdc_raise`'s
-  qualified claim *is* satisfied once the per-thread setup call
+  claim is likewise satisfied only after the per-thread setup call
   (`stdc_raise(0, nullptr, nullptr)`) has been made on the thread. Decider invocation is
-  additionally gated on activation in the wording ("only if the thread-safe
-  implementation is activated for `signo`"), which the POSIX backend violates — see
-  finding `ACTV`.
+  additionally gated on activation in the wording ("Signal deciders are invoked for
+  `signo` only if `signo` is activated"), which both backends violate — see finding
+  `ACTV`. The `signal_decider_destroy`-in-decider async-signal-safety claim (7.14.2.8
+  p2) is likewise unsatisfied — see the `SPIN` extension.
 - **Decider requirements scope (7.14.4).** The rev-5 wording factored the shared
   handler/decider requirements into 7.14.4 and scoped the async-signal-safe call
   restriction to signals occurring *other than* as the result of calling `abort` or
@@ -1019,6 +1235,64 @@ Verdicts:
 - **`sighandler_info` / `stdc_siginfo` field-name drift.** The struct members match the
   wording (`signo`, `error_code`, `addr`, `value`, `raw_info`, `raw_context`) — checked,
   no deviation; recorded here only to note it was verified.
+- **Rev-5 `stdc_raise` p5 NULL-`raw_info` contract.** 7.14.2.9 p5: "If `raw_info` is a
+  null pointer, the `raw_info` member is a null pointer, the `error_code` member is
+  zero, and the `addr` member is a null pointer." POSIX conforms
+  (`thrd_signal_handle_posix.c.ipp:228-252`); Windows cannot — `raw_info` is always the
+  (possibly synthesized) `EXCEPTION_RECORD` and `error_code`/`addr` derive from the
+  record's parameters (the `MUTR` wording-conformance note). Verified unchanged against
+  rev 5.
+- **Rev-5 p11 siginfo lifetime.** 7.14.1 p11: the `struct stdc_siginfo` lifetime extends
+  until handling completes, or until the recovery function returns when recovery is
+  invoked. POSIX recovery reads the frame-copied `rsi` on the `sigguarded` stack
+  (`thrd_signal_handle_posix.c.ipp:392-394, 409-411`); Windows recovery reads
+  `sigguarded`'s own local (`thrd_signal_handle_windows.c.ipp:299-338`) — both satisfy
+  the lifetime rule. Verified, no deviation.
+- **Rev-5 p11 value propagation.** "the `value` member is set to the `value` argument of
+  the call of `sigguarded`... or `signal_decider_create`... that installed the decider";
+  a decider that mutates `rsi->value` (as the 7.14.1 EXAMPLE 1 does) must have the
+  mutation visible to recovery. POSIX copies the raise's `rsi` into the frame after the
+  decider returns (`:392-394, 409-411`), Windows passes the same `rsi` local to recovery
+  — both propagate the mutation. Verified, no deviation.
+- **Rev-5 p13/p15 interplay with `sigdecider_abandon` in a *global* decider.** The
+  Windows abandon pops the top `sigguarded` frame when a global decider abandons
+  (`thrd_signal_handle_windows.c.ipp:470-475`); POSIX does not. Both are inside
+  undefined-behaviour territory for the never-returning decider (7.14.3.2 p5 makes
+  returning after abandonment without resume UB), so no wording deviation is claimed;
+  the backend divergence is recorded for completeness.
+- **Rev-5 p6 `sigguarded` NULL arguments.** 7.14.3.1 p4 makes NULL `signals`/`guarded`/
+  `decider` undefined behaviour; both backends abort (fail-fast, per AGENTS.md rule 9) —
+  defining UB is conforming. Verified.
+- **Rev-5 p6 recovery-NULL.** 7.14.3.1 p6 ("a decider returning
+  `sig_decision_call_recovery` is treated as if it had returned
+  `sig_decision_next_decider`") — POSIX falls through to the outer frame/global pass
+  (`thrd_signal_handle_posix.c.ipp:400-408`), Windows `EXCEPTION_CONTINUE_SEARCH`
+  (`thrd_signal_handle_windows.c.ipp:292-293`); both conform, and `recovery_null_loop_test`
+  covers the POSIX side. Verified.
+- **Rev-5 p11 global-decider ordering.** 7.14.1 p11: `callfirst` true, most recently
+  installed first; `callfirst` false, installation order. `LIST_INSERT_FRONT`/`BACK`
+  under `state->lock` (`thrd_signal_handle_common.ipp.ipp:719-728`) implement exactly
+  this. Verified.
+- **Rev-5 p15 activation counts.** Incremented per `siginstall` member, decremented per
+  `siguninstall` member, container retired at zero (`thrd_signal_handle_common.ipp.ipp:
+  456, 501-513`); the reference-counted container also survives in-flight raises.
+  Verified.
+- **Rev-5 7.14.2.6 handle invalidation.** "The handle becomes invalid after a successful
+  call to this function" — `siguninstall` frees the handle block (`:614`); a second
+  `siguninstall` on the same handle is therefore a use-after-free, which the wording
+  makes UB ("The behavior is undefined if `handle` is not the value returned by a prior
+  call... that has not yet been uninstalled"). Conforming.
+- **Rev-5 7.30.6.7 repeated `thread_init`.** "subsequent calls do not invoke the `create`
+  function pointer again, do not change the thread-specific storage pointer, and return
+  `thrd_success`" — the map-get hit path returns 0 without invoking `create`
+  (`tss_async_signal_safe.c.ipp:290-295, 342-344`). Verified, no deviation (modulo the
+  `UCRE` unlocked-window race).
+- **Rev-5 7.30.6.8 `get` precondition.** "The `tss_async_signal_safe_thread_init`
+  function... shall have been called on the same thread for the instance identified by
+  `val`, in which case the thread-specific storage pointer created at that time... is
+  returned; otherwise the behavior is undefined." The implementation returns NULL for an
+  uninitialised thread — a defined, benignly stronger behaviour (finding `TSSG`).
+  Conforming.
 
 ---
 
@@ -1146,9 +1420,16 @@ then backend scope.
 
 | Code | Category | Severity | Issue |
 |---|---|---|---|
+| `RFLK` | memory | Med | Windows: frame-decider `call_recovery` claim of a `stdc_raise`-initiated raise leaves the raise frame dangling on `tss->front` (SEH unwind skips the pop) -> next raise longjmps/walks dead stack |
+| `RAIS` | contract | Med | `stdc_raise` of a non-activated signal does not behave as-if `raise()` (7.14.2.9 p3/p4): `signal()` handler never called, default action never taken |
+| `HNDF` | contract | Med | activated-signal hand-off to the previously installed handler where 7.14.1 p14 requires default handling and forbids using the `signal`-function handler |
+| `SIGM` | windows | Med | frame filter `if(sigismember(...))` treats -1 as membership: non-signal exceptions (C++ `/EHa`, unmapped codes, app user-range raises) invoke the decider with `signo == 0`/bogus signo |
+| `NRAI` | windows | Low | `stdc_raise` of an invalid signo raises a real SEH exception (7.14.2.9 p6 "returns false without raising a signal"; reaches WER without `siginstall`) |
+| `WVLD` | windows | Low | Windows sigset helpers accept signo 23..32 (not valid signal numbers; `sigfillset` sets bits for undefined signals) |
+| `ABRS` | contract | Low | `sigdecider_abandon_resume` aborts when a nested signal's processing changed `tss->front` between abandon and resume, in a wording-valid call sequence |
 | `IGND` | contract | Low | `stdc_raise` true when raise silently ignored (SIG_IGN/default-ignore, or zero deciders called) |
-| `ACTV` | contract | Low | POSIX `stdc_raise` consults thread-local deciders without activation (rev-5 wording gates on activation) |
-| `PRCR` | contract | Low | `signal_decider_create` before `siginstall` silently loses the decider |
+| `ACTV` | contract | Low | deciders consulted without activation on BOTH backends (POSIX frame walk; Windows frame filter) — rev-5 7.14.1 p15 |
+| `PRCR` | contract | Low | `signal_decider_create` before `siginstall` silently loses the decider (rev-5 7.14.2.7 p5) |
 | `TLSD` | portability | Med | async-safe TLS detection too optimistic; forced-on-Apple unsafe |
 | `PTHD` | portability | Med | pthread-key `thread_atexit` fallback drops every callback on Darwin (TLS torn down before key destructors) **[confirmed]** |
 | `MUSL` | portability | Low-Med | `siginfo_t`/`ucontext_t` dispatch breaks musl |
@@ -1169,7 +1450,7 @@ then backend scope.
 | `SFPD` | windows | Low | `stdc_raise(SIGFPE)` code divergence |
 | `DRGN` | windows | Low | drain-time re-registration dropped on MSVC TLS-directory path; UB on C++ vector path |
 | `UCRE` | contract | Low | `thread_init` unlocked `attr.create` (cross-thread race; re-entrancy double-create) |
-| `TSSG` | docs | Low | destroy precondition stricter than wording; get precondition undocumented |
+| `TSSG` | docs | Low | get precondition/ASYNC-SIGNAL-SAFE claim undocumented (destroy half resolved by rev-5 7.30.6.6 p3) |
 | `DECR` | docs | Low | `signal_decider_create` doc describes stale bool decider contract |
 
 ### Wontfix findings (adjudicated not to fix)
@@ -1179,7 +1460,7 @@ then backend scope.
 | `MLAS` (wontfix) | ub | Low | modified-local-after-setjmp UB |
 | `PREI` (wontfix) | windows | Med | unclaimed `stdc_raise` (pre-install or installed-no-decider/frame/`__except`) terminates via WER; POSIX returns/hands off |
 | `SUST` (wontfix) | contract | Low | `siguninstall_system` no-op stub |
-| `SKIP` (wontfix) | contract | Low | `siginstall` silently skips SIGKILL/SIGSTOP/Fil-C signals, still returns success |
+| `SKIP` (wontfix, superseded in part) | contract | Low | silent skip of SIGKILL/SIGSTOP/Fil-C signals now conforming (rev-5 7.14.2.5 p4); the reverse arm — NULL + rollback on per-signal `sigaction` failure where p4 requires silent skip + success — remains open |
 | `FWTF` (wontfix) | windows | Med | fallback-TLS `sig_global_tss_state()` NULL-deref in vectored function on fresh threads |
 | `SJSP` (wontfix) | portability | Low | `_setjmp` vs `setjmp` inconsistency for header-only consumers (mask-restore semantics differ) |
 | `WXMS` (wontfix) | build | Low | MSVC lacks `/WX` |
