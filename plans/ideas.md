@@ -37,7 +37,7 @@ slot set by `thread_init` (outside handler context), and make `get` read only th
 ```c
 static WG14_SIGNALS_THREAD_LOCAL void *my_value;   /* set in thread_init */
 
-void *WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(tss_async_signal_safe val)
+void *WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(tss_async_signal_safe_t val)
 {
   (void) val;
   return my_value;

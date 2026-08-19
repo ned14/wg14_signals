@@ -15,7 +15,7 @@
 
 #include <stdlib.h>
 
-#define TSS WG14_SIGNALS_PREFIX(tss_async_signal_safe)
+#define TSS WG14_SIGNALS_PREFIX(tss_async_signal_safe_t)
 #define TSS_ATTR WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)
 #define TSS_CREATE WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)
 #define TSS_DESTROY WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)

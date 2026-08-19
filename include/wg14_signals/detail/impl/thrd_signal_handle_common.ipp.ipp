@@ -343,10 +343,10 @@ extern "C"
     return 0;
   }
 #else
-WG14_SIGNALS_EXTERN WG14_SIGNALS_PREFIX(tss_async_signal_safe) *
+WG14_SIGNALS_EXTERN WG14_SIGNALS_PREFIX(tss_async_signal_safe_t) *
 WG14_SIGNALS_PREFIX(sig_tss_state_raw)(void)
 {
-  static WG14_SIGNALS_PREFIX(tss_async_signal_safe) v;
+  static WG14_SIGNALS_PREFIX(tss_async_signal_safe_t) v;
   return &v;
 }
 static int sig_global_state_tss_state_create(void **dest)
@@ -404,7 +404,7 @@ WG14_SIGNALS_PREFIX(sig_global_tss_state)(void)
 static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
 {
   // The reset of the static TSS slot was previously dead code after a return,
-  // leaving *sig_tss_state_raw() dangling at the freed tss_async_signal_safe;
+  // leaving *sig_tss_state_raw() dangling at the freed tss_async_signal_safe_t;
   // any later sigguarded()/stdc_raise() then thread_init'd the freed handle
   // (analysis.md 2.4/Z3). Reset the slot so the next entry recreates the TSS.
   const int ret = WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(

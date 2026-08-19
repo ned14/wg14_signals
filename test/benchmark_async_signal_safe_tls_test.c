@@ -24,7 +24,7 @@ static int destroy(void *dest)
 
 struct shared_t
 {
-  WG14_SIGNALS_PREFIX(tss_async_signal_safe) tls;
+  WG14_SIGNALS_PREFIX(tss_async_signal_safe_t) tls;
 } shared;
 
 int main(void)

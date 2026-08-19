@@ -50,7 +50,7 @@ Two facets of the same `stdc_raise` return-value contract defect, merged 2026-08
    silently ignored); with a benign pre-install handler it returned `true` and the previous
    handler ran once.
 
-2. **Zero deciders called (both backends).** N3924 (7.14.3.2): "returns true if at least
+2. **Zero deciders called (both backends).** N3924 (7.14.2.9): "returns true if at least
    one signal decider installed under this facility was called." With a map entry for the
    signal but an empty decider list, both backends hand off to the previously installed
    handler and return `true`:
@@ -346,8 +346,12 @@ insert), merged 2026-08-18 (from the former `REEN`):
    replaces the first entry: the first value leaks (no destructor on replace), `count` is
    double-incremented, and two atexit registrations are queued.
 
-Design note: either document that `create` must be thread-safe, or serialise the create
-callback under the lock (at the cost of re-entrancy).
+Design note: resolved 2026-08-19 in the "document" direction — the N3924 rev 5 wording
+(7.30.1, `tss_async_signal_safe_attr`) and the header
+(`tss_async_signal_safe.h:37-38`) now require the `create` and `destroy` functions to be
+thread-safe and reentrant, so the unlocked call window is a user contract rather than an
+implementation defect; the double-create leak in facet 2 remains an implementation issue
+for user functions that do not satisfy the contract.
 
 ### `TSSG` [docs/API contract, both backends, Low] `tss_async_signal_safe_destroy`'s documented precondition is stricter than the N3924 wording; `tss_async_signal_safe_get`'s header omits the wording's precondition
 
@@ -475,7 +479,7 @@ wording nor the failure contract.
 With `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL == 0` — i.e.
 `-DWG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=ON` on Windows (a documented PUBLIC option) or
 any non-GNU/non-MSVC Windows toolchain — `sig_tss_state_raw()` is a pointer to a static
-zero-initialised `tss_async_signal_safe` handle (`thrd_signal_handle_common.ipp.ipp:328-333`),
+zero-initialised `tss_async_signal_safe_t` handle (`thrd_signal_handle_common.ipp.ipp:328-333`),
 so `*sig_tss_state_raw()` is NULL until the thread's first library call. The vectored
 exception function calls `sig_global_tss_state()` on threads that may never have called
 the library — the no-map-entry branch (`thrd_signal_handle_windows.c.ipp:466-468`) and
@@ -936,18 +940,26 @@ Verdicts:
   a shift-count macro, undefined behaviour out of range) — documented at
   `thrd_signal_handle.h:41-53`; `sigset_helpers_contract_test` asserts the out-of-range
   path on Windows only.
-- **Async-signal-safe claims.** The wording marks `sigguarded` and `stdc_raise`
-  "thread-safe and async-signal-safe" (7.14.4.1, 7.14.3.2). The implementation documents
-  both as "USUALLY ASYNC-SIGNAL-SAFE" with a per-thread pre-call requirement
+- **Async-signal-safe claims.** The wording marks `sigguarded` (7.14.3.1) and `stdc_raise`
+  (7.14.2.9) "thread-safe and async-signal-safe": `stdc_raise` qualified as undefined when
+  called during the handling of a signal by a thread on which neither it nor `sigguarded`
+  has previously been called; `sigguarded` qualified as undefined when called during the
+  handling of a signal for which no `siginstall` with a signal set containing that signal
+  number has been performed. `stdc_raise` additionally invokes signal deciders only if at
+  least one such `siginstall` has been performed. The implementation documents both as
+  "USUALLY ASYNC-SIGNAL-SAFE" with a per-thread pre-call requirement
   (`thrd_signal_handle.h:499-518, 533-563`); the mechanisms that break the bare claim are
-  findings `SPIN`, `ALOC`, `TLSD`, `MAST`. The reference implementation therefore does
-  not yet satisfy the
-  wording's claim on first use per thread — the header's honesty is the mitigation.
+  findings `SPIN`, `ALOC`, `TLSD`, `MAST`. The reference implementation therefore
+  satisfies `stdc_raise`'s qualified claim once the per-thread setup call
+  (`stdc_raise(0, nullptr, nullptr)`) has been made on the thread; `sigguarded`'s
+  activation-qualified claim still depends on `ALOC`/`SPIN` for a fresh thread's first
+  call from a handler.
 - **`sigguarded` with `recovery == NULL`.** Allowed by both backends (POSIX falls through
   to outer frames/globals, `thrd_signal_handle_posix.c.ipp:335-343`; Windows
   `EXCEPTION_CONTINUE_SEARCH`, `thrd_signal_handle_windows.c.ipp:273-279`) and exercised
-  by `recovery_null_loop_test`, but neither the header nor the wording defines it; the
-  wording says the recovery function "shall be called".
+  by `recovery_null_loop_test`; the N3924 rev 5 wording (7.14.3.1) now defines it: a
+  decider returning `sig_decision_call_recovery` is treated as if it had returned
+  `sig_decision_next_decider`.
 - **`tss_async_signal_safe_thread_init` return values.** The wording promises
   `thrd_success`/`thrd_error`; the implementation propagates the user `attr->create`
   callback's arbitrary nonzero return verbatim (`tss_async_signal_safe.c.ipp:222-226`), so

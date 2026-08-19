@@ -24,7 +24,7 @@ int main(void)
 {
   const WG14_SIGNALS_PREFIX(thread_id_t) tid =
   WG14_SIGNALS_PREFIX(current_thread_id)();
-  WG14_SIGNALS_PREFIX(tss_async_signal_safe) tls = WG14_SIGNALS_NULLPTR;
+  WG14_SIGNALS_PREFIX(tss_async_signal_safe_t) tls = WG14_SIGNALS_NULLPTR;
   struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)
   attr = {tls_create, tls_destroy};
   WG14_SIGNALS_PREFIX(stdc_raise)(0, WG14_SIGNALS_NULLPTR,

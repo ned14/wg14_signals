@@ -68,7 +68,7 @@ extern "C"
     std::
 #endif
     atomic_uint count;
-    WG14_SIGNALS_PREFIX(tss_async_signal_safe) val;
+    WG14_SIGNALS_PREFIX(tss_async_signal_safe_t) val;
   };
   struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s)
   {
@@ -161,7 +161,7 @@ WG14_SIGNALS_THREAD_LOCAL
   }
 
   int WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(
-  WG14_SIGNALS_PREFIX(tss_async_signal_safe) * val,
+  WG14_SIGNALS_PREFIX(tss_async_signal_safe_t) * val,
   const struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr) * attr)
   {
     struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *mem =
@@ -179,7 +179,7 @@ WG14_SIGNALS_THREAD_LOCAL
   }
 
   int WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(
-  WG14_SIGNALS_PREFIX(tss_async_signal_safe) val)
+  WG14_SIGNALS_PREFIX(tss_async_signal_safe_t) val)
   {
     struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *mem =
     (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *) val;
@@ -276,7 +276,7 @@ WG14_SIGNALS_THREAD_LOCAL
   }
 
   int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(
-  WG14_SIGNALS_PREFIX(tss_async_signal_safe) val)
+  WG14_SIGNALS_PREFIX(tss_async_signal_safe_t) val)
   {
     struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *mem =
     (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *) val;
@@ -344,7 +344,7 @@ WG14_SIGNALS_THREAD_LOCAL
   }
 
   void *WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(
-  WG14_SIGNALS_PREFIX(tss_async_signal_safe) val)
+  WG14_SIGNALS_PREFIX(tss_async_signal_safe_t) val)
   {
     struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *mem =
     (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *) val;

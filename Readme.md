@@ -34,7 +34,7 @@ permissively. Features:
 - `sigfence()`: a compiler-only memory barrier over a list of local
   variables, so the guarded function can force its locals out to memory where
   the recovery machinery can observe them.
-- `tss_async_signal_safe`: async-signal-safe thread local storage, backed by
+- `tss_async_signal_safe_t`: async-signal-safe thread local storage, backed by
   a hash table, or by native async-signal-safe thread locals where the
   platform provides them (much faster).
 - `current_thread_id()`: an async-signal-safe way to retrieve the current
