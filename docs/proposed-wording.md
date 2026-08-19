@@ -97,6 +97,54 @@ Close to each other proposed changes <span style="color:
 > indeterminate when the handler exits, as does the state of the dynamic floating-point environment if
 > it is modified by the handler and not restored to its original state.
 
+> **Insert the following new paragraphs after paragraph 5:**
+
+> <ins>
+> At a call of the `sigfence` macro (7.14.1), for the memory that the call describes: the value of that memory at the point of the call is the value most recently stored to that memory before the call; an access to that memory that is sequenced after the call reads the memory; and no access to that memory is performed on the other side of the call from where it is sequenced.
+> </ins>
+
+> <ins>
+> A *non-local jump* is a transfer of control that restores a calling environment saved by an earlier operation and resumes thread execution at the point of that operation. A non-local jump is performed by the `longjmp` function (7.13.3.1), and by other functions and macros of the standard library explicitly described as performing a non-local jump; such functions and macros are not subject to the restrictions of 7.13.3.1. The environment saved by such an operation consists of information sufficient to return execution to the correct block and invocation of that block, were it called recursively; it does not include the state of the floating-point environment, of open files, or of any other component of the abstract machine.
+> </ins>
+
+> <ins>
+> When a non-local jump is performed, all accessible objects have values, and all other components of the abstract machine have state, as of the time the non-local jump was performed, except that the representation of objects of automatic storage duration that are local to the function containing the operation that saved the environment, that do not have volatile-qualified type, and that have been changed between the saving of the environment and the non-local jump, is indeterminate. The representation of an object modified before a call to the `sigfence` macro (7.14.1) whose memory that call describes is not indeterminate.
+> </ins>
+
+### Modifications in clause 7.13 Non-local jumps `<setjmp.h>`
+
+#### In 7.13.1 General
+
+> **Paragraph 3.** The type declared is
+>
+> ```
+> jmp_buf
+> ```
+>
+> which is an array type suitable for holding the information needed to restore a calling environment. <del>The environment of an invocation of the setjmp macro consists of information sufficient for a call to the longjmp function to return execution to the correct block and invocation of that block, were it called recursively. It does not include the state of the floating-point environment, of open files, or of any other component of the abstract machine.</del>
+
+#### In 7.13.2.1: The `setjmp` macro
+
+> **Description**
+
+> The `setjmp` macro saves its calling environment in its `jmp_buf` argument <del>for later use by the `longjmp` function</del><ins>for later restoration by a non-local jump (5.2.2.4)</ins>.
+
+> **Returns**
+
+> If the return is from a direct invocation, the `setjmp` macro returns the value zero. If the return is from <del>a call to the `longjmp` function</del><ins>a non-local jump (5.2.2.4)</ins>, the `setjmp` macro returns a nonzero value.
+
+#### In 7.13.3.1: The `longjmp` function
+
+> **Description**
+
+> The `longjmp` function <del>restores the environment</del><ins>performs a non-local jump (5.2.2.4) to the environment</ins> saved by the most recent invocation of the `setjmp` macro in the same invocation of the program with the corresponding `jmp_buf` argument. If there has been no such invocation, or if the invocation was from another thread of execution, or if the function containing the invocation of the `setjmp` macro has terminated execution in the interim, or if the invocation of the `setjmp` macro was within the scope of an identifier with variably modified type and execution has left that scope in the interim, the behavior is undefined.
+
+> <del>All accessible objects have values, and all other components of the abstract machine have state, as of the time the longjmp function was called, except that the representation of objects of automatic storage duration that are local to the function containing the invocation of the corresponding setjmp macro that do not have volatile-qualified type and have been changed between the setjmp invocation and longjmp call is indeterminate.</del>
+
+> **Returns**
+
+> After `longjmp` is completed, thread execution continues as if the corresponding invocation of the `setjmp` macro had just returned the value specified by `val`<ins> (5.2.2.4)</ins>. The `longjmp` function cannot cause the `setjmp` macro to return the value 0; if `val` is 0, the `setjmp` macro returns the value 1.
+
 ### Modifications in clause 7.14.1
 
 > **Paragraph 1.** The header `<signal.h>` declares <del>a type and two functions and
@@ -160,7 +208,7 @@ Close to each other proposed changes <span style="color:
 > 2. An ordered sequence of signal deciders is invoked on the thread that received the signal to decide how to handle the signal. The ordered sequence begins with the thread-locally installed signal deciders whose signal set matches the signal number, in order of most recently installed first for that thread, followed by the globally installed signal deciders whose signal set matches the signal number:
 >     - For thread-locally installed signal deciders, each decider function is called with a pointer to a valid `stdc_siginfo`, with its `value` member set to the value that was specified when that decider was installed. If a decider function returns:
 >         - `sig_decision_resume_execution`: execution of the interrupted thread is resumed.
->         - `sig_decision_call_recovery`: the environment is restored to what it was when that thread-local decider was installed, as if `setjmp` had been called during installation and a `longjmp` to restore that saved environment had been performed, and the recovery function as specified at that time shall be called to implement recovery from the signal raise for that thread.
+>         - `sig_decision_call_recovery`: a non-local jump (5.2.2.4) is performed to the calling environment saved when that thread-local decider was installed, and the recovery function as specified at that time shall be called to implement recovery from the signal raise for that thread.
 >         - `sig_decision_next_decider`: the next decider in the sequence is called.<br><br>
 >
 >     - For globally installed signal deciders, each decider function is called with a pointer to a valid `stdc_siginfo`, with its `value` member set to the value specified when that decider was installed. The deciders are called in the following order: first, those installed with `callfirst == true`, in order of most recently installed first; then, those installed with `callfirst == false`, in order of most recently installed last.
@@ -385,9 +433,7 @@ Close to each other proposed changes <span style="color:
 <ins>
 > and the following macro, which restricts, for the memory described below, the freedom of an implementation to deviate from the abstract machine (5.2.2.4):
 
-> `sigfence(vars ...)` — at the point of the call, the value of the memory described below shall be the value most recently stored to that memory before the call; a read of that memory that is sequenced after the call shall read the memory, and shall not use a value obtained before the call; and an access to that memory shall not be performed on the other side of the call from where it is sequenced.
-
-> The memory described is:
+> `sigfence(vars ...)` provides the guarantees specified in 5.2.2.4 for the following memory:
 
 > - the memory storing all objects with external or internal linkage;
 > - the memory storing the objects without linkage named by `vars ...`.
@@ -789,7 +835,7 @@ syscall `rt_tgsigqueueinfo`.
 
 > Calling this function is thread-safe and async-signal-safe. The behavior is undefined if this function is called during the handling of a signal for which no call to `siginstall` with a signal set containing that signal number has been performed in the current program execution. The `decider` function shall be async-signal-safe.
 
-> Installs a thread-local signal continuation decider function, saving the calling environment such that it can be restored later. If a decider installed by this call returns `sig_decision_call_recovery`, the environment is restored to what it was when this function was called, as if the `setjmp` macro (7.13.2.1) had been called during installation and a `longjmp` (7.13.2.2) to restore that saved environment had been performed, and the `recovery` function is called to implement recovery from the signal raise. See 7.14.1 for how thread-local signal continuation decider functions are called.
+> Installs a thread-local signal continuation decider function, saving the calling environment such that it can be restored later by a non-local jump (5.2.2.4). If a decider installed by this call returns `sig_decision_call_recovery`, a non-local jump (5.2.2.4) to the saved calling environment is performed, and the `recovery` function is called to implement recovery from the signal raise. See 7.14.1 for how thread-local signal continuation decider functions are called.
 
 > The behavior is undefined if `signals`, `guarded`, or `decider` is a null pointer.
 
