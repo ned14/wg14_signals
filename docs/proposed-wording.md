@@ -317,9 +317,9 @@ Close to each other proposed changes <span style="color:
 > // We have fixed the cause of the signal, please resume execution
 > sig_decision_resume_execution
 >
-> // thread-local signal deciders only: reset the stack and local
-> // state to entry to `sigguarded()`, and call the recovery
-> // function.
+> // thread-local signal deciders only: restore the environment
+> // to what it was at entry to `sigguarded()`, and call the
+> // recovery function.
 > sig_decision_call_recovery
 > ```
 > </ins>
@@ -383,14 +383,18 @@ Close to each other proposed changes <span style="color:
 > **Insert the following after paragraph 3:**
 
 <ins>
-> and the following macro, which restricts the optimizations that the compiler may perform:
+> and the following macro, which restricts, for the memory described below, the freedom of an implementation to deviate from the abstract machine (5.2.2.4):
 
-> - `sigfence(vars ...)` prevents the compiler from relocating memory accesses from one side of the fence to the other; it also causes the compiler to flush to memory, before the fence, any changes to the following memory, and to reload the following memory from memory after the fence:
->     - the memory storing all objects with external or internal linkage;
->     - the memory storing the objects without linkage named by `vars ...`.
->
->   `sigfence()` is *async-signal-safe*. The macro accepts between zero and eight arguments; any additional arguments cause a diagnostic. Each argument, if any, shall be an lvalue designating an object without linkage.
->   NOTE: `atomic_signal_fence()` provides weaker guarantees than `sigfence()`, and may be sufficient for some performance-oriented use cases.
+> `sigfence(vars ...)` — at the point of the call, the value of the memory described below shall be the value most recently stored to that memory before the call; a read of that memory that is sequenced after the call shall read the memory, and shall not use a value obtained before the call; and an access to that memory shall not be performed on the other side of the call from where it is sequenced.
+
+> The memory described is:
+
+> - the memory storing all objects with external or internal linkage;
+> - the memory storing the objects without linkage named by `vars ...`.
+
+> `sigfence()` is *async-signal-safe*. The macro accepts between zero and eight arguments; any additional arguments cause a diagnostic. Each argument, if any, shall be an lvalue designating an object without linkage.
+
+> NOTE: `atomic_signal_fence()` provides weaker guarantees than `sigfence()`, and may be sufficient for some performance-oriented use cases.
 </ins>
 
 ### Insert the signal set functions into clause 7.14.2, renumbering the subsections below accordingly
@@ -785,7 +789,7 @@ syscall `rt_tgsigqueueinfo`.
 
 > Calling this function is thread-safe and async-signal-safe. The behavior is undefined if this function is called during the handling of a signal for which no call to `siginstall` with a signal set containing that signal number has been performed in the current program execution. The `decider` function shall be async-signal-safe.
 
-> Installs a thread-local signal continuation decider function, recording the current stack and local state such that they can be restored later. If a decider installed by this call returns `sig_decision_call_recovery`, the environment is restored to what it was when this function was called, as if `setjmp` had been called during installation and a `longjmp` to restore that saved environment had been performed, and the `recovery` function is called to implement recovery from the signal raise. See 7.14.1 for how thread-local signal continuation decider functions are called.
+> Installs a thread-local signal continuation decider function, saving the calling environment such that it can be restored later. If a decider installed by this call returns `sig_decision_call_recovery`, the environment is restored to what it was when this function was called, as if the `setjmp` macro (7.13.2.1) had been called during installation and a `longjmp` (7.13.2.2) to restore that saved environment had been performed, and the `recovery` function is called to implement recovery from the signal raise. See 7.14.1 for how thread-local signal continuation decider functions are called.
 
 > The behavior is undefined if `signals`, `guarded`, or `decider` is a null pointer.
 
