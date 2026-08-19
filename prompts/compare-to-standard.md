@@ -1,0 +1,3 @@
+Read proposed-wording, then read the N3783 it links to. Ensure that proposed-wording applies cleanly to N3783. Where the proper tone, phrasing, terminology or vocabulary differ in proposed-wording from N3783, fix the proposed-wording. Then comprehensively review proposed-wording to determine if an implementation could be truthfully made from the proposed-wording alone. If there is missing detail, examine the implementation and from that insert the missing detail. Make very sure you follow the style and conventions in N3783 such that after you are done, proposed wording matches N3783 like a glove.
+
+Read the abstract machine section of N3783. Is there anywhere in the proposed wording which ought to be rewritten in terms of the abstract machine?

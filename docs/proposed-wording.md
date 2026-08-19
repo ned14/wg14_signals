@@ -79,7 +79,7 @@ Close to each other proposed changes <span style="color:
 > 1. A lock-free atomic object.
 > 2. Of type `volatile sig_atomic_t`.
 > 3. Modified before a call to `sigfence()`.
-> 4. The object designated by the `void *` returned by `tss_async_signal_safe_get()`.
+> 4. The object pointed to by the `void *` returned by `tss_async_signal_safe_get()`.
 > </ins>
 
 > are unspecified, as is
@@ -156,8 +156,8 @@ Close to each other proposed changes <span style="color:
 
 > <ins>
 > A signal can be received by a thread within the program.
-> When a signal is received, execution is interrupted and the
-> currently installed *signal handler* for that signal is called.
+> When a signal is received, execution is interrupted and the signal
+> is handled as described below.
 >
 > There are the following categories of signal:
 > </ins>
@@ -178,32 +178,41 @@ Close to each other proposed changes <span style="color:
 >
 >     The implementation may define asynchronous debug category signals.
 >
-> *Async-signal-safe* functions and macros are those safe to call during the handling of a signal. Only the functions of clause 7 listed below are required to be async-signal-safe; all other functions need not be async-signal-safe. The following functions are required to be async-signal-safe:
+> *Async-signal-safe* functions and macros are those safe to call during the handling of a signal. Only the functions and macros in the standard library listed below are required to be async-signal-safe; all other functions and macros in the standard library need not be async-signal-safe. This document does not specify whether functions of the program that are not in the standard library are async-signal-safe. The following functions and macros are required to be async-signal-safe:
 >
 > - the functions in `<stdatomic.h>` (except where explicitly stated otherwise) when the atomic arguments are lock-free,
 > - the `atomic_is_lock_free` function with any atomic argument,
-> - the `signal` function with the first argument equal to the signal number corresponding to the signal that caused the invocation of the handler. Furthermore, if such a call to the signal function results in a `SIG_ERR` return, the object designated by `errno` has an indeterminate representation, or
-> - any function within this standard explicitly described as async-signal-safe.
+> - the `signal` function with the first argument equal to the signal number corresponding to the signal that caused the invocation of the signal handler or signal decider. Furthermore, if such a call to the signal function results in a `SIG_ERR` return, the object designated by `errno` has an indeterminate representation, or
+> - any function or macro within this standard explicitly described as async-signal-safe.
 >
-> There are two ways to change the currently installed signal handler:
+> There are two ways to specify the handling of a signal:
 >
 > 1. The `signal` function globally installs a single signal
-> handler for the whole program execution, overwriting any previously set handler.
+> handler for the whole program execution, overwriting any handler previously installed by the `signal` function.
 >
 > 2. The `siginstall` function enables an alternative
 > signal handling mechanism which implements thread-safe composable signal handling.
+>
+> Signal handling state persists for the whole program execution and consists of the following kinds, all of which coexist:
+>
+> - the signal handler installed by the `signal` function (7.14.2.3): a single handler per signal number, replaced by each call of the `signal` function, and which persists whether or not the thread-safe implementation is activated for the signal number;
+> - the thread-local signal deciders installed by the `sigguarded` function (7.14.3.1), one ordered sequence per thread, which persist whether or not the thread-safe implementation is activated for the signal numbers of their signal sets;
+> - the global signal deciders installed by the `signal_decider_create` function (7.14.2.7), which persist whether or not the thread-safe implementation is activated for the signal numbers of their signal sets; and
+> - the activation count for each signal number: the number of calls of `siginstall` that install that signal number, minus the number of calls of `siguninstall` that uninstall it; the thread-safe implementation is activated for a signal number while its activation count is nonzero.
+>
+> The kinds of state coexist whether or not the thread-safe implementation is activated for a signal number: activation and deactivation create or remove none of the other kinds of state. In particular, a call of the `signal` function replaces only the signal handler installed by a previous call of the `signal` function; it does not remove thread-local or global signal deciders, nor does it change the activation count for any signal number. For the purposes of this subclause, the equivalent of `signal(sig, SIG_DFL)` that an implementation may perform prior to calling a signal handler (7.14.2.3) is considered a call of the `signal` function.
 > </ins>
 
 > <ins>
-> If `siginstall` has not been called in the current program execution, then the following sequence occurs on signal receipt:
+> If the thread-safe implementation is not activated for the signal number of the signal received, then the following sequence occurs on signal receipt:
 >
-> 1. If there is such a handler, the most recently installed handler by `signal` for that signal number is called, unless that handler was set to `SIG_IGN`, in which case the signal is ignored.
+> 1. If there is such a handler, the most recently installed handler by `signal` for that signal number is called, unless that handler was set to `SIG_IGN`, in which case the signal is ignored, or was set to `SIG_DFL`, in which case the default action for that signal number on that implementation is performed.
 > The thread in which the handler is called is unspecified.
 > 2. Otherwise, if no call of `signal` for the signal number was performed, the handler has `SIG_DFL` semantics, which is the default action for that signal number on that implementation.
 >
-> If `siginstall` has been called in the current program execution, then the following sequence occurs on signal receipt:
+> If the thread-safe implementation is activated for the signal number of the signal received, then the following sequence occurs on signal receipt:
 >
-> 1. For synchronous category signals, the signal handler shall be called on the thread that caused the signal. For asynchronous category signals, the thread on which the signal handler is called is unspecified.
+> 1. For synchronous category signals, the signal deciders shall be invoked on the thread that caused the signal. For asynchronous category signals, the thread on which the signal deciders are invoked is unspecified.
 >
 > 2. An ordered sequence of signal deciders is invoked on the thread that received the signal to decide how to handle the signal. The ordered sequence begins with the thread-locally installed signal deciders whose signal set matches the signal number, in order of most recently installed first for that thread, followed by the globally installed signal deciders whose signal set matches the signal number:
 >     - For thread-locally installed signal deciders, each decider function is called with a pointer to a valid `stdc_siginfo`, with its `value` member set to the value that was specified when that decider was installed. If a decider function returns:
@@ -219,11 +228,13 @@ Close to each other proposed changes <span style="color:
 >         - `sig_decision_call_recovery`: an implementation-defined action is performed.
 >         - `sig_decision_next_decider`: the next decider in the sequence is called.
 >
-> It is permitted for a signal decider to never return. Signal deciders shall meet the same requirements as a signal handler, as specified for the `signal` function (7.14.2.3).
-> A signal decider that determines that it will never return through the signal decider machinery should call `sigdecider_abandon()` before not returning, and may call `sigdecider_abandon_resume()` to retract that declaration if it later determines that it will return after all (7.14.3.2 and 7.14.3.3).
-> If every signal decider returns `sig_decision_next_decider`, the behavior is implementation-defined.
+> It is implementation-defined whether, when a signal occurs while an earlier occurrence of the same signal has occurred but has not yet been completely processed, the later occurrence is blocked until the processing of the earlier occurrence has completed, is discarded, or is processed immediately, in which case its processing can be nested within that of the earlier occurrence. In particular, an implementation may block the signal during the execution of a signal handler or of signal deciders for that signal, and may discard occurrences of a signal that occurs repeatedly before its processing completes, so that only one occurrence is processed.
 >
-> `siginstall` may be called multiple times, and for each a corresponding `siguninstall` should be present in the program. Each call to `siginstall` takes a set of signals for which the thread-safe implementation is to be activated. The thread-safe implementation shall not be deactivated for that signal number until the last uninstallation for that signal number is performed.
+> It is permitted for a signal decider to never return. Signal deciders shall meet the requirements of 7.14.4.
+> A signal decider that determines that it will never return through the signal decider machinery should call `sigdecider_abandon()` before not returning, and may call `sigdecider_abandon_resume()` to retract that declaration if it later determines that it will return after all (7.14.3.2 and 7.14.3.3).
+> If every signal decider returns `sig_decision_next_decider`, the behavior is implementation-defined. While the thread-safe implementation is activated for a signal number, the signal handler installed by the `signal` function for that signal number is not used to handle signals with that number, other than as part of the implementation-defined behavior of the previous sentence. Conversely, while the thread-safe implementation is not activated for a signal number, signal deciders are not used to handle signals with that number.
+>
+> `siginstall` may be called multiple times, and for each a corresponding `siguninstall` should be present in the program. The activation count for a signal number is incremented by each call of `siginstall` that installs that signal number, and is decremented by each call of `siguninstall` that uninstalls it; the thread-safe implementation shall not be deactivated for a signal number until the last uninstallation for that signal number is performed, that is, until its activation count reaches zero. While the activation count for a signal number is zero, a signal with that number is handled as specified for a signal for which the thread-safe implementation has not been activated, and no signal deciders are invoked for it; when the activation count for a signal number becomes nonzero again, the signal deciders whose signal sets include that signal number are invoked again. Activation and deactivation of the thread-safe implementation do not install or remove signal deciders or signal handlers.
 > </ins>
 
 > <ins>
@@ -307,12 +318,12 @@ Close to each other proposed changes <span style="color:
 
 > <ins>
 > `stdc_siginfo_siginfo_t`
-> which is an implementation-defined possibly incomplete signal information type.
+> which is an implementation-defined possibly incomplete object type that represents the system-specific signal information.
 > </ins>
 
 > <ins>
 > `stdc_siginfo_context_t`
-> which is an implementation-defined possibly incomplete context type.
+> which is an implementation-defined possibly incomplete object type that represents the system-specific context.
 > </ins>
 
 > <ins>
@@ -388,7 +399,7 @@ Close to each other proposed changes <span style="color:
 > </ins>
 
 > <ins>
-> which is an implementation-defined complete type able to represent a set of signals on this platform, and for which this code is valid:
+> which is an implementation-defined complete object type able to represent a set of signals on this platform. Copying the representation of a `sigset_t` object, by assignment or otherwise, yields an object that represents the same set of signals as the original; the set represented does not depend on the address of the object or on the continued existence of the object from which it was copied. In particular, the following code is valid:
 > </ins>
 
 > <ins>
@@ -455,7 +466,8 @@ Insert the following new subsections at the beginning of clause 7.14.2
 function" (7.14.3.1), together with its section heading "7.14.3 Send
 signal", is moved into clause 7.14.2 and renumbered 7.14.2.4. The new
 functions specified below are numbered 7.14.2.5 through 7.14.2.9, and the
-new section "7.14.3 Recover from signal" is added after clause 7.14.2.
+new sections "7.14.3 Recover from signal" and "7.14.4 Requirements for
+signal handlers and signal deciders" are added after clause 7.14.2.
 
 ### 7.14.2.1 Signal set initialization
 
@@ -647,15 +659,14 @@ new section "7.14.3 Recover from signal" is added after clause 7.14.2.
 
 > ...
 
-> 5 If the signal occurs other than as the result of calling the `abort` or `raise` function, the behavior is undefined if <del>the signal handler refers to any object with static or thread storage duration that is not a lock-free atomic object and that is not declared with the `constexpr` storage-class specifier other than by assigning a value to an object declared as `volatile sig_atomic_t`, or the signal handler calls any function in the standard library other than</del><ins>the signal handler calls any function in the standard library not described as async-signal-safe other than:</ins>
-
-
+> 5 <del>If the signal occurs other than as the result of calling the `abort` or `raise` function, the behavior is undefined if the signal handler refers to any object with static or thread storage duration that is not a lock-free atomic object and that is not declared with the `constexpr` storage-class specifier other than by assigning a value to an object declared as `volatile sig_atomic_t`, or the signal handler calls any function in the standard library other than
 > - the `abort` function,
 > - the `_Exit` function,
 > - the `quick_exit` function,
 > - the functions in `<stdatomic.h>` (except where explicitly stated otherwise) when the atomic arguments are lock-free,
 > - the `atomic_is_lock_free` function with any atomic argument, or
 > - the `signal` function with the first argument equal to the signal number corresponding to the signal that caused the invocation of the handler. Furthermore, if such a call to the signal function results in a `SIG_ERR` return, the object designated by `errno` has an indeterminate representation.
+> </del><ins>The signal handler shall meet the requirements of 7.14.4.</ins>
 
 > 6 ...
 
@@ -705,7 +716,7 @@ new section "7.14.3 Recover from signal" is added after clause 7.14.2.
 
 > Calling this function is thread-safe.
 
-> For all signals in the signal set originally installed by the `siginstall()` call that returned `handle`, the thread-safe implementation shall be deactivated according to the Introduction above.
+> For all signals in the signal set originally installed by the `siginstall()` call that returned `handle`, the thread-safe implementation shall be deactivated according to the Introduction above. Uninstallation does not remove any signal deciders, and no signal decider is associated with any particular call of `siginstall` or `siguninstall`: while the thread-safe implementation is deactivated for a signal number, signals with that number are handled as specified in the Introduction for signals for which the thread-safe implementation has not been activated, and signal deciders are not invoked for them, until the thread-safe implementation is activated again for that signal number.
 
 > The handle becomes invalid after a successful call to this function; it is undefined behavior to pass a handle that is not the value returned by a prior `siginstall()` call that has not yet been uninstalled, or to pass a null pointer.
 
@@ -733,7 +744,7 @@ new section "7.14.3 Recover from signal" is added after clause 7.14.2.
 
 > If `*guarded` was not previously initialized, the behavior is undefined.
 
-> Installs a global signal continuation decider function, which shall be async-signal-safe. See Introduction for how global signal continuation decider functions are called.
+> Installs a global signal continuation decider function, which shall meet the requirements of 7.14.4. See Introduction for how global signal continuation decider functions are called.
 
 > If `callfirst` is true, installs the function at the top of the list to be called before any other functions currently in the list, otherwise it is installed at the end of the list.
 
@@ -787,7 +798,7 @@ new section "7.14.3 Recover from signal" is added after clause 7.14.2.
 
 > This function behaves as if it called the `raise` function (7.14.2.4) with the argument `signo`, but with the added information `raw_info` and `raw_context`.
 
-> Signal deciders are invoked for `signo` only if at least one call to `siginstall` with a signal set containing `signo` has been performed in the current program execution. Otherwise, this function behaves as if it called the `raise` function without invoking any signal deciders.
+> Signal deciders are invoked for `signo` only if the thread-safe implementation is activated for `signo`. Otherwise, this function behaves as if it called the `raise` function without invoking any signal deciders.
 
 > The `raw_info` and `raw_context` members of the `stdc_siginfo` passed to deciders are set from the arguments. If `raw_info` is a null pointer, the `raw_info` member is a null pointer, the `error_code` member is zero, and the `addr` member is a null pointer.
 
@@ -833,7 +844,7 @@ syscall `rt_tgsigqueueinfo`.
 
 > **Description**
 
-> Calling this function is thread-safe and async-signal-safe. The behavior is undefined if this function is called during the handling of a signal for which no call to `siginstall` with a signal set containing that signal number has been performed in the current program execution. The `decider` function shall be async-signal-safe.
+> Calling this function is thread-safe and async-signal-safe. The behavior is undefined if this function is called during the handling of a signal for which no call to `siginstall` with a signal set containing that signal number has been performed in the current program execution. The `decider` function shall meet the requirements of 7.14.4.
 
 > Installs a thread-local signal continuation decider function, saving the calling environment such that it can be restored later by a non-local jump (5.2.2.4). If a decider installed by this call returns `sig_decision_call_recovery`, a non-local jump (5.2.2.4) to the saved calling environment is performed, and the `recovery` function is called to implement recovery from the signal raise. See 7.14.1 for how thread-local signal continuation decider functions are called.
 
@@ -896,6 +907,16 @@ syscall `rt_tgsigqueueinfo`.
 > This function returns no value.
 </ins>
 
+### Add 7.14.4 Requirements for signal handlers and signal deciders
+
+<ins>
+> The requirements of this subclause apply to a signal handler (7.14.2.3) and to a signal decider (7.14.2.7, 7.14.3.1).
+>
+> When the signal occurs other than as the result of calling the `abort` or `raise` function, the signal handler or signal decider shall not call any function in the standard library not described as async-signal-safe (7.14.1).
+>
+> The rules of 5.2.2.4 apply to any object modified by a signal handler or signal decider.
+</ins>
+
 
 ### Modifications in clause 7.25.5.1
 
@@ -930,7 +951,7 @@ syscall `rt_tgsigqueueinfo`.
 
 <ins>
 > `tss_async_signal_safe_t`
-> which is a complete object type that holds an identifier for an async-signal-safe thread-specific storage pointer.
+> which is a complete object type that holds an identifier for an async-signal-safe thread-specific storage pointer. The identifier is the value set by `tss_async_signal_safe_create`, and is not the thread-specific storage pointer itself.
 
 > The `tss_async_signal_safe_attr` structure shall contain at least the following members, in any order. The semantics of the members are expressed in the comments.
 >
@@ -1017,7 +1038,7 @@ syscall `rt_tgsigqueueinfo`.
 
 > Calling this function is thread-safe apart from other operations concurrently acting on `*val`.
 
-> Creates an async-signal-safe thread-specific storage pointer. A copy of `attr` is taken; the copy contains function pointers that are later called to create and destroy instances of the thread-specific storage. The object pointed to by `val` is set to a value that uniquely identifies the newly created instance.
+> Creates an async-signal-safe thread-specific storage pointer. A copy of `attr` is taken; the copy contains function pointers that are later called to create and destroy instances of the thread-specific storage. The object pointed to by `val` is set to a value that uniquely identifies the newly created instance. Each instance has its own thread-specific storage pointer for each thread, created by `tss_async_signal_safe_thread_init` (7.30.6.7).
 
 > **Returns**
 
@@ -1062,7 +1083,7 @@ syscall `rt_tgsigqueueinfo`.
 
 > Calling this function is thread-safe.
 
-> Creates the thread-specific storage pointer for the calling thread by invoking the original `attr->create()`. It is permitted to call this function multiple times on the same thread; subsequent calls have no effect.
+> Creates the thread-specific storage pointer for the calling thread for the instance identified by `val`, by invoking the original `attr->create()`. It is permitted to call this function multiple times on the same thread for the same instance; subsequent calls do not invoke the original `attr->create()` again, do not change the thread-specific storage pointer, and return `thrd_success`.
 
 > It is implementation-defined whether the thread-specific storage pointer created has the original `attr->destroy()` called on it at thread exit, when that occurs before the call to `tss_async_signal_safe_destroy()`.
 
@@ -1085,11 +1106,11 @@ syscall `rt_tgsigqueueinfo`.
 
 > Calling this function is thread-safe and async-signal-safe.
 
-> `tss_async_signal_safe_thread_init()` shall have been called on the same thread beforehand, in which case the thread-specific storage pointer created at that time is returned; otherwise the behavior is undefined.
+> `tss_async_signal_safe_thread_init()` shall have been called on the same thread for the instance identified by `val` beforehand, in which case the thread-specific storage pointer created at that time for that instance is returned; otherwise the behavior is undefined.
 
 > **Returns**
 
-> This function returns the thread-specific storage pointer for the calling thread.
+> This function returns the thread-specific storage pointer for the calling thread for the instance identified by `val`.
 </ins>
 
 [N2471]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n2471.pdf
