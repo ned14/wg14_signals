@@ -61,6 +61,8 @@
 #include <pthread.h>
 
 #define thrd_success 0
+#define thrd_error 2
+#define thrd_nomem 3
 
 typedef int (*thrd_start_t)(void *);
 typedef struct thrd_s
@@ -81,22 +83,36 @@ static inline void *thrd_runner(void *arg)
 static inline int thrd_create(thrd_t *thr, thrd_start_t func, void *arg)
 {
   thrd_t ret = (thrd_t) calloc(1, sizeof(struct thrd_s));
+  if(ret == WG14_SIGNALS_NULLPTR)
+  {
+    return thrd_nomem;
+  }
   ret->arg = arg;
   ret->res = 0;
   ret->func = func;
   *thr = ret;
-  return pthread_create(&ret->thread, WG14_SIGNALS_NULLPTR, thrd_runner, ret);
+  const int rc =
+  pthread_create(&ret->thread, WG14_SIGNALS_NULLPTR, thrd_runner, ret);
+  if(rc != 0)
+  {
+    free(ret);
+    return thrd_error;
+  }
+  return thrd_success;
 }
 
 static inline int thrd_join(thrd_t thr, int *res)
 {
-  int ret = pthread_join(thr->thread, WG14_SIGNALS_NULLPTR);
-  if(ret != -1)
+  // pthread_join returns an error number (0 on success), never -1: checking
+  // `ret != -1` left *res unset on failure while the caller proceeded as if the
+  // join succeeded (analysis.md THRD).
+  const int rc = pthread_join(thr->thread, WG14_SIGNALS_NULLPTR);
+  if(rc == 0)
   {
     *res = thr->res;
   }
   free(thr);
-  return ret;
+  return (rc == 0) ? thrd_success : thrd_error;
 }
 
 static inline int thrd_sleep(const struct timespec *duration,

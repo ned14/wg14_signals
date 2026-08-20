@@ -65,6 +65,15 @@ add_code_test(out_of_range_signo_test SOURCES "out_of_range_signo_test.c" FEATUR
 # the transient "unknown signal" window.
 add_code_test(sig_unknown_handler_test SOURCES "sig_unknown_handler_test.c" FEATURES c_std_11)
 add_code_test(stdc_raise_uninstalled_test SOURCES "stdc_raise_uninstalled_test.c" FEATURES c_std_11)
+# Regression test for analysis.md TCOV: covers the previously untested failure
+# and edge APIs -- siguninstall_system, sigfillset_asynchronous_nondebug/_debug,
+# and the signal_decider_create error paths (NULL/empty guarded set, NULL
+# decider). Cross-platform; no signal delivery involved.
+add_code_test(edge_api_coverage_test SOURCES "edge_api_coverage_test.c" FEATURES c_std_11)
+# Regression test for analysis.md RTIM: siginstall(NULL) must return a handle
+# covering the standard signals but excluding libc-internal signals
+# (SIGCANCEL/SIGSETXID) and the realtime range.
+add_code_test(siginstall_null_set_test SOURCES "siginstall_null_set_test.c" FEATURES c_std_11)
 add_code_test(sigguarded_tss_init_test SOURCES "sigguarded_tss_init_test.c" FEATURES c_std_11)
 # Regression test for analysis.md SIGM: the Windows sigguarded() frame filter
 # must not treat sigismember()'s -1 (signo outside 1..32) as membership, so a

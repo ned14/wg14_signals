@@ -529,12 +529,42 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
     }
     if(guarded == WG14_SIGNALS_NULLPTR)
     {
+      // "All the standard POSIX signals" (the documented contract for a null
+      // guarded set) is every signal below NSIG except the libc-internal and
+      // realtime ones: a raw sigfillset() on glibc would also cover
+      // SIGCANCEL/SIGSETXID (glibc's internal pthread-cancellation/setxid
+      // signals) and the realtime range, which must not have library handlers
+      // installed (analysis.md RTIM). Fill first, then exclude those ranges,
+      // so the semantics stay "all signals minus the internal/realtime ones"
+      // rather than "whatever the helper sets happen to contain".
       sigfillset(ret);
+      // The realtime range. SIGRTMIN/SIGRTMAX may be compile-time constants
+      // (musl, BSD) or, on glibc, the runtime functions
+      // __libc_current_sigrtmin()/__libc_current_sigrtmax() -- both forms are
+      // fine to evaluate here because siginstall() is not async-signal-safe.
+#if defined(SIGRTMIN) && defined(SIGRTMAX)
+      for(int signo = (int) SIGRTMIN; signo <= (int) SIGRTMAX; signo++)
+      {
+        sigdelset(ret, signo);
+      }
+#endif
     }
     else
     {
       *ret = *guarded;
     }
+    // libc-internal signals are never installable, regardless of which guarded
+    // set was supplied: SIGCANCEL/SIGSETXID are glibc's own
+    // pthread-cancellation/setxid signals and must never be intercepted by a
+    // library handler (analysis.md RTIM). This applies to explicit guarded
+    // inputs too -- a caller doing sigfillset(&set); siginstall(&set) would
+    // otherwise hit them through the same handle.
+#ifdef SIGCANCEL
+    sigdelset(ret, SIGCANCEL);
+#endif
+#ifdef SIGSETXID
+    sigdelset(ret, SIGSETXID);
+#endif
     for(int signo = 1; signo < NSIG; signo++)
     {
       if(signo == SIGKILL || signo == SIGSTOP)

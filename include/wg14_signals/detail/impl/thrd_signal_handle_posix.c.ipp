@@ -59,8 +59,12 @@ extern "C"
   const sigset_t *WG14_SIGNALS_PREFIX(synchronous_sigset)(void)
   {
     static sigset_t v;
-    static const int signos[] = {SIGABRT, SIGBUS,  SIGFPE, SIGILL,
-                                 SIGPIPE, SIGSEGV, SIGSYS};
+    static const int signos[] = {
+    SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGPIPE, SIGSEGV,
+#ifdef SIGSYS
+    SIGSYS,
+#endif
+    };
     if(sigismember(&v, signos[0]))
     {
       return &v;
@@ -115,7 +119,16 @@ extern "C"
   WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(void)
   {
     static sigset_t v;
-    static const int signos[] = {SIGQUIT, SIGTRAP, SIGXCPU, SIGXFSZ};
+    static const int signos[] = {
+    SIGQUIT,
+    SIGTRAP,
+#ifdef SIGXCPU
+    SIGXCPU,
+#endif
+#ifdef SIGXFSZ
+    SIGXFSZ,
+#endif
+    };
     if(sigismember(&v, signos[0]))
     {
       return &v;

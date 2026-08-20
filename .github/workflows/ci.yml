@@ -47,7 +47,47 @@ jobs:
     - name: CMake tests Linux
       shell: bash
       run: cd build && ctest --output-on-failure --timeout 300 -E benchmark
-      
+
+  Musl:
+    name: Musl (Alpine, C${{ matrix.standard }}, shared=${{ matrix.shared }})
+    runs-on: ubuntu-latest
+    container:
+      # Alpine uses musl libc, so this leg compiles the header and library
+      # against musl's <signal.h> (siginfo_t is an anonymous struct with no
+      # BSD-style `struct __siginfo` tag) and catches MUSL regressions that the
+      # glibc CI matrix cannot see (analysis.md MUSL). Alpine's musl-dev /
+      # build-base provide the headers and the gcc toolchain; no sanitizer leg
+      # here because ASan is not reliably usable with musl.
+      image: alpine:3.20
+    strategy:
+      fail-fast: false
+      matrix:
+        standard: [11, 23]
+        shared: [OFF, ON]
+    env:
+      NAME: Musl-C${{ matrix.standard }}-shared=${{ matrix.shared }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      shell: sh
+      run: apk add --no-cache build-base cmake ninja
+
+    - name: Configure Musl
+      shell: sh
+      run: |
+        mkdir build && cd build
+        cmake -G Ninja .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_STANDARD=${{ matrix.standard }} -DBUILD_SHARED_LIBS=${{ matrix.shared }}
+
+    - name: Build Musl
+      shell: sh
+      run: cd build && cmake --build . --parallel
+
+    - name: CMake tests Musl
+      shell: sh
+      run: cd build && ctest --output-on-failure --timeout 300 -E benchmark
+
   MacOS:
     name: Mac OS (${{ matrix.debug }}, C${{ matrix.standard }}, shared=${{ matrix.shared }}, fallback=${{ matrix.fallback }})
     runs-on: macos-latest

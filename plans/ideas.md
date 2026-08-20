@@ -229,8 +229,9 @@ sibling's pattern at `../wg14_atomic_waits/Readme.md:243-249`).
 ## 4. What NOT to adopt (cautionary notes)
 
 - **The `cmake_minimum_required(3.15)` + `PROJECT_IS_TOP_LEVEL` mismatch is shared by both
-  projects** (3.21 feature; `TOPL`). Fix it here (bump minimum to 3.21 or replace
-  the guard); don't copy the sibling's latent defect.
+  projects** (3.21 feature; `TOPL`). Fixed here 2026-08-20 by replacing the
+  `PROJECT_IS_TOP_LEVEL` guard with `CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR`;
+  don't copy the sibling's latent defect.
 - **The sibling's `ALWAYS_USE_PTHREADS_BACKEND` cannot build on Windows/MSVC** (no
   `<pthread.h>`); their docs still claim "every platform". The `WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS`
   option that was adopted instead (done 2026-08-14) has no such problem — it is pure

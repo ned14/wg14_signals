@@ -7,8 +7,9 @@
 cmake_minimum_required(VERSION 3.15)
 project(wg14_signals_install_consumer C)
 
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED ON)
+# Deliberately NOT setting CMAKE_C_STANDARD: the exported target must carry the
+# c_std_11 minimum via its INTERFACE_COMPILE_FEATURES (analysis.md CSTD), so
+# this consumer compiling with the compiler default proves the propagation.
 
 # The driver passes the installed package version; requiring it EXACT also
 # verifies that ConfigVersion.cmake was installed and reports the right version.

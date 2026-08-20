@@ -39,6 +39,16 @@ is the deviation), `TSSG` (destroy half resolved by rev-5 7.30.6.6 p3), `GDIR`
 async-signal-safe), `SFNK` (rev-5 5.2.2.4 p7 guarantee rests on a QoI assumption on the
 fallback), and the §3 minor-conformance notes.
 
+On 2026-08-20 fixed: `MUSL` (musl `siginfo_t`/`ucontext_t` dispatch; musl CI leg added),
+`SIGN` (`SIGSYS`/`SIGXCPU`/`SIGXFSZ` guards), `RTIM` (`siginstall()` keeps
+`sigfillset()` for the NULL case but filters `SIGCANCEL`/`SIGSETXID` out of **all**
+guarded inputs, and the realtime range out of the NULL case), `TOPL`
+(`CMAKE_SOURCE_DIR`/`CMAKE_CURRENT_SOURCE_DIR` comparison), `CSTD` (PUBLIC
+`c_std_11`/`cxx_std_11` compile features propagate to consumers), `PCFG` (config no
+longer references phantom exports), `THRD` (`thrd_join`/`thrd_create` shim fixes),
+`TCOV` (`edge_api_coverage_test`), `DECR` (`signal_decider_create` doc describes the
+enum contract).
+
 ---
 
 ## 1. Findings, in priority order
@@ -56,7 +66,9 @@ handling when the ordered sequence is empty; the `signal`-function handler is
 report success), and 7.30.6.6 p3 (destroy-while-threads-live is now explicit
 UB). Each is marked with its affected wording paragraph.
 
-### `RAIS` [semantics, both backends, Med] `stdc_raise` of a non-activated signal does not behave as-if `raise()` (7.14.2.9 p3, p4)
+### `RAIS` [wontfix] [semantics, both backends, Med] `stdc_raise` of a non-activated signal does not behave as-if `raise()` (7.14.2.9 p3, p4)
+
+**Adjudicated wontfix 2026-08-20:** no remediation scheduled; see the §4 wontfix legend. The analysis below is retained for the record. The as-if-raise fallback is a wording-vs-documented-contract conflict: the header documents the narrower behaviour ("returning false if we have no decider installed for that signal", `thrd_signal_handle.h:622-626`), and implementing the wording would change that documented return contract on both backends.
 
 The wording: "This function behaves as if it called the `raise` function
 (7.14.2.4) with the argument `signo`" and "If `signo` is not activated, this
@@ -78,7 +90,9 @@ installed for that signal", `thrd_signal_handle.h:622-626`); the wording
 deviates from it. Related but distinct from `IGND` (return-value contract when
 deciders *were* consulted) and `ACTV` (deciders consulted without activation).
 
-### `HNDF` [semantics, both backends, Med] activated-signal hand-off to the previously installed handler where the wording requires default handling (7.14.1 p14)
+### `HNDF` [wontfix] [semantics, both backends, Med] activated-signal hand-off to the previously installed handler where the wording requires default handling (7.14.1 p14)
+
+**Adjudicated wontfix 2026-08-20:** no remediation scheduled; see the §4 wontfix legend. The analysis below is retained for the record. Chaining to the previously installed handler is the library's documented design (`thrd_signal_handle.h:628-640`); aligning with 7.14.1 p14 would abandon that design (reset to `SIG_DFL` and re-deliver), and the fix would need a wording decision.
 
 The wording: "If every signal decider in the ordered sequence returns
 `sig_decision_next_decider`, or if the ordered sequence is empty, the default
@@ -130,7 +144,9 @@ undefined signals 23..32 where the wording defines the full set as "the set of
 all signals defined by the implementation". (`siginstall`'s loop bounds at
 `NSIG == 23` never installs them, so the damage is confined to the helpers.)
 
-### `ABRS` [code-level, both backends, Low] `sigdecider_abandon_resume` aborts when a nested signal's processing changed `tss->front` between the abandon and the resume — in a call sequence the wording permits
+### `ABRS` [wontfix] [code-level, both backends, Low] `sigdecider_abandon_resume` aborts when a nested signal's processing changed `tss->front` between the abandon and the resume — in a call sequence the wording permits
+
+**Adjudicated wontfix 2026-08-20:** no remediation scheduled; see the §4 wontfix legend. The analysis below is retained for the record. Niche wording-valid sequence (nested delivery inside the abandon/resume window) that aborts rather than corrupts memory; tracking the intervening `tss->front` rewrites would require changing the abandon machinery for a trigger the document itself rates Low.
 
 A thread-local decider calls `sigdecider_abandon` (frame popped, `tss->front`
 = the frame below), a nested signal is delivered before the resume (possible
@@ -274,49 +290,6 @@ C consumers without the define, or exotic non-`__cxa` POSIX platforms, hit it. F
 the list head in the key value itself (the destructor's argument survives) and/or probe
 and reject the fallback on affected platforms at configure time.
 
-### `MUSL` [code-level, Low-Med] `siginfo_t`/`ucontext_t` platform dispatch breaks musl and assumes non-POSIX spellings
-
-`thrd_signal_handle.h:202-216` relies on `<signal.h>` defining `ucontext_t` (POSIX does
-not require this; `<ucontext.h>` does) and dispatches the `siginfo_t` spelling by
-platform: `_WIN32` / `__GLIBC__` / `__ANDROID__` / `else: struct __siginfo`. musl defines
-`siginfo_t` as `struct siginfo`, not `struct __siginfo`, and defines neither `__GLIBC__`
-nor `__ANDROID__` — so musl builds fall into the `struct __siginfo` branch and fail to
-compile (the CI matrix only exercises glibc). The BSD/Android/glibc layout assumptions
-are not portable.
-
-### `SIGN` Missing `SIGSYS`/`SIGXCPU`/`SIGXFSZ` guards
-
-`thrd_signal_handle_posix.c.ipp:53-54` uses `SIGSYS`, and `:109` uses `SIGXCPU`/`SIGXFSZ`
-without `#ifdef` guards (only `SIGPOLL` is guarded). On a POSIX platform that omits any of
-these the file fails to compile. The library build now compiles with explicit feature-test
-macros (plans/ideas.md §2), so glibc/musl consistently expose these
-signals; the missing `#ifdef` guards remain for platforms that omit the signals entirely.
-
-### `RTIM` [code-level, Linux/glibc, Low] `siginstall(NULL)` installs handlers for glibc-internal signals 32/33 and realtime signals 34-64
-
-On glibc `NSIG == 65`, so `siginstall(NULL)` (the pattern used by every test and the
-README) installs the library's handler for signals 32 (`SIGCANCEL`) and 33 (`SIGSETXID`,
-glibc's internal pthread-cancellation/setxid signals) and for all 31 realtime signals
-34-64. `SIGCANCEL`/`SIGSETXID`: the library *replaces* glibc's internal handler and
-chains to it on each delivery, adding latency to every pthread cancellation, allowing a
-decider to swallow cancellation, and `SA_NODEFER` changes glibc's expected blocking
-semantics. Realtime signals: the default path in `invoke_sigaction` resets to `SIG_DFL`
-and re-raises, so a realtime-signal delivery routed through the library and then the
-default re-raise terminates the process (the `DFLT` permanent-discard defect was fixed
-in the working tree 2026-08-18 — the re-raise restores the installed handler — but a
-terminating default still terminates), even though
-`sigfillset_synchronous`/`_asynchronous_*` deliberately do not include realtime signals.
-The internal and realtime ranges are neither skipped nor documented.
-
-### `TOPL` [build, Med] `PROJECT_IS_TOP_LEVEL` requires CMake >= 3.21 while `cmake_minimum_required` is 3.15
-
-`CMakeLists.txt:1` declares `cmake_minimum_required(VERSION 3.15 FATAL_ERROR)`, but line
-231 gates the entire `test/` subdirectory on `PROJECT_IS_TOP_LEVEL`, a variable introduced
-in CMake 3.21. On CMake 3.15-3.20 the variable is undefined and the condition silently
-evaluates false: no tests, no `header_only_test` target, and `BUILD_TESTING` is ignored —
-with no diagnostic. Either raise the minimum to 3.21 or use
-`CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR`.
-
 ### `CPPR` Static library requires a C++ runtime, not declared [open on non-`__cxa_thread_atexit()` platforms]
 
 On platforms without `__cxa_thread_atexit()` (e.g. Windows), `thread_atexit.cpp` is
@@ -324,26 +297,6 @@ compiled into the library and the CMake package does not express the C++ standar
 dependency, so a plain C consumer linking `libwg14_signals.a` there gets unresolved C++
 runtime symbols. (On `__cxa_thread_atexit()` platforms the C file is compiled instead and
 the library is all-C with no C++ runtime dependency.)
-
-### `CSTD` CMake `CMAKE_C_STANDARD` cache variable is unused for consumers
-
-The `CMAKE_C_STANDARD` cache variable set at `CMakeLists.txt:6` is not propagated to
-consumers of the installed package; the `find_package` consumer must re-declare its own
-`CMAKE_C_STANDARD` (the install consumer does, at `test/install_consumer/CMakeLists.txt:10-11`).
-
-### `PCFG` ProjectConfig.cmake.in references non-existent export names
-
-`cmake/ProjectConfig.cmake.in:6-11` conditionally includes
-`@PROJECT_NAME@SlExports.cmake`/`@PROJECT_NAME@DlExports.cmake`, which are never
-generated. Harmless (guarded by `EXISTS`), but misleading.
-
-### `THRD` [test-harness, Low] `test_common.h` `thrd_join`/`thrd_create` defects
-
-`test_common.h:81-100` — `thrd_join` checks `ret != -1`, but `pthread_join` returns an
-error *number* (0 on success), never -1: on failure `*res` is left unset while the caller
-proceeds as if the join succeeded. `thrd_create` (`:81-89`) dereferences the unchecked
-`calloc` result (NULL deref on OOM). The benchmark and handle tests rely on this shim; the
-harness masks real failures.
 
 ### `STOR` Test storage exhaustion
 
@@ -353,12 +306,6 @@ re-run of the main-thread init after the worker also inits, or the documented "s
 call many times") writes out of bounds. **Extended:** the same applies to
 `test/benchmark_async_signal_safe_tls_test.c:12-13`. The test also never verifies the
 re-init and re-entrancy semantics documented in the API.
-
-### `TCOV` No coverage of the failure/edge APIs
-
-`sigfillset_synchronous`'s return value is now checked (`test/install_consumer/app.c:67`);
-still no test calls `siguninstall_system`, `sigfillset_asynchronous_*`, or
-`signal_decider_create` with NULL/empty guarded sets.
 
 ### `SABA` [code-level, Windows, Low] `stdc_raise(SIGABRT)` raises a non-continuable exception; "resume" from a decider loops
 
@@ -531,22 +478,6 @@ thread performs the `my_current_thread_id()` cache fill (`MAST`) and a spinlocke
 (`SPIN`) — see §2. The NULL extension (defining formerly-undefined
 behaviour) remains conforming.
 
-### `DECR` [docs, both backends, Low] `signal_decider_create`'s documentation describes a bool decider contract that no longer matches the enum `sig_decide_t`
-
-`thrd_signal_handle.h:616-619` — "a decider function, which must return `true` if
-execution is to resume, `false` if the next decider function should be called", and "A
-user supplied value to set in the `raised_signal_info`". The decider type is
-`enum sig_decision` (`sig_decision_next_decider` / `sig_decision_resume_execution` /
-`sig_decision_call_recovery`), and the `raised_signal_info` identifier was renamed to
-`stdc_siginfo` — both descriptions are stale. The bool text happens to be accidentally
-consistent with the current enum layout (`false` == 0 == `next_decider`,
-`true` == 1 == `resume_execution`, both on the POSIX frame switch and on the global
-`if(res)` claim test), so a decider written from the docs compiles and behaves
-sensibly — but a decider can never express `sig_decision_call_recovery` that way, and
-the wording's own `sig_decision` semantics (7.14.1) are the contract a reference
-implementation should document. Pure documentation hygiene; flagged because the stale
-contract text is the first thing a consumer of this API reads.
-
 ### `MLAS` [wontfix] Modified-local-after-setjmp UB in POSIX `sigguarded`
 **Adjudicated wontfix 2026-08-18:** no remediation scheduled; see the §4 wontfix legend. The analysis below is retained for the record.
 
@@ -696,7 +627,7 @@ context (the former `SJMS`, merged 2026-08-18). Platform-dependent.
 
 `CMakeLists.txt:188-192`: GCC/Clang get `-Wall -Wextra -Wpedantic -Werror`; MSVC gets
 `/W4 /experimental:c11atomics` with no `/WX`. All warnings that would break a strict
-GCC/Clang build are invisible in the Windows CI leg (extends `CSTD`).
+GCC/Clang build are invisible in the Windows CI leg.
 
 ### `CXXR` [wontfix] [build, Low] the project unconditionally requires a C++ compiler for a C library
 **Adjudicated wontfix 2026-08-18:** no remediation scheduled; see the §4 wontfix legend. The analysis below is retained for the record.
@@ -1252,9 +1183,9 @@ Verdicts:
 
 The severity label in the tables classifies each finding's worst-case impact; the row
 order is the remediation priority, which applies the criteria below to the label *and*
-the finding's trigger likelihood. It is not a strict severity sort: the 31 adjudicated
-wontfix findings rank *last* regardless of severity, and the remaining Med items
-`TLSD` and `TOPL` follow Low items that are more dangerous in practice.
+the finding's trigger likelihood. It is not a strict severity sort: the 34 adjudicated
+wontfix findings rank *last* regardless of severity, and the remaining Med item
+`TLSD` follows Low items that are more dangerous in practice.
 The main table lists the fixable findings; the wontfix findings have their own
 summary table below it. The ranking criteria below describe the original priority
 assessment; items adjudicated wontfix (see tier 13) are retained in the
@@ -1328,18 +1259,15 @@ Ranking criteria, applied in order of precedence:
    async-safety claim or are real functional gaps on a supported platform: optimistic
    async-safe-TLS auto-detection (`TLSD`), `mach_thread_self`/`pthread_getthreadid_np` not
    async-safe on Apple (`MAST`), and MSVC CRT signals bypassing SEH (`CRTS`). The rest are
-   exotic-platform build/portability risks (musl `struct __siginfo`, `ucontext_t`
-   spelling, MinGW, `_setjmp`/`setjmp` split, missing signal guards, `fork()` TID
-   caches, undefined `NSIG`, glibc-internal and realtime signal range).
+   exotic-platform build/portability risks (MinGW, `_setjmp`/`setjmp` split, `fork()` TID
+   caches, undefined `NSIG`).
 9. **Build-system issues.** Configuration/package defects, ranked before test issues
-   because they gate what CI can observe: `PROJECT_IS_TOP_LEVEL` silently disabling the
-   whole test suite on CMake 3.15-3.20 (`TOPL`), MSVC missing `/WX` (`WXMS`), the unconditional
-   CXX requirement (`CXXR`), the undeclared C++ runtime dependency (`CPPR`), the unused
-   `CMAKE_C_STANDARD` cache variable (`CSTD`), CI gaps (`CIGA`), and phantom export names
-   (`PCFG`).
+   because they gate what CI can observe: MSVC missing `/WX` (`WXMS`), the unconditional
+   CXX requirement (`CXXR`), the undeclared C++ runtime dependency (`CPPR`), and CI gaps
+   (`CIGA`).
 10. **Test-harness defects.** Flaws in the test shims that can mask real failures or
-     write out of bounds: `thrd_join`/`thrd_create` (`THRD`), test storage exhaustion (`STOR`),
-     the trap-dependent SIGFPE test (`TRAP`), and missing failure/edge API coverage (`TCOV`).
+      write out of bounds: test storage exhaustion (`STOR`), and the trap-dependent SIGFPE
+      test (`TRAP`).
 11. **Minor, cosmetic, and Windows edge-case quirks.** Behavioural divergences with low
     practical impact: the cryptic `sigfence` 9-argument error (`SFAR`) first as it affects
     every user's compile experience, then the Windows-specific quirks (`SABA` SIGABRT
@@ -1351,7 +1279,7 @@ Ranking criteria, applied in order of precedence:
     double-create), the now-documented `sigfence` lvalue requirement (`SFQL`), and the
     documented precondition deviations of `tss_async_signal_safe_destroy` and
     `tss_async_signal_safe_get` (`TSSG`).
-13. **Adjudicated wontfix.** Thirty-one findings were adjudicated not to fix:
+13. **Adjudicated wontfix.** Thirty-four findings were adjudicated not to fix:
     the double-destroy pair `TSSD` (covering `signal_decider_destroy` too; 2026-08-16 —
     double-
      destroy is undefined behaviour under the C11/POSIX/N3924 contract and, as this
@@ -1360,7 +1288,8 @@ Ranking criteria, applied in order of precedence:
      `TAFL`, `DEIN`, `SIGF`, `CPPD`, `SFNK`, `FLGS`, `TAOM`, `FPUN`,
      `MAST`, `CRTS`, `MING`, `FORK`, `NSIG`, `NDBS`, `UECL`, `SFQL`, and
      on 2026-08-18: `MLAS`, `PREI`, `SUST`, `SKIP`, `FWTF`, `SJSP`,
-     `WXMS`, `CXXR`, `CIGA`, `TRAP`, `SFAR`.
+     `WXMS`, `CXXR`, `CIGA`, `TRAP`, `SFAR`, and on 2026-08-20: `RAIS`,
+     `HNDF`, `ABRS`.
      Because no remediation is expected for them, they rank **last**, below every
      fixable finding, despite some being among the higher-severity or weaponisable
      items in the inventory.
@@ -1372,26 +1301,15 @@ then backend scope.
 
 | Code | Category | Severity | Issue |
 |---|---|---|---|
-| `RAIS` | contract | Med | `stdc_raise` of a non-activated signal does not behave as-if `raise()` (7.14.2.9 p3/p4): `signal()` handler never called, default action never taken |
-| `HNDF` | contract | Med | activated-signal hand-off to the previously installed handler where 7.14.1 p14 requires default handling and forbids using the `signal`-function handler |
 | `NRAI` | windows | Low | `stdc_raise` of an invalid signo raises a real SEH exception (7.14.2.9 p6 "returns false without raising a signal"; reaches WER without `siginstall`) |
 | `WVLD` | windows | Low | Windows sigset helpers accept signo 23..32 (not valid signal numbers; `sigfillset` sets bits for undefined signals) |
-| `ABRS` | contract | Low | `sigdecider_abandon_resume` aborts when a nested signal's processing changed `tss->front` between abandon and resume, in a wording-valid call sequence |
 | `IGND` | contract | Low | `stdc_raise` true when raise silently ignored (SIG_IGN/default-ignore, or zero deciders called) |
 | `ACTV` | contract | Low | deciders consulted without activation on BOTH backends (POSIX frame walk; Windows frame filter) — rev-5 7.14.1 p15 |
 | `PRCR` | contract | Low | `signal_decider_create` before `siginstall` silently loses the decider (rev-5 7.14.2.7 p5) |
 | `TLSD` | portability | Med | async-safe TLS detection too optimistic; forced-on-Apple unsafe |
 | `PTHD` | portability | Med | pthread-key `thread_atexit` fallback drops every callback on Darwin (TLS torn down before key destructors) **[confirmed]** |
-| `MUSL` | portability | Low-Med | `siginfo_t`/`ucontext_t` dispatch breaks musl |
-| `SIGN` | portability | Low | missing `SIGSYS`/`SIGXCPU`/`SIGXFSZ` guards |
-| `RTIM` | semantics | Low | `siginstall(NULL)` installs glibc-internal/realtime |
-| `TOPL` | build | Med | `PROJECT_IS_TOP_LEVEL` needs CMake >= 3.21 |
 | `CPPR` | build | Low | C++ runtime dependency undeclared |
-| `CSTD` | build | Low | `CMAKE_C_STANDARD` unused for consumers |
-| `PCFG` | build | Low | `ProjectConfig.cmake.in` non-existent exports |
-| `THRD` | test | Low | `thrd_join`/`thrd_create` harness defects |
 | `STOR` | test | Low | test storage exhaustion |
-| `TCOV` | test | Low | no failure/edge API coverage (sigfillset_synchronous return now covered) |
 | `SABA` | windows | Low | `stdc_raise(SIGABRT)` non-continuable; resume loops only without a raise frame |
 | `MUTR` | windows | Low | `stdc_raise` mutates caller's `EXCEPTION_RECORD`; params masquerade; raw_context dropped on full record |
 | `UFLT` | windows | Low | `siguninstall` clobbers app filter (install-time overwrite too) |
@@ -1401,12 +1319,14 @@ then backend scope.
 | `DRGN` | windows | Low | drain-time re-registration dropped on MSVC TLS-directory path; UB on C++ vector path |
 | `UCRE` | contract | Low | `thread_init` unlocked `attr.create` (cross-thread race; re-entrancy double-create) |
 | `TSSG` | docs | Low | get precondition/ASYNC-SIGNAL-SAFE claim undocumented (destroy half resolved by rev-5 7.30.6.6 p3) |
-| `DECR` | docs | Low | `signal_decider_create` doc describes stale bool decider contract |
 
 ### Wontfix findings (adjudicated not to fix)
 
 | Code | Category | Severity | Issue |
 |---|---|---|---|
+| `RAIS` (wontfix) | contract | Med | `stdc_raise` of a non-activated signal does not behave as-if `raise()` (7.14.2.9 p3/p4): `signal()` handler never called, default action never taken |
+| `HNDF` (wontfix) | contract | Med | activated-signal hand-off to the previously installed handler where 7.14.1 p14 requires default handling and forbids using the `signal`-function handler |
+| `ABRS` (wontfix) | contract | Low | `sigdecider_abandon_resume` aborts when a nested signal's processing changed `tss->front` between abandon and resume, in a wording-valid call sequence |
 | `MLAS` (wontfix) | ub | Low | modified-local-after-setjmp UB |
 | `PREI` (wontfix) | windows | Med | unclaimed `stdc_raise` (pre-install or installed-no-decider/frame/`__except`) terminates via WER; POSIX returns/hands off |
 | `SUST` (wontfix) | contract | Low | `siguninstall_system` no-op stub |
@@ -1447,6 +1367,7 @@ without calling `sigdecider_abandon`). 2026-08-17: `UNTL`, `SPIN`, `ALOC`, `TAFL
 `DEIN`, `SIGF`, `CPPD`, `SFNK`, `FLGS`, `TAOM`, `FPUN`, `MAST`, `CRTS`, `MING`,
 `FORK`, `NSIG`, `NDBS`, `UECL`, `SFQL`. 2026-08-18: `MLAS`,
 `PREI`, `SUST`, `SKIP`, `FWTF`, `SJSP`, `WXMS`, `CXXR`, `CIGA`, `TRAP`, `SFAR`.
+2026-08-20: `RAIS`, `HNDF`, `ABRS`.
 2026-08-18 also merged duplicate findings into their primaries: `ZERO`->`IGND`,
 `REEN`->`UCRE`, `CXAT`->`TAFL`, `LEAK`->`SPIN`, `WRET`->`PREI`, `SJMS`->`SJSP`,
 `MSQR`->`MUTR`, `DEDE`->`TSSD`.*

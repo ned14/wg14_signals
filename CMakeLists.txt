@@ -111,7 +111,11 @@ endif()
 # implementations) get it transitively; only targets that deliberately do not
 # link the library (test/header_only_test) need their own link.
 target_link_libraries(${PROJECT_NAME} PUBLIC $<$<PLATFORM_ID:FreeBSD>:stdthreads>)
-target_compile_features(${PROJECT_NAME} PRIVATE c_std_11 cxx_std_11)
+# PUBLIC so the C11/C++11 floor propagates to find_package consumers: the public
+# headers use C11 constructs (stdatomic.h, _Static_assert, compound literals),
+# so a consumer compiling in C99 mode must be told to raise its standard or the
+# include fails (analysis.md CSTD).
+target_compile_features(${PROJECT_NAME} PUBLIC c_std_11 cxx_std_11)
 target_compile_definitions(${PROJECT_NAME} PRIVATE WG14_SIGNALS_SOURCE)
 # Feature-test-macro discipline (plans/ideas.md 2.2): the library needs the
 # POSIX signal surface — NSIG (used unguarded by the signo-to-sighandler map,
@@ -228,7 +232,8 @@ install(EXPORT ${PROJECT_NAME}Exports
   DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
 )
 
-if(PROJECT_IS_TOP_LEVEL AND (NOT DEFINED BUILD_TESTING OR BUILD_TESTING))
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND
+   (NOT DEFINED BUILD_TESTING OR BUILD_TESTING))
   function(add_code_example target)
     cmake_parse_arguments(ADD_EXAMPLE "" "" "SOURCES;FEATURES;PROPERTIES" ${ARGN})
     add_executable(${target} ${ADD_EXAMPLE_SOURCES})

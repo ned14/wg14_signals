@@ -33,6 +33,18 @@ limitations under the License.
 #include <bits/types/siginfo_t.h>
 #endif
 
+#ifndef _WIN32
+#if defined(__linux__) && !defined(__GLIBC__)
+// musl declares ucontext_t in <signal.h> (recent versions) and <ucontext.h>
+// (POSIX; required by older musl, where <signal.h> lacks it). glibc exposes it
+// via <signal.h> under feature-test macros, and the BSDs/macOS via
+// <sys/signal.h>, so only the non-glibc Linux libcs need the include
+// (analysis.md MUSL). A blanket <ucontext.h> is not possible: macOS's
+// hard-errors without _XOPEN_SOURCE.
+#include <ucontext.h>
+#endif
+#endif
+
 
 #ifdef __cplusplus
 extern "C"
@@ -409,7 +421,16 @@ typedef siginfo_t WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 typedef siginfo_t WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #elif __ANDROID__
 typedef struct siginfo WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
+#elif defined(__linux__) && !defined(__GLIBC__)
+// musl (and any other non-glibc Linux libc): `siginfo_t` is the standard
+// spelling -- musl defines it as an anonymous struct with no `struct
+// __siginfo` tag, so the BSD-specific fallback below would not compile
+// there. musl does not define __MUSL__, so detect it as Linux-not-glibc
+// (analysis.md MUSL).
+typedef siginfo_t WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #else
+// BSD/macOS: `struct __siginfo` is the always-visible tag underlying
+// siginfo_t, exposed even in strict-POSIX modes that hide the typedef.
 typedef struct __siginfo WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #endif
 
@@ -705,13 +726,18 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
 
   \return An opaque pointer to the registered decider. `NULL` if `malloc`
   failed.
-  \param guarded The set of signals to be guarded against.
+  \param guarded The set of signals to be guarded against. Must not be empty:
+  `NULL`, an empty set, or a null `decider` makes the call fail with `errno`
+  set to `EINVAL`.
   \param callfirst True if this decider should be called before any other.
   Otherwise call order is in the order of addition.
-  \param decider A decider function, which must return `true` if execution is to
-  resume, `false` if the next decider function should be called.
-  \param value A user supplied value to set in the `raised_signal_info` passed
-  to the decider callback.
+  \param decider A decider function returning an `enum sig_decision`:
+  `sig_decision_next_decider` to defer to the next decider (or the default
+  handling if none remains), `sig_decision_resume_execution` to resume the
+  interrupted code, or `sig_decision_call_recovery` to longjmp to the recovery
+  function of the innermost matching `sigguarded()` frame.
+  \param value A user supplied value to set in the `stdc_siginfo.value` member
+  passed to the decider callback.
   */
   WG14_SIGNALS_EXTERN void *WG14_SIGNALS_PREFIX(signal_decider_create)(
   const sigset_t *guarded, bool callfirst,
