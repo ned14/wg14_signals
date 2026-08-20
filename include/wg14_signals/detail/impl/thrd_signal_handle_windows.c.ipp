@@ -406,13 +406,18 @@ extern "C"
         // claimed (full-record match, so a genuine fault of the same code
         // during a raise is not confused with the software raise) so a pass
         // re-run (e.g. a dedup mismatch) still continues it rather than
-        // reporting it unclaimed.
-        struct WG14_SIGNALS_PREFIX(
-        sig_global_state_tss_state_win_t) *raise_frame =
-        WG14_SIGNALS_PREFIX(win32_matching_raise_frame)(ptrs->ExceptionRecord);
-        if(raise_frame != WG14_SIGNALS_NULLPTR)
+        // reporting it unclaimed. (Brace-scoped so the initialised declaration
+        // does not fall through the case labels -- MSVC C2360 in C++ mode, the
+        // header-only test.)
         {
-          raise_frame->exception_was_claimed = true;
+          struct WG14_SIGNALS_PREFIX(
+          sig_global_state_tss_state_win_t) *raise_frame =
+          WG14_SIGNALS_PREFIX(win32_matching_raise_frame)(
+          ptrs->ExceptionRecord);
+          if(raise_frame != WG14_SIGNALS_NULLPTR)
+          {
+            raise_frame->exception_was_claimed = true;
+          }
         }
         WG14_SIGNALS_PREFIX(win32_record_global_decider_decision)(
         ptrs->ExceptionRecord, EXCEPTION_CONTINUE_EXECUTION);
