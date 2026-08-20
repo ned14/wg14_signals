@@ -102,35 +102,6 @@ chaining to the previously installed handler as the "default handling" (it
 does not say this), or the implementation should reset to `SIG_DFL` and
 re-deliver.
 
-### `RFLK` [code-level, Windows, Med] a sigguarded frame decider claiming a `stdc_raise`-initiated raise via `call_recovery` leaves the raise frame dangling on `tss->front`
-
-`stdc_raise` pushes its raise frame and Win-state marker onto the per-thread
-chain before `RaiseException` (`thrd_signal_handle_windows.c.ipp:370-388`)
-and pops them only on the unclaimed return path (`:422-423`) or the
-`longjmp`-back path. But exception dispatch runs the enclosing sigguarded
-`__except` filters *first* (frame EH precedes the unhandled filter and the
-vectored continue handler, `:729-759`): when the frame decider returns
-`sig_decision_call_recovery`, the filter returns `EXCEPTION_EXECUTE_HANDLER`
-(`:287-293`), the SEH unwind discards `stdc_raise`'s frame, and the `__except`
-block calls `recovery` — `tss->front` and
-`tss->stdc_raise_initiated_exception` still point at the unwound raise frame.
-Every later raise on the thread re-links its own frames onto the dangling ones
-(the pop paths restore `old`/`current2.prev`, i.e. the dead pointers, so the
-leak persists), and a *genuine* fault on the thread claimed by a global decider
-then `longjmp`s into the dead environment (`:657-660`) — crash/arbitrary-call
-class; `sigdecider_abandon` similarly dereferences the dead frame
-(`:438-447`). The POSIX equivalent is clean: a
-frame claim longjmps into the frame's own `sigguarded`, which restores
-`tss->front` before recovery. Unexercised by CI: on x64 the SIGFPE test's
-divide traps before the `stdc_raise` fallback line, and the fallback (and
-hence this path) runs only on non-trapping architectures (`TRAP`); the
-nested-delivery test is POSIX-only (`#ifndef _WIN32`). Fix direction: the
-filter's `EXECUTE_HANDLER` path (or the `__except` block) must pop the
-raise-initiated frames when the claimed exception carries the
-`0xdeadbeefdeadbeef` marker, or `stdc_raise` must clean up in an SEH-aware
-manner (e.g. `__try` around `RaiseException` with a filter that pops its own
-frames).
-
 ### `NRAI` [code-level, Windows, Low] `stdc_raise` of an invalid signo raises an exception instead of "returns false without raising a signal" (7.14.2.9 p6)
 
 The wording: "If `signo` is not a valid signal number (7.14.1), this function
@@ -233,7 +204,8 @@ below is wrong (re-verified 2026-08-19): `win32_exception_filter`
 (`thrd_signal_handle_windows.c.ipp:268-297`) runs the frame decider whenever
 `sigismember(guarded, signo)` is truthy, with no map/activation check, for both genuine
 faults on never-installed signals and `stdc_raise` of never-installed signals — and a
-frame claim there leaks the raise frame (finding `RFLK`). Only the Windows *global*
+frame claim there used to leak the raise frame (finding `RFLK`, fixed: the
+filter's `EXECUTE_HANDLER` path pops the per-thread raise chain). Only the Windows *global*
 pass is activation-gated (map lookup, `:585-606`). Both backends therefore violate
 7.14.1 p15's "no signal deciders are invoked" for non-activated signals.
 Interaction with `IGND`: a decider invoked for a non-activated signal satisfies the
@@ -1400,7 +1372,6 @@ then backend scope.
 
 | Code | Category | Severity | Issue |
 |---|---|---|---|
-| `RFLK` | memory | Med | Windows: frame-decider `call_recovery` claim of a `stdc_raise`-initiated raise leaves the raise frame dangling on `tss->front` (SEH unwind skips the pop) -> next raise longjmps/walks dead stack |
 | `RAIS` | contract | Med | `stdc_raise` of a non-activated signal does not behave as-if `raise()` (7.14.2.9 p3/p4): `signal()` handler never called, default action never taken |
 | `HNDF` | contract | Med | activated-signal hand-off to the previously installed handler where 7.14.1 p14 requires default handling and forbids using the `signal`-function handler |
 | `NRAI` | windows | Low | `stdc_raise` of an invalid signo raises a real SEH exception (7.14.2.9 p6 "returns false without raising a signal"; reaches WER without `siginstall`) |

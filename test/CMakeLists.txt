@@ -74,6 +74,14 @@ add_code_test(sigguarded_tss_init_test SOURCES "sigguarded_tss_init_test.c" FEAT
 # need MSVC; MinGW has no SEH alternative (deliberate #error in the library).
 add_code_test(sigguarded_nonsignal_exception_test SOURCES "sigguarded_nonsignal_exception_test.c" FEATURES c_std_11)
 set_tests_properties(sigguarded_nonsignal_exception_test PROPERTIES TIMEOUT 60)
+# White-box regression test for analysis.md RFLK: a sigguarded() frame decider
+# claiming a stdc_raise()-initiated raise with call_recovery must pop the
+# per-thread raise-frame chain (the Windows EXECUTE_HANDLER path otherwise
+# leaves tss->front/stdc_raise_initiated_exception dangling at the unwound
+# stdc_raise() frame). Header-only mode exposes sig_global_tss_state() so the
+# test can assert the chain is empty after the claim.
+add_code_test(raise_claim_cleanup_test SOURCES "raise_claim_cleanup_test.c" FEATURES c_std_11)
+set_tests_properties(raise_claim_cleanup_test PROPERTIES TIMEOUT 60)
 add_code_test(guard_abandon_test SOURCES "guard_abandon_test.c" FEATURES c_std_11)
 set_tests_properties(guard_abandon_test PROPERTIES TIMEOUT 60)
 add_code_test(nested_decider_rsi_test SOURCES "nested_decider_rsi_test.c" FEATURES c_std_11)

@@ -265,25 +265,46 @@ extern "C"
     }
   }
 
-  static long WG14_SIGNALS_PREFIX(win32_exception_filter)(
-  struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi, const sigset_t *guarded,
-  const int signo, WG14_SIGNALS_PREFIX(sig_recover_t) recovery,
-  WG14_SIGNALS_PREFIX(sig_decide_t) decider,
-  union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value, EXCEPTION_POINTERS *ptrs)
+  // The per-guard state of win32_exception_filter. Only the exception context
+  // itself is passed separately: GetExceptionInformation()/GetExceptionCode()
+  // are valid solely in the sigguarded() filter expression (the filter function
+  // cannot call them, per the Win32 docs), so the expression passes the former
+  // and the filter derives signo from ptrs->ExceptionRecord->ExceptionCode (as
+  // win32_global_decider_pass does). The remaining state travels in this
+  // object, which sigguarded() builds once at guard entry and passes by
+  // pointer to the filter. It is mutable rather than const: the filter fills
+  // rsi (prepare_rsi) and, on the recovery claim path, restores the per-thread
+  // chain via tss.
+  struct WG14_SIGNALS_PREFIX(win32_exception_filter_state)
   {
+    struct WG14_SIGNALS_PREFIX(stdc_siginfo) rsi;
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) * tss;
+    const sigset_t *guarded;
+    WG14_SIGNALS_PREFIX(sig_recover_t) recovery;
+    WG14_SIGNALS_PREFIX(sig_decide_t) decider;
+    union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value;
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *
+    tss_front_at_entry;
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) * win_at_entry;
+  };
+
+  static long WG14_SIGNALS_PREFIX(win32_exception_filter)(
+  struct WG14_SIGNALS_PREFIX(win32_exception_filter_state) * state,
+  EXCEPTION_POINTERS *ptrs)
+  {
+    const int signo = WG14_SIGNALS_PREFIX(signal_from_win32_exception_code)(
+    ptrs->ExceptionRecord->ExceptionCode);
     // sigismember() returns -1 for signo outside 1..32; only a genuine 1
     // (member) may invoke the decider, so exceptions that are not signals
     // (C++ /EHa, unmapped fault codes, user-range raises) skip the frame
     // decider instead of running it with signo == 0 or a bogus signo
     // (analysis.md SIGM).
-    if(sigismember(guarded, signo) == 1)
+    if(sigismember(state->guarded, signo) == 1)
     {
-      struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
-      WG14_SIGNALS_PREFIX(sig_global_tss_state)();
-      WG14_SIGNALS_PREFIX(prepare_rsi)(rsi, signo, ptrs);
-      rsi->value = value;
-      rsi->internal_local_decider = tss->front;
-      switch(decider(rsi))
+      WG14_SIGNALS_PREFIX(prepare_rsi)(&state->rsi, signo, ptrs);
+      state->rsi.value = state->value;
+      state->rsi.internal_local_decider = state->tss->front;
+      switch(state->decider(&state->rsi))
       {
       case WG14_SIGNALS_PREFIX(sig_decision_next_decider):
         break;
@@ -294,8 +315,23 @@ extern "C"
         // then the unhandled filter / global deciders, then default handling)
         // instead of EXCEPTION_CONTINUE_EXECUTION, which would re-execute the
         // faulting instruction forever (analysis.md 1.7/C1).
-        return (recovery != WG14_SIGNALS_NULLPTR) ? EXCEPTION_EXECUTE_HANDLER :
-                                                    EXCEPTION_CONTINUE_SEARCH;
+        if(state->recovery == WG14_SIGNALS_NULLPTR)
+        {
+          return EXCEPTION_CONTINUE_SEARCH;
+        }
+        // Returning EXECUTE_HANDLER makes SEH unwind the stack below this
+        // __except, discarding every frame stdc_raise() pushed onto the
+        // per-thread chain for a raise initiated inside this guard (its own
+        // pop paths never run because RaiseException() does not return).
+        // Frames pushed after sigguarded() entry are all below this __except
+        // and are discarded, so restore the chain heads captured at entry:
+        // nulling the whole chain would instead drop outer in-flight raise
+        // frames above this __except that survive the unwind, leaving a
+        // later global decider longjmping into a NULL frame (analysis.md
+        // RFLK).
+        state->tss->front = state->tss_front_at_entry;
+        state->tss->stdc_raise_initiated_exception = state->win_at_entry;
+        return EXCEPTION_EXECUTE_HANDLER;
       }
     }
     return EXCEPTION_CONTINUE_SEARCH;
@@ -324,7 +360,19 @@ extern "C"
     {
       return WG14_SIGNALS_PREFIX(SIGGUARDED_FAILURE_VALUE);
     }
-    struct WG14_SIGNALS_PREFIX(stdc_siginfo) rsi;
+    // Snapshot the per-thread chain heads so the frame filter can restore them
+    // when a claimed raise unwinds the stack below this __except. Frames pushed
+    // after this point live inside this guard (below the __except) and are
+    // discarded by that unwind; frames pushed before it (outer in-flight
+    // raises) survive and must be kept (analysis.md RFLK). rsi and tss live in
+    // the state object so the filter fills the former and the __except block
+    // reads it back via the same object.
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+    WG14_SIGNALS_PREFIX(sig_global_tss_state)();
+    struct WG14_SIGNALS_PREFIX(win32_exception_filter_state) state = {
+    {0},     tss,   signals,    recovery,
+    decider, value, tss->front, tss->stdc_raise_initiated_exception,
+    };
 #ifdef __MINGW32__
 #error                                                                         \
 "FATAL: Donations of a Mingw suitable alternative to __try ... __except are welcome"
@@ -334,11 +382,9 @@ extern "C"
     return guarded(value);
   }
   __except(WG14_SIGNALS_PREFIX(win32_exception_filter)(
-  &rsi, signals,
-  WG14_SIGNALS_PREFIX(signal_from_win32_exception_code)(GetExceptionCode()),
-  recovery, decider, value, GetExceptionInformation()))
+  &state, GetExceptionInformation()))
   {
-    return recovery(&rsi);
+    return recovery(&state.rsi);
   }
 #endif
   }
