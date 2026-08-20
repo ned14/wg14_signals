@@ -27,6 +27,7 @@
 
 static atomic_int outer_decider_calls = 0;
 static atomic_int nested_decider_calls = 0;
+#ifndef _WIN32
 // 0 = outer rsi clean after the nested delivery; 1 = outer rsi clobbered by the
 // nested raise (the NSTR defect); 2 = outer rsi already non-NULL at entry.
 static volatile int outer_saw_nested_info = 0;
@@ -38,7 +39,8 @@ static volatile int nested_saw_bad_info = 0;
 // it has returned, verifies its own rsi was not clobbered (the outer raise
 // passed NULL info, so raw_info must still be NULL; the nested delivery carries
 // the kernel's real siginfo, which is what the old shared-frame-rsi bug would
-// leave in the outer decider's view).
+// leave in the outer decider's view). POSIX-only: pthread_kill is unavailable
+// on Windows and the NSTR defect is POSIX-frame-specific anyway.
 static enum WG14_SIGNALS_PREFIX(sig_decision)
 nested_rsi_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
@@ -68,6 +70,7 @@ nested_rsi_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
   }
   return WG14_SIGNALS_PREFIX(sig_decision_resume_execution);
 }
+#endif
 
 static union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
 raise_inside_guard(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
