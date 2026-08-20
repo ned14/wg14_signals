@@ -102,26 +102,6 @@ chaining to the previously installed handler as the "default handling" (it
 does not say this), or the implementation should reset to `SIG_DFL` and
 re-deliver.
 
-### `SIGM` [code-level, Windows, Med] the sigguarded frame filter treats `sigismember`'s -1 as membership: non-signal exceptions invoke the decider with `signo == 0` or a bogus signo
-
-`win32_exception_filter` (`thrd_signal_handle_windows.c.ipp:268-297`) guards
-its decider call with `if(sigismember(guarded, signo))`. The Windows sigset
-helpers return `-1` for `signo` outside 1..32 (`thrd_signal_handle.h:91-99`),
-and `-1` is truthy — so the decider is invoked whenever
-`signal_from_win32_exception_code` produced an unmapped or out-of-range
-signo. That happens for: C++ exceptions under `/EHa` (code `0xE06D7363` →
-signo 0), `EXCEPTION_GUARD_PAGE`/`EXCEPTION_BREAKPOINT`/any unmapped genuine
-fault (signo 0), and application `RaiseException` calls in the user-defined
-range `0x40000000`-`0x7FFFFFFF` (signo up to `0x3FFFFFFF`, the `UECL`
-collision). The decider therefore runs with `rsi->signo == 0` or a bogus
-signo for exceptions that are not signals; a decider returning
-`sig_decision_call_recovery` runs recovery for a non-signal, and one returning
-`resume_execution` issues `EXCEPTION_CONTINUE_EXECUTION` on e.g. a C++ throw.
-The global pass checks `signo == 0` explicitly before doing anything
-(`thrd_signal_handle_windows.c.ipp:580-584`); only the frame filter is
-missing the check. Fix: `if(sigismember(guarded, signo) == 1)`. Not exercised
-by CI (no `/EHa` build, no app-SEH-in-guard test).
-
 ### `RFLK` [code-level, Windows, Med] a sigguarded frame decider claiming a `stdc_raise`-initiated raise via `call_recovery` leaves the raise frame dangling on `tss->front`
 
 `stdc_raise` pushes its raise frame and Win-state marker onto the per-thread
@@ -1423,7 +1403,6 @@ then backend scope.
 | `RFLK` | memory | Med | Windows: frame-decider `call_recovery` claim of a `stdc_raise`-initiated raise leaves the raise frame dangling on `tss->front` (SEH unwind skips the pop) -> next raise longjmps/walks dead stack |
 | `RAIS` | contract | Med | `stdc_raise` of a non-activated signal does not behave as-if `raise()` (7.14.2.9 p3/p4): `signal()` handler never called, default action never taken |
 | `HNDF` | contract | Med | activated-signal hand-off to the previously installed handler where 7.14.1 p14 requires default handling and forbids using the `signal`-function handler |
-| `SIGM` | windows | Med | frame filter `if(sigismember(...))` treats -1 as membership: non-signal exceptions (C++ `/EHa`, unmapped codes, app user-range raises) invoke the decider with `signo == 0`/bogus signo |
 | `NRAI` | windows | Low | `stdc_raise` of an invalid signo raises a real SEH exception (7.14.2.9 p6 "returns false without raising a signal"; reaches WER without `siginstall`) |
 | `WVLD` | windows | Low | Windows sigset helpers accept signo 23..32 (not valid signal numbers; `sigfillset` sets bits for undefined signals) |
 | `ABRS` | contract | Low | `sigdecider_abandon_resume` aborts when a nested signal's processing changed `tss->front` between abandon and resume, in a wording-valid call sequence |

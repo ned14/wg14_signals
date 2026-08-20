@@ -271,7 +271,12 @@ extern "C"
   WG14_SIGNALS_PREFIX(sig_decide_t) decider,
   union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value, EXCEPTION_POINTERS *ptrs)
   {
-    if(sigismember(guarded, signo))
+    // sigismember() returns -1 for signo outside 1..32; only a genuine 1
+    // (member) may invoke the decider, so exceptions that are not signals
+    // (C++ /EHa, unmapped fault codes, user-range raises) skip the frame
+    // decider instead of running it with signo == 0 or a bogus signo
+    // (analysis.md SIGM).
+    if(sigismember(guarded, signo) == 1)
     {
       struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
       WG14_SIGNALS_PREFIX(sig_global_tss_state)();

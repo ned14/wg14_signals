@@ -66,6 +66,14 @@ add_code_test(out_of_range_signo_test SOURCES "out_of_range_signo_test.c" FEATUR
 add_code_test(sig_unknown_handler_test SOURCES "sig_unknown_handler_test.c" FEATURES c_std_11)
 add_code_test(stdc_raise_uninstalled_test SOURCES "stdc_raise_uninstalled_test.c" FEATURES c_std_11)
 add_code_test(sigguarded_tss_init_test SOURCES "sigguarded_tss_init_test.c" FEATURES c_std_11)
+# Regression test for analysis.md SIGM: the Windows sigguarded() frame filter
+# must not treat sigismember()'s -1 (signo outside 1..32) as membership, so a
+# non-signal exception (C++ /EHa code 0xE06D7363 -> signo 0, or a user-range
+# raise -> bogus signo) skips the frame decider and propagates past the guard.
+# MSVC-only: sigguarded()'s __try/__except and the test's outer SEH handler
+# need MSVC; MinGW has no SEH alternative (deliberate #error in the library).
+add_code_test(sigguarded_nonsignal_exception_test SOURCES "sigguarded_nonsignal_exception_test.c" FEATURES c_std_11)
+set_tests_properties(sigguarded_nonsignal_exception_test PROPERTIES TIMEOUT 60)
 add_code_test(guard_abandon_test SOURCES "guard_abandon_test.c" FEATURES c_std_11)
 set_tests_properties(guard_abandon_test PROPERTIES TIMEOUT 60)
 add_code_test(nested_decider_rsi_test SOURCES "nested_decider_rsi_test.c" FEATURES c_std_11)

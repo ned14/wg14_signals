@@ -4,7 +4,9 @@
 
 #include "wg14_signals/thrd_signal_handle.h"
 
+#ifndef _WIN32
 #include <pthread.h>
+#endif
 #include <signal.h>
 #include <stdatomic.h>
 
