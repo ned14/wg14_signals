@@ -9,11 +9,14 @@
 // bit 30, i.e. signal 31 = SIGUSR2 on macOS/FreeBSD (plans/analysis.md NEGS,
 // probe-verified). SIGUSR2 is not defined on MSVC; there -- and on glibc, whose
 // sigismember returns 0 out of range -- the bug was invisible anyway, so any
-// guarded signal works.
+// guarded signal works. SIGABRT would not: on Windows it maps to
+// EXCEPTION_NONCONTINUABLE_EXCEPTION, which cannot be resumed (finding `SABA`),
+// so a frame decider claiming it with resume_execution loops; SIGILL
+// (EXCEPTION_ILLEGAL_INSTRUCTION) is continuable and MSVC-defined.
 #ifdef SIGUSR2
 #define GUARDED_SIGNAL SIGUSR2
 #else
-#define GUARDED_SIGNAL SIGABRT
+#define GUARDED_SIGNAL SIGILL
 #endif
 
 static int frame_decider_calls = 0;

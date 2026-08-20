@@ -47,7 +47,19 @@ guarded inputs, and the realtime range out of the NULL case), `TOPL`
 `c_std_11`/`cxx_std_11` compile features propagate to consumers), `PCFG` (config no
 longer references phantom exports), `THRD` (`thrd_join`/`thrd_create` shim fixes),
 `TCOV` (`edge_api_coverage_test`), `DECR` (`signal_decider_create` doc describes the
-enum contract).
+enum contract). Also on 2026-08-20, the first successful Windows CI test run exposed a
+latent defect in the V5 dedup / raise-initiated detection: `win32_exception_record_matches`
+compared the first `ExceptionInformation` parameter only when `NumberParameters > 0`, which
+made every 0-parameter exception -- `stdc_raise(signo, NULL, NULL)` and
+`RaiseException(code, 0, 0, NULL)`, the common paths -- fail to match. That re-ran the
+global deciders on the vectored-continue follow-up (`sigguarded_tss_init_test` saw
+`global_decider_called == 2`), and failed to mark 0-parameter unclaimed software raises
+(`stdc_raise_uninstalled_test` and `out_of_range_signo_test` died with the raised
+exception). The predicate now treats `NumberParameters == 0` as a match on
+code/flags/count alone; `out_of_range_signo_test` also switched its MSVC
+`GUARDED_SIGNAL` fallback from `SIGABRT` to `SIGILL` (SIGABRT maps to the
+non-continuable `EXCEPTION_NONCONTINUABLE_EXCEPTION`, which a resume-returning frame
+decider cannot continue -- the `SABA` loop).
 
 ---
 

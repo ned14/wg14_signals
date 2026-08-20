@@ -610,7 +610,13 @@ extern "C"
   // EXCEPTION_RECORD, exactly as the raise detection in
   // win32_global_decider_pass does: the two describe the same exception when
   // the exception code, flags, parameter count and (when parameters are
-  // present) the first parameter all agree (analysis.md 3.15/V5).
+  // present) the first parameter all agree (analysis.md 3.15/V5). Note the
+  // first-parameter comparison applies only when parameters exist: a
+  // 0-parameter exception -- stdc_raise(signo, NULL, NULL) and RaiseException
+  // with no arguments, the common paths -- must match on code/flags/count
+  // alone (the pre-2026-08-20 form `record->NumberParameters > 0 && ...` made
+  // every 0-parameter match fail, breaking both the V5 dedup and the
+  // unclaimed-raise detection on Windows CI).
   static bool WG14_SIGNALS_PREFIX(win32_exception_record_matches)(
   const struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) * state,
   const EXCEPTION_RECORD *record)
@@ -618,8 +624,8 @@ extern "C"
     return state->ExceptionCode == record->ExceptionCode &&
            state->ExceptionFlags == record->ExceptionFlags &&
            state->NumberParameters == record->NumberParameters &&
-           (record->NumberParameters > 0 && state->ExceptionInformationFirst ==
-                                            record->ExceptionInformation[0]);
+           (record->NumberParameters == 0 || state->ExceptionInformationFirst ==
+                                             record->ExceptionInformation[0]);
   }
 
   // Runs the global-decider pass for one exception dispatch and, when the pass
