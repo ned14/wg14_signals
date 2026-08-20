@@ -435,8 +435,9 @@ Commands (per `.github/workflows/ci.yml`): `cmake --build build
 | Platform / config | Result (2026-08-20) |
 |---|---|
 | macOS arm64, clang, Debug C11 (local, no sanitizer toolchain) | **37/37 passed**, benchmarks 2/2 passed (5.34 s suite, 13.44 s benchmarks) |
-| Linux glibc (clang/gcc × Debug/Release × C11/C23 × shared OFF/ON × fallback OFF/ON, ASan/UBSan) | TBD — last CI run on `main` was green; re-run `ctest -E benchmark` on the next CI push before Phase 1 work and record counts here |
-| Linux musl (Alpine, C11/C23 × shared OFF/ON) | TBD — same |
+| Linux glibc aarch64 (docker, `ghcr.io/llvm/arm64v8/libc-ubuntu-24.04@sha256:9ca390ed…`, clang-23 + gcc 13.3, ASan/UBSan toolchain) — **all 16 CI configs** clang-23/gcc × Debug/Release × C11/C23 × shared OFF/ON × fallback OFF/ON | **38/38 passed, 0 failed in every config** (recorded 2026-08-20 via docker; commands: the repo's ci.yml Linux job configure lines run inside the container, script `.kilo/tmp/wg14-glibc-matrix.sh`) |
+| Linux musl (Alpine, C11/C23 × shared OFF/ON) | **38/38 passed, 0 failed in all 4 configs** (docker `alpine:3.20`, gcc, Release; script `.kilo/tmp/wg14-musl-matrix.sh`) — note: 38 tests discovered on Linux vs 37 on macOS (platform-gated tests) |
+| Linux glibc **x86_64** | TBD — the upstream wg14_signals CI's `ubuntu-latest` legs are x86_64; record from the next green `main` CI run or an x86_64 docker run |
 | macOS CI legs (Debug/Release × C11/C23 × shared × fallback, sanitize toolchain) | TBD — same |
 | Windows VS2022 (Debug/Release × C11/C17 × shared, ASan) | TBD — same |
 | FreeBSD 15 VM (C11/C23) | TBD — same; note `header_only_build_test` is already excluded there (`-E "benchmark\|header_only_build_test"`) |
@@ -459,7 +460,7 @@ Configured and built in the earlier session (`cmake -G Ninja -S runtimes
 |---|---|
 | `ninja -C build libc libm` | **builds** (`libc.a`, `libm.a` produced) |
 | `ninja -C build check-libc` | **hdrgen_integration_test 1/1 passed; lit: 0 tests discovered** → target FAILS code 2. Known pre-existing darwin failure: full-build tests are hermetic and all skip on darwin because `libc.startup.darwin.crt1` does not exist. This is the baseline to preserve: the lit "no tests" failure must not get worse, and Phase 5 (darwin) may legitimately fix it. |
-| Linux (glibc) check-libc | TBD — run on a Linux runner before Phase 1 (needs `-DLLVM_ENABLE_RUNTIMES=libc` with the same flags; expect the full hermetic suite to run there) |
+| Linux (glibc) check-libc — **docker** (`ghcr.io/llvm/arm64v8/libc-ubuntu-24.04@sha256:9ca390ed…`, clang-23/lld-23, Release, scudo ON, mirroring the CI `linux-aarch64-clang` job: `-DLLVM_ENABLE_RUNTIMES="libc;compiler-rt" -DLLVM_LIBC_FULL_BUILD=ON -DLLVM_LIBC_INCLUDE_SCUDO=ON -DCOMPILER_RT_BUILD_SCUDO_STANDALONE_WITH_LLVM_LIBC=ON -DCOMPILER_RT_BUILD_GWP_ASAN=OFF -DCOMPILER_RT_SCUDO_STANDALONE_BUILD_SHARED=OFF -DLIBC_TEST_SKIP_DEATH_TESTS=ON -DLIBC_TEST_SKIP_SHARED_TESTS=ON`; targets `install` → `check-libc-build` → `check-libc`; script `.kilo/tmp/libc-fullbuild-linux.sh`) | **check-libc: 1157/1157 passed (100.00%)** (recorded 2026-08-20). This is the Linux hermetic-suite baseline — compare every phase against it (contrast with the macOS 0-test lit run above) |
 | FreeBSD check-libc | TBD — same, on the freebsd VM leg |
 | Windows / GPU / UEFI / baremetal | n/a — no signal entrypoints today (this is the state Phase 6/7 preserves) |
 
@@ -490,17 +491,11 @@ that after each phase we can detect any regression. Coverage mapping:
   check targets must be baselined from CI (see below) and re-checked if
   any phase ever touches their dependencies.
 - **Other platforms (Linux glibc, Linux musl, Windows, FreeBSD)** —
-  **discovery: the fork `ned14/llvm-project` has zero GitHub Actions runs
-  (`total_count: 0`; `has_actions: false`) and upstream llvm-project's CI
-  does not cover the fork's head (`ee1bf608d998` is fork-specific), so no
-  CI baseline exists for the fork.** The Linux/Windows/FreeBSD legs MUST
-  be baselined before Phase 1 work: either enable Actions on the fork and
-  push the current head (recording the `check-all` matrix for linux/
-  windows/freebsd), or run the same configure+`check-all` command on a
-  Linux runner / the freebsd VM leg / a Windows runner. Record the
-  results in the table below and mark each TBD row done. Without this,
-  Phase 1-9 changes cannot be attributed to regressions on those
-  platforms.
+  baseline comes from **PR #1's CI run** (see §D below; recorded
+  2026-08-20 from
+  `https://github.com/ned14/llvm-project/pull/1`, head `e25504f5a5ea` —
+  the exact committed state of this directory's fork, branch
+  `replace_signals_handling`).
   - **2026-08-20: fork workflow files adjusted so CI runs once Actions is
     enabled on the fork.** Every workflow that can run on GitHub-hosted
     runners has had its `github.repository_owner == 'llvm'` /
@@ -512,12 +507,17 @@ that after each phase we can detect any regression. Coverage mapping:
     scripts no longer hard-fail on forks (lit-timing GCS cache and the
     premerge advisor are skipped when `GITHUB_REPOSITORY != llvm/llvm-project`);
     and the hardcoded `/__w/llvm-project/llvm-project` workspace paths
-    became `${{ github.workspace }}`. The remaining prerequisite is a
-    one-time repo-settings change (enable Actions on `ned14/llvm-project`),
-    then push the current head to record the baseline rows.
+    became `${{ github.workspace }}`. Commit `e25504f5a5ea` ("Enable CI on
+    github.") then enabled CI on the fork; **PR #1's run is the resulting
+    baseline (recorded in §D below).**
 
 Local run results (macOS arm64, Release, clang) — `check-all` **completed
-2026-08-20** (single lit invocation, 1533.66 s):
+2026-08-20** (single lit invocation, 1533.66 s). A Linux arm64 leg of the
+same `check-all` (same configure flags, clang-23/lld-23, docker container
+`ghcr.io/llvm/arm64v8/libc-ubuntu-24.04@sha256:9ca390ed…`, build dir
+`/var/folders/…/T/kilo/llvm-linux-build`, script `.kilo/tmp/linux-check-all.sh`)
+was **started 2026-08-20 as a persistent process** (`bgp_0207f46bf001cIl6Xtj0RNdiKa`);
+results are recorded in the table when it completes.
 
 | Suite | Result | Notes |
 |---|---|---|
@@ -540,6 +540,83 @@ Every phase's verification step compares against the rows above; a row
 changing from pass to fail (or a TBD row first failing) is a regression
 to resolve before proceeding. Known failures today: §B's darwin lit
 0-tests failure and the standalone suite's platform exclusions (§A).
+
+### D. Fork CI baseline from PR #1 (recorded 2026-08-20)
+
+Source: `https://github.com/ned14/llvm-project/pull/1` — "Get libc
+building on Mac OS.", head `e25504f5a5ea` ("Enable CI on github.") on
+branch `replace_signals_handling`, base `d98d12cb99b6` — **the exact
+committed state of the fork in this directory**. 57 check runs in total:
+26 success, 21 failure, 8 in progress, 2 skipped. This is the pass/fail
+baseline for every platform the plan modifies; re-run the same checks
+after each phase and diff the tables below.
+
+**Passing (26):**
+
+| Check | Result |
+|---|---|
+| ubuntu-24.04 - clang-23 (premerge build+test) | success |
+| ubuntu-24.04-arm - clang-23 | success |
+| macos-15 - clang | success |
+| windows-2022 - clang-cl | success |
+| windows-2025 - clang-cl | success |
+| libc-shared-tests with gcc-7 / gcc-8 / gcc-9 / gcc-11 / gcc | success ×5 |
+| libc-shared-test with MSVC on amd64 / arm64 / amd64_x86 | success ×3 |
+| builtins (ubuntu-24.04) / builtins (ubuntu-24.04-arm) | success ×2 |
+| Test Unprivileged Download Artifact | success |
+| Compute macOS Projects | success |
+| Check LLVM_ABI annotations with ids | success |
+| Test documentation build | success |
+| Buildifier | success |
+| code_linter (×2) | success ×2 |
+| Run zizmor | success |
+| Upload Test Artifact | success |
+| Check Python Tests | success |
+
+**Failing (21):** — two classes:
+
+1. **Infrastructure / workflow-plumbing failures (15)** — not test
+   failures; must stay green-or-plumbing-failing exactly as below, and any
+   phase that touches `.github/workflows` must not change their nature:
+   - `libc-fullbuild on linux-x86_64-Debug / linux-x86_64-Release /
+     linux-x86_64-MinSizeRel / linux-aarch64-clang` (4), `libc-fullbuild
+     on baremetal-armv6m / armv7em / armv7m / armv8m-softfp /
+     armv8m-hard / armv8.1m / baremetal-riscv32` (7), `libc-fullbuild on
+     uefi-x86_64-clang` (1), `libc-fullbuild on amd-gpu` (1) — **all 13
+     fail identically**: `Saving cache failed: Error: Path Validation
+     Error: Path(s) specified in the action for caching do(es) not exist`
+     then `Process completed with exit code 1`. The builds/tests
+     themselves did not fail; the final cache-save step did.
+   - `Build and Test Windows` — `No files were found with the provided
+     path: comments-Windows-AMD64. No artifacts will be uploaded.` +
+     `Process completed with exit code 1` (artifact-upload step).
+   - `zizmor` — `unpinned image references: container image is unpinned`
+     (security lint on `.github/workflows/premerge.yaml`).
+2. **Real test failures (4)** — `libc-shared-tests on armhf / riscv64 /
+   aarch64 / ppc64le` — `Process completed with exit code 2` (annotations
+   give no individual test names; job logs need auth. The libc
+   cross-compile shared-test legs, presumably failing at build/run of the
+   shared library tests on the QEMU cross targets). `qemu - armhf -
+   clang-23` and `qemu - riscv64 - clang-23` also exit 2 (the qemu step
+   itself failed; the cache annotation also appears on these two).
+
+**In progress (8):** `Build and Test Linux`, `Build and Test Linux
+AArch64`, `Build and Test macOS arm64`, `Test SYCL`, `Test SPIR-V`,
+`Test MLIR SPIR-V`, `build`, `Bazel Build/Test` — were still running at
+recording time; re-query `https://api.github.com/repos/ned14/llvm-project/
+commits/e25504f5a5eaf1828a6e02ddda4c257b1298b3bd/check-runs` and update
+this table before Phase 1 work.
+
+**Skipped (2):** `automate-prs-labels`, `greeter` (PR-triggered,
+expected).
+
+Notes for regression detection: the 13 `libc-fullbuild` cache failures and
+the Windows artifact failure are environment issues, not signal-handling
+regressions; what matters is that the **same set** of 4 `libc-shared-tests`
+cross legs plus the 2 qemu legs fail, and that no **new** check starts
+failing after a phase. The Linux x86_64 premerge suite (`ubuntu-24.04 -
+clang-23`) passing is the key Linux baseline; the local macOS `check-all`
+in the table above is the key macOS baseline.
 
 ## Design
 

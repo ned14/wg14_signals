@@ -66,6 +66,52 @@ as unclaimed (the PREI fix direction) instead of returning `CONTINUE_SEARCH` to 
 exists on Windows (the unclaimed-raise path requires the library's vectored/unhandled
 handlers, which only `siginstall()` registers).
 
+The remaining two Windows CI failures (`out_of_range_signo_test`, `stdc_raise_uninstalled_test`)
+were then diagnosed by cross-compiling the real backend with clang 24
+(`--target=x86_64-w64-windows-gnu -fms-extensions`) and running the actual tests under
+wine, and by diffing against the last passing commit (b6657fc8, whose no-entry branch
+used a `software_raise_in_progress` flag with no record comparison). Three defects were
+found and fixed in `thrd_signal_handle_windows.c.ipp`:
+
+1. **The unclaimed and claim-marking checks now use the full record predicate
+   (`win32_exception_record_matches`) everywhere** -- the raise-initiated frame vs the
+   delivered `EXCEPTION_RECORD`. The NULL-info raise path snapshots
+   `ExceptionFlags=0`/`NumberParameters=0` and `RaiseException(code, 0, 0, NULL)` delivers
+   exactly that (matched via the `NumberParameters == 0` short-circuit); the info path
+   snapshots all four fields from the exact values passed, which the OS preserves. A
+   code-only comparison would be a false-positive hazard: a genuine fault of the same
+   code raised during an in-flight raise (e.g. `stdc_raise(SIGSEGV, NULL, NULL)` whose
+   decider faults with a real `0xC0000005` access violation carrying
+   `NumberParameters == 2`) would be mistaken for the software raise and re-executed
+   forever via `CONTINUE_EXECUTION`.
+2. **Frame claims record the V5 dedup decision.** A frame filter returning
+   `EXCEPTION_CONTINUE_EXECUTION` terminates the dispatch with execution resumed, but the
+   vectored continue handler is still invoked on that path (ReactOS
+   `sdk/lib/rtl/i386/except.c` and `amd64/except.c`, matching Windows x64; the VCH result
+   is ignored there -- `vectoreh.c`, "execution always continues"). The frame filter
+   records its claim (CONTINUE_EXECUTION) in the dedup so that continue-handler
+   invocation reuses it instead of re-running the global pass; the pass re-run would see
+   the in-flight software raise and, without the marker, report it unclaimed
+   (`stdc_raise()` returning false for a raise a frame decider just claimed --
+   `out_of_range_signo_test`). The in-flight raise frame also gains an
+   `exception_was_claimed` marker (full-record match) so a pass re-run (e.g. a dedup
+   mismatch) still continues rather than reporting the raise unclaimed.
+3. **The no-entry unclaimed branch records its decision too**, so the continue handler
+   reuses it instead of re-running the pass.
+
+A ReactOS cross-check (`dll/win32/kernel32/client/except.c`) then found one further
+defect in the info-path snapshot: **`kernel32!RaiseException` masks the delivered flags to
+`EXCEPTION_NONCONTINUABLE` only**, but `stdc_raise`'s info path snapshotted
+`info->ExceptionFlags` verbatim into the raise-initiated frame and passed the unmasked
+value to `RaiseException`. A caller passing any stray flag bit made the snapshot-vs-record
+comparison fail, so the raise-initiated detection missed and WER terminated the process.
+The snapshot and the `RaiseException` call now both use
+`info->ExceptionFlags & EXCEPTION_NONCONTINUABLE` (ReactOS-verified masking).
+
+The `__MINGW32__` sigguarded guard now allows clang (`__clang__`), which implements
+`__try`/`__except` on Windows targets -- the previous unconditional `#error` also
+blocked clang-based Windows builds.
+
 ---
 
 ## 1. Findings, in priority order

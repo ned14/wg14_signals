@@ -50,6 +50,14 @@ struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t)
 {
   struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) * prev;
   bool exception_was_unclaimed;
+  // Set by the frame filter when a sigguarded() frame decider claims a
+  // software raise via sig_decision_resume_execution. On real Windows the
+  // vectored continue handler runs after that frame CONTINUE_EXECUTION and
+  // re-runs the global pass; without this marker the pass would report the
+  // frame-claimed raise unclaimed, making stdc_raise() return false even
+  // though a frame claimed it (analysis.md 3.15/V5 interaction, exposed by
+  // out_of_range_signo_test).
+  bool exception_was_claimed;
 
   DWORD ExceptionCode;
   DWORD ExceptionFlags;
@@ -291,6 +299,76 @@ extern "C"
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) * win_at_entry;
   };
 
+  // V5 dedup state, declared here (before the frame filter, which records its
+  // claims into it): snapshots the identity fields of the EXCEPTION_RECORD the
+  // global-decider pass last ran for, and the decision it produced; the
+  // continue handler reuses the recorded decision for the same exception
+  // instead of running the deciders again, then consumes the entry
+  // (analysis.md 3.15/V5, VDED). Per-thread: exception dispatch is per-thread,
+  // each dispatch has its own EXCEPTION_RECORD (so a nested exception raised
+  // by a decider has a different record and runs the pass fresh), and under a
+  // debugger only the continue handler runs so the pass executes exactly once.
+  static WG14_SIGNALS_THREAD_LOCAL struct WG14_SIGNALS_PREFIX(
+  sig_global_state_tss_state_win_t) wg14_last_global_decider_record;
+  static WG14_SIGNALS_THREAD_LOCAL LONG wg14_last_global_decider_result;
+
+  // Records the V5 dedup decision for an exception so the follow-up vectored
+  // continue handler reuses it instead of re-running the pass (analysis.md
+  // 3.15/V5).
+  static void WG14_SIGNALS_PREFIX(win32_record_global_decider_decision)(
+  const EXCEPTION_RECORD *record, const long result)
+  {
+    wg14_last_global_decider_record.ExceptionCode = record->ExceptionCode;
+    wg14_last_global_decider_record.ExceptionFlags = record->ExceptionFlags;
+    wg14_last_global_decider_record.NumberParameters = record->NumberParameters;
+    wg14_last_global_decider_record.ExceptionInformationFirst =
+    (record->NumberParameters > 0) ? record->ExceptionInformation[0] : 0;
+    wg14_last_global_decider_result = result;
+  }
+
+  // Compares a sig_global_state_tss_state_win_t snapshot (a raise-initiated-
+  // exception frame or the V5 dedup entry above) against a live
+  // EXCEPTION_RECORD: the two describe the same exception when the exception
+  // code, flags, parameter count and (when parameters are present) the first
+  // parameter all agree (analysis.md 3.15/V5). The first-parameter comparison
+  // applies only when parameters exist: a 0-parameter exception --
+  // stdc_raise(signo, NULL, NULL) and RaiseException with no arguments, the
+  // common paths -- matches on code/flags/count alone (the pre-2026-08-20 form
+  // `record->NumberParameters > 0 && ...` made every 0-parameter match fail,
+  // breaking both the V5 dedup and the unclaimed-raise detection on Windows
+  // CI).
+  static bool WG14_SIGNALS_PREFIX(win32_exception_record_matches)(
+  const struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) * state,
+  const EXCEPTION_RECORD *record)
+  {
+    return state->ExceptionCode == record->ExceptionCode &&
+           state->ExceptionFlags == record->ExceptionFlags &&
+           state->NumberParameters == record->NumberParameters &&
+           (record->NumberParameters == 0 || state->ExceptionInformationFirst ==
+                                             record->ExceptionInformation[0]);
+  }
+
+  // Returns the in-flight stdc_raise() frame whose snapshot matches the given
+  // exception record, or NULL when the current exception is not one of our
+  // software raises. Both the frame filter (which marks a frame-claimed raise)
+  // and the global pass (which reports an unclaimed one) need exactly this
+  // lookup, so it lives here.
+  static struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) *
+  WG14_SIGNALS_PREFIX(win32_matching_raise_frame)(
+  const EXCEPTION_RECORD *record)
+  {
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+    WG14_SIGNALS_PREFIX(sig_global_tss_state)();
+    if(tss != WG14_SIGNALS_NULLPTR &&
+       tss->stdc_raise_initiated_exception != WG14_SIGNALS_NULLPTR &&
+       WG14_SIGNALS_PREFIX(win32_exception_record_matches)(
+       tss->stdc_raise_initiated_exception, record))
+    {
+      return tss->stdc_raise_initiated_exception;
+    }
+    return WG14_SIGNALS_NULLPTR;
+  }
+
   static long WG14_SIGNALS_PREFIX(win32_exception_filter)(
   struct WG14_SIGNALS_PREFIX(win32_exception_filter_state) * state,
   EXCEPTION_POINTERS *ptrs)
@@ -312,6 +390,32 @@ extern "C"
       case WG14_SIGNALS_PREFIX(sig_decision_next_decider):
         break;
       case WG14_SIGNALS_PREFIX(sig_decision_resume_execution):
+        // A frame filter returning EXCEPTION_CONTINUE_EXECUTION terminates
+        // the dispatch with execution resumed, but the vectored continue
+        // handler is still invoked for the same exception on the continue
+        // path (ReactOS sdk/lib/rtl/i386/except.c and amd64/except.c -- and
+        // Windows x64 matches -- call RtlCallVectoredContinueHandlers there;
+        // its result is ignored, vectoreh.c "execution always continues").
+        // Record this claim in the V5 dedup so that continue-handler
+        // invocation reuses it instead of re-running the global-decider pass:
+        // the pass re-run would see the in-flight software raise, and without
+        // the exception_was_claimed marker below report it unclaimed --
+        // stdc_raise() returning false for a raise a frame decider just
+        // claimed (analysis.md 3.15/V5 interaction, exposed by
+        // out_of_range_signo_test). Also mark the in-flight raise frame
+        // claimed (full-record match, so a genuine fault of the same code
+        // during a raise is not confused with the software raise) so a pass
+        // re-run (e.g. a dedup mismatch) still continues it rather than
+        // reporting it unclaimed.
+        struct WG14_SIGNALS_PREFIX(
+        sig_global_state_tss_state_win_t) *raise_frame =
+        WG14_SIGNALS_PREFIX(win32_matching_raise_frame)(ptrs->ExceptionRecord);
+        if(raise_frame != WG14_SIGNALS_NULLPTR)
+        {
+          raise_frame->exception_was_claimed = true;
+        }
+        WG14_SIGNALS_PREFIX(win32_record_global_decider_decision)(
+        ptrs->ExceptionRecord, EXCEPTION_CONTINUE_EXECUTION);
         return EXCEPTION_CONTINUE_EXECUTION;
       case WG14_SIGNALS_PREFIX(sig_decision_call_recovery):
         // No recovery routine: continue the exception search (outer frames,
@@ -376,7 +480,7 @@ extern "C"
     {0},     tss,   signals,    recovery,
     decider, value, tss->front, tss->stdc_raise_initiated_exception,
     };
-#ifdef __MINGW32__
+#if defined(__MINGW32__) && !defined(__clang__)
 #error                                                                         \
 "FATAL: Donations of a Mingw suitable alternative to __try ... __except are welcome"
 #else
@@ -458,12 +562,24 @@ extern "C"
       // Put the vectored exception handler into "we raised this exception"
       // mode. This means it kicks back to us instead of invoking the Windows
       // handler if it was unhandled.
+      //
+      // Mask the flags exactly as kernel32!RaiseException does before
+      // delivering the record (ReactOS dll/win32/kernel32/client/except.c,
+      // ExceptionRecord.ExceptionFlags = dwExceptionFlags &
+      // EXCEPTION_NONCONTINUABLE): only EXCEPTION_NONCONTINUABLE is a valid
+      // input, and the delivered record carries only it. The snapshot below is
+      // compared field-for-field against the delivered record by
+      // win32_exception_record_matches, so it must hold exactly what the OS
+      // will deliver -- an unmasked snapshot would never match a caller that
+      // passed stray flag bits, and the raise-initiated detection would miss,
+      // letting Windows Error Reporting terminate the process.
       current2.ExceptionCode = win32sehcode;
-      current2.ExceptionFlags = info->ExceptionFlags;
+      current2.ExceptionFlags = info->ExceptionFlags & EXCEPTION_NONCONTINUABLE;
       current2.NumberParameters = info->NumberParameters;
       current2.ExceptionInformationFirst = info->ExceptionInformation[0];
-      RaiseException(win32sehcode, info->ExceptionFlags, info->NumberParameters,
-                     info->ExceptionInformation);
+      RaiseException(win32sehcode,
+                     info->ExceptionFlags & EXCEPTION_NONCONTINUABLE,
+                     info->NumberParameters, info->ExceptionInformation);
     }
     else
     {
@@ -584,83 +700,39 @@ extern "C"
   }
 
 
-  // The vectored exception function is split into two registered entry points
-  // (install_sighandler_impl below): the unhandled exception filter runs the
-  // global-decider pass on the no-debugger path, and the vectored continue
-  // handler is what runs over a debugger (the OS does not call the installed
-  // filter there). On the no-debugger path Windows invokes the continue handler
-  // AFTER the unhandled filter for the SAME exception, so without a marker the
-  // global deciders would run twice per exception — a double invocation of
-  // every side-effecting decider (analysis.md 3.15/V5). The filter therefore
-  // snapshots the identity fields of the EXCEPTION_RECORD the global-decider
-  // pass last ran for, and the decision it produced; the continue handler
-  // reuses the recorded decision for the same exception instead of running the
-  // deciders again, then consumes the entry (analysis VDED) so a later
-  // exception can never silently skip the pass. Per-thread: exception dispatch
-  // is per-thread, each dispatch has its own EXCEPTION_RECORD (so a nested
-  // exception raised by a decider has a different record and runs the pass
-  // fresh), and under a debugger only the continue handler runs so the pass
-  // executes exactly once.
-  static WG14_SIGNALS_THREAD_LOCAL struct WG14_SIGNALS_PREFIX(
-  sig_global_state_tss_state_win_t) wg14_last_global_decider_record;
-  static WG14_SIGNALS_THREAD_LOCAL LONG wg14_last_global_decider_result;
-
-  // Compares a sig_global_state_tss_state_win_t snapshot (a raise-initiated-
-  // exception frame or the V5 dedup entry above) against a live
-  // EXCEPTION_RECORD, exactly as the raise detection in
-  // win32_global_decider_pass does: the two describe the same exception when
-  // the exception code, flags, parameter count and (when parameters are
-  // present) the first parameter all agree (analysis.md 3.15/V5). Note the
-  // first-parameter comparison applies only when parameters exist: a
-  // 0-parameter exception -- stdc_raise(signo, NULL, NULL) and RaiseException
-  // with no arguments, the common paths -- must match on code/flags/count
-  // alone (the pre-2026-08-20 form `record->NumberParameters > 0 && ...` made
-  // every 0-parameter match fail, breaking both the V5 dedup and the
-  // unclaimed-raise detection on Windows CI).
-  static bool WG14_SIGNALS_PREFIX(win32_exception_record_matches)(
-  const struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) * state,
+  // Detects whether the current exception is a software raise -- a stdc_raise()
+  // with no map entry, or with a map entry that no decider claimed. Returns
+  // EXCEPTION_CONTINUE_EXECUTION when it is (marking the in-flight raise frame
+  // unclaimed -- stdc_raise() then returns false instead of the exception
+  // reaching Windows Error Reporting, analysis.md 2.16/W5 -- unless a frame
+  // decider already claimed it, in which case stdc_raise() returns true), and
+  // EXCEPTION_CONTINUE_SEARCH for a genuine fault.
+  //
+  // The full-record comparison (win32_exception_record_matches) is correct for
+  // both raise paths: the NULL-info path snapshots ExceptionFlags=0/
+  // NumberParameters=0 and RaiseException(code, 0, 0, NULL) delivers exactly
+  // that (matching via the NumberParameters == 0 short-circuit), and the info
+  // path snapshots all four fields from the exact values passed to
+  // RaiseException, which preserves them. Comparing only the exception code
+  // would be a false-positive hazard: a genuine fault of the same code raised
+  // during an in-flight raise (e.g. stdc_raise(SIGSEGV, NULL, NULL) whose
+  // decider faults with a real 0xC0000005 access violation carrying
+  // NumberParameters == 2) would be mistaken for the software raise, continued
+  // via EXCEPTION_CONTINUE_EXECUTION, and re-executed forever.
+  static long WG14_SIGNALS_PREFIX(win32_unclaimed_software_raise)(
   const EXCEPTION_RECORD *record)
   {
-    return state->ExceptionCode == record->ExceptionCode &&
-           state->ExceptionFlags == record->ExceptionFlags &&
-           state->NumberParameters == record->NumberParameters &&
-           (record->NumberParameters == 0 || state->ExceptionInformationFirst ==
-                                             record->ExceptionInformation[0]);
-  }
-
-  // Records the V5 dedup decision for an exception so the follow-up vectored
-  // continue handler reuses it instead of re-running the pass (analysis.md
-  // 3.15/V5).
-  static void WG14_SIGNALS_PREFIX(win32_record_global_decider_decision)(
-  const EXCEPTION_RECORD *record, const long result)
-  {
-    wg14_last_global_decider_record.ExceptionCode = record->ExceptionCode;
-    wg14_last_global_decider_record.ExceptionFlags = record->ExceptionFlags;
-    wg14_last_global_decider_record.NumberParameters = record->NumberParameters;
-    wg14_last_global_decider_record.ExceptionInformationFirst =
-    (record->NumberParameters > 0) ? record->ExceptionInformation[0] : 0;
-    wg14_last_global_decider_result = result;
-  }
-
-  // Detects whether the current exception is an unclaimed software raise -- a
-  // stdc_raise() with no map entry, or with a map entry that no decider
-  // claimed. If so, marks the in-flight raise frame unclaimed so stdc_raise()
-  // returns false instead of the exception reaching Windows Error Reporting
-  // (analysis.md 2.16/W5); returns whether it was one.
-  static bool WG14_SIGNALS_PREFIX(win32_unclaimed_software_raise)(
-  const EXCEPTION_RECORD *record)
-  {
-    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
-    WG14_SIGNALS_PREFIX(sig_global_tss_state)();
-    if(tss != WG14_SIGNALS_NULLPTR &&
-       tss->stdc_raise_initiated_exception != WG14_SIGNALS_NULLPTR &&
-       WG14_SIGNALS_PREFIX(win32_exception_record_matches)(
-       tss->stdc_raise_initiated_exception, record))
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) *raise_frame =
+    WG14_SIGNALS_PREFIX(win32_matching_raise_frame)(record);
+    if(raise_frame != WG14_SIGNALS_NULLPTR)
     {
-      tss->stdc_raise_initiated_exception->exception_was_unclaimed = true;
-      return true;
+      if(!raise_frame->exception_was_claimed)
+      {
+        raise_frame->exception_was_unclaimed = true;
+      }
+      return EXCEPTION_CONTINUE_EXECUTION;
     }
-    return false;
+    return EXCEPTION_CONTINUE_SEARCH;
   }
 
   // Runs the global-decider pass for one exception dispatch and, when the pass
@@ -692,10 +764,15 @@ extern "C"
       // returns and stdc_raise() reports false, instead of the default
       // unhandled behaviour which invokes Windows Error Reporting and
       // terminates the process (analysis.md 2.16/W5). Genuine faults keep
-      // EXCEPTION_CONTINUE_SEARCH.
-      return WG14_SIGNALS_PREFIX(win32_unclaimed_software_raise)(record) ?
-             EXCEPTION_CONTINUE_EXECUTION :
-             EXCEPTION_CONTINUE_SEARCH;
+      // EXCEPTION_CONTINUE_SEARCH. Record the decision either way so the
+      // vectored continue handler's follow-up invocation for the same
+      // exception reuses it instead of re-running the pass (analysis.md
+      // 3.15/V5).
+      const long raise_disposition =
+      WG14_SIGNALS_PREFIX(win32_unclaimed_software_raise)(record);
+      WG14_SIGNALS_PREFIX(win32_record_global_decider_decision)(
+      record, raise_disposition);
+      return raise_disposition;
     }
     struct WG14_SIGNALS_PREFIX(sighandler_info) *item =
     signo_to_sighandler_map_t_value(it);
@@ -767,14 +844,20 @@ extern "C"
     // signal, not that the raise should terminate the process when unclaimed
     // (analysis.md 2.16/W5 -- the map-entry-no-decider arm of PREI). Check the
     // raise-initiated frame before falling back to "call previously installed
-    // signal handler" below.
-    if(WG14_SIGNALS_PREFIX(win32_unclaimed_software_raise)(record))
+    // signal handler" below. The helper returns CONTINUE_EXECUTION for both an
+    // unclaimed raise (marking it unclaimed) and a frame-claimed raise (the
+    // frame already continued it and the vectored continue handler will reuse
+    // this recorded decision) -- the frame's claim must not be overridden by a
+    // re-run of the pass (out_of_range_signo_test).
+    const long raise_disposition =
+    WG14_SIGNALS_PREFIX(win32_unclaimed_software_raise)(record);
+    if(raise_disposition == EXCEPTION_CONTINUE_EXECUTION)
     {
       WG14_SIGNALS_PREFIX(win32_record_global_decider_decision)(
-      record, EXCEPTION_CONTINUE_EXECUTION);
+      record, raise_disposition);
       WG14_SIGNALS_PREFIX(sighandler_info_release)(item);
       UNLOCK(state->lock);
-      return EXCEPTION_CONTINUE_EXECUTION;
+      return raise_disposition;
     }
     // Not a software raise: call previously installed signal handler. Record
     // the decision for the V5 dedup (analysis.md 3.15).

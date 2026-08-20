@@ -37,4 +37,7 @@ unless you can guarantee that `WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL`
 will always be true. Any deviations from this that you find during analysis
 is a severe defect and must be reported as such.
 12. If not running on Windows, prefer to test the Windows only code using
-`wine` rather than a cross compiling Mingw.
+`wine` rather than a cross compiling Mingw. If you need to examine the
+source code for Windows, consider examining the source code for Reactos
+(https://github.com/reactos/reactos) which is a binary compatible
+reproduction of Windows.
