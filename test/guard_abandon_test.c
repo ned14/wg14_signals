@@ -59,7 +59,6 @@ global_abandon_never_returns_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) *
   global_abandon_calls++;
   WG14_SIGNALS_PREFIX(sigdecider_abandon)(rsi);
   longjmp(global_abandon_env, 1);
-  return WG14_SIGNALS_PREFIX(sig_decision_resume_execution);
 }
 
 static int frame_decider_calls = 0;
@@ -132,7 +131,6 @@ frame_abandon_never_returns_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) *
   frame_abandon_calls++;
   WG14_SIGNALS_PREFIX(sigdecider_abandon)(rsi);
   longjmp(frame_abandon_env, 1);
-  return WG14_SIGNALS_PREFIX(sig_decision_resume_execution);
 }
 
 static int fresh_decider_calls = 0;
@@ -187,7 +185,6 @@ nested_inner_abandon_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
   nested_inner_abandon_calls++;
   WG14_SIGNALS_PREFIX(sigdecider_abandon)(rsi);
   longjmp(nested_abandon_env, 1);
-  return WG14_SIGNALS_PREFIX(sig_decision_resume_execution);
 }
 
 static enum WG14_SIGNALS_PREFIX(sig_decision)

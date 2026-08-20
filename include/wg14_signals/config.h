@@ -84,6 +84,26 @@ which are async signal safe, and which are not.
 #endif
 #endif
 
+//! \brief `constexpr` where the language provides one (C++11-or-later, and
+//! C23 compilers implementing the N3018 `constexpr` objects), else `const`.
+//! For file-scope constant objects in public headers: the object is a
+//! compile-time constant where supported, and a plain `const` object
+//! otherwise. N3018 is implemented in GCC >= 13, upstream Clang >= 19 and
+//! Apple Clang >= 17 (its LLVM 19.1 base); other compilers, including older
+//! clang and MSVC, reject the keyword in C mode with "unknown type name
+//! 'constexpr'" (cppreference.com/c/compiler_support/23).
+#ifndef WG14_SIGNALS_C23_CONSTEXPR_OR_CONST
+#if (defined(__cplusplus) && __cplusplus >= 201103L) ||                        \
+((defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L) &&                 \
+ ((defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 13) ||              \
+  (defined(__clang__) && __clang_major__ >= 19) ||                             \
+  (defined(__apple_build_version__) && __clang_major__ >= 17)))
+#define WG14_SIGNALS_C23_CONSTEXPR_OR_CONST constexpr
+#else
+#define WG14_SIGNALS_C23_CONSTEXPR_OR_CONST const
+#endif
+#endif
+
 #ifndef WG14_SIGNALS_IGNORE_MULTIPLE_DEFINITIONS
 #ifdef _MSC_VER
 #define WG14_SIGNALS_IGNORE_MULTIPLE_DEFINITIONS __declspec(selectany)
