@@ -59,7 +59,12 @@ exception). The predicate now treats `NumberParameters == 0` as a match on
 code/flags/count alone; `out_of_range_signo_test` also switched its MSVC
 `GUARDED_SIGNAL` fallback from `SIGABRT` to `SIGILL` (SIGABRT maps to the
 non-continuable `EXCEPTION_NONCONTINUABLE_EXCEPTION`, which a resume-returning frame
-decider cannot continue -- the `SABA` loop).
+decider cannot continue -- the `SABA` loop). The unclaimed-raise path was further
+hardened: the map-entry branch now treats a software raise with no claiming decider
+as unclaimed (the PREI fix direction) instead of returning `CONTINUE_SEARCH` to WER.
+`out_of_range_signo_test` now calls `siginstall()` so the raise-initiated machinery
+exists on Windows (the unclaimed-raise path requires the library's vectored/unhandled
+handlers, which only `siginstall()` registers).
 
 ---
 
@@ -174,6 +179,15 @@ nested delivery inside the abandon/resume window) but a genuine wording-valid
 call that terminates the program.
 
 ### `IGND` [code-level, both backends, Low] `stdc_raise` returns `true` even when the raise was silently ignored (SIG_IGN/default-ignore hand-off, or zero deciders called)
+
+**Update (2026-08-20):** the Windows map-entry arm of facet 2 changed with the PREI
+fix (the map-entry branch now marks an unclaimed software raise `exception_was_unclaimed`
+and `stdc_raise()` returns `false`, `thrd_signal_handle_windows.c.ipp:745-779`). So on
+Windows the *zero-decider* case now returns `false` (conforming: N3924 requires `true`
+only when at least one decider was called), while the *deciders-called-but-unclaimed*
+case also returns `false` — still a deviation, which should hand off and return `true`
+per the "decider was called" criterion. The POSIX facet-1/facet-2 arms below are
+unchanged.
 
 Two facets of the same `stdc_raise` return-value contract defect, merged 2026-08-18
 (from the former `ZERO`):
@@ -508,6 +522,16 @@ sigfence exception does not apply).
 ### `PREI` [wontfix] [Windows, Med] an unclaimed `stdc_raise` (before any `siginstall`, or of an installed signal with no decider/frame/user `__except`) terminates the process via Windows Error Reporting; POSIX returns `false` / hands off in-process
 
 **Adjudicated wontfix 2026-08-18:** no remediation scheduled; see the §4 wontfix legend. The analysis below is retained for the record.
+
+**Update (2026-08-20):** facet 2's fix direction was implemented. The map-entry branch
+of `win32_global_decider_pass` now checks `stdc_raise_initiated_exception` after the
+decider loop and, for a matching software raise with no claiming decider, sets
+`exception_was_unclaimed = true` and returns `EXCEPTION_CONTINUE_EXECUTION` (recording
+the decision for the V5 dedup), so `stdc_raise()` returns `false` instead of the raise
+reaching WER (`thrd_signal_handle_windows.c.ipp:745-779`). **Facet 1 remains the unfixed
+wontfix remainder:** before any `siginstall` the unclaimed-raise machinery
+(`SetUnhandledExceptionFilter`/`AddVectoredContinueHandler`, registered only by
+`install_sighandler_impl`) does not exist, so a `stdc_raise()` still reaches WER.
 
 Two scenarios of the same "unclaimed raise reaches WER" mechanism, merged 2026-08-18
 (from the former `WRET`). On POSIX, `stdc_raise` for an uninstalled signal runs the
@@ -1315,7 +1339,7 @@ then backend scope.
 |---|---|---|---|
 | `NRAI` | windows | Low | `stdc_raise` of an invalid signo raises a real SEH exception (7.14.2.9 p6 "returns false without raising a signal"; reaches WER without `siginstall`) |
 | `WVLD` | windows | Low | Windows sigset helpers accept signo 23..32 (not valid signal numbers; `sigfillset` sets bits for undefined signals) |
-| `IGND` | contract | Low | `stdc_raise` true when raise silently ignored (SIG_IGN/default-ignore, or zero deciders called) |
+| `IGND` | contract | Low | `stdc_raise` true when raise silently ignored (POSIX SIG_IGN/default-ignore hand-off, POSIX zero-decider, and Windows deciders-called-but-unclaimed; Windows zero-decider arm fixed 2026-08-20) |
 | `ACTV` | contract | Low | deciders consulted without activation on BOTH backends (POSIX frame walk; Windows frame filter) — rev-5 7.14.1 p15 |
 | `PRCR` | contract | Low | `signal_decider_create` before `siginstall` silently loses the decider (rev-5 7.14.2.7 p5) |
 | `TLSD` | portability | Med | async-safe TLS detection too optimistic; forced-on-Apple unsafe |
@@ -1340,7 +1364,7 @@ then backend scope.
 | `HNDF` (wontfix) | contract | Med | activated-signal hand-off to the previously installed handler where 7.14.1 p14 requires default handling and forbids using the `signal`-function handler |
 | `ABRS` (wontfix) | contract | Low | `sigdecider_abandon_resume` aborts when a nested signal's processing changed `tss->front` between abandon and resume, in a wording-valid call sequence |
 | `MLAS` (wontfix) | ub | Low | modified-local-after-setjmp UB |
-| `PREI` (wontfix) | windows | Med | unclaimed `stdc_raise` (pre-install or installed-no-decider/frame/`__except`) terminates via WER; POSIX returns/hands off |
+| `PREI` (wontfix) | windows | Med | unclaimed `stdc_raise` terminates via WER only before any `siginstall` (facet 2 — installed signal, no decider/frame/`__except` — fixed 2026-08-20); POSIX returns/hands off |
 | `SUST` (wontfix) | contract | Low | `siguninstall_system` no-op stub |
 | `SKIP` (wontfix, superseded in part) | contract | Low | silent skip of SIGKILL/SIGSTOP/Fil-C signals now conforming (rev-5 7.14.2.5 p4); the reverse arm — NULL + rollback on per-signal `sigaction` failure where p4 requires silent skip + success — remains open |
 | `FWTF` (wontfix) | windows | Med | fallback-TLS `sig_global_tss_state()` NULL-deref in vectored function on fresh threads |

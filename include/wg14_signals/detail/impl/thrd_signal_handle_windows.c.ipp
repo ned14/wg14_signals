@@ -628,6 +628,41 @@ extern "C"
                                              record->ExceptionInformation[0]);
   }
 
+  // Records the V5 dedup decision for an exception so the follow-up vectored
+  // continue handler reuses it instead of re-running the pass (analysis.md
+  // 3.15/V5).
+  static void WG14_SIGNALS_PREFIX(win32_record_global_decider_decision)(
+  const EXCEPTION_RECORD *record, const long result)
+  {
+    wg14_last_global_decider_record.ExceptionCode = record->ExceptionCode;
+    wg14_last_global_decider_record.ExceptionFlags = record->ExceptionFlags;
+    wg14_last_global_decider_record.NumberParameters = record->NumberParameters;
+    wg14_last_global_decider_record.ExceptionInformationFirst =
+    (record->NumberParameters > 0) ? record->ExceptionInformation[0] : 0;
+    wg14_last_global_decider_result = result;
+  }
+
+  // Detects whether the current exception is an unclaimed software raise -- a
+  // stdc_raise() with no map entry, or with a map entry that no decider
+  // claimed. If so, marks the in-flight raise frame unclaimed so stdc_raise()
+  // returns false instead of the exception reaching Windows Error Reporting
+  // (analysis.md 2.16/W5); returns whether it was one.
+  static bool WG14_SIGNALS_PREFIX(win32_unclaimed_software_raise)(
+  const EXCEPTION_RECORD *record)
+  {
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+    WG14_SIGNALS_PREFIX(sig_global_tss_state)();
+    if(tss != WG14_SIGNALS_NULLPTR &&
+       tss->stdc_raise_initiated_exception != WG14_SIGNALS_NULLPTR &&
+       WG14_SIGNALS_PREFIX(win32_exception_record_matches)(
+       tss->stdc_raise_initiated_exception, record))
+    {
+      tss->stdc_raise_initiated_exception->exception_was_unclaimed = true;
+      return true;
+    }
+    return false;
+  }
+
   // Runs the global-decider pass for one exception dispatch and, when the pass
   // returns a disposition whose record the follow-up vectored continue handler
   // must reuse, records the decision (analysis.md 3.15/V5).
@@ -651,18 +686,16 @@ extern "C"
     if(WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_is_end)(it))
     {
       UNLOCK(state->lock);
-      struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
-      WG14_SIGNALS_PREFIX(sig_global_tss_state)();
-      if(tss != WG14_SIGNALS_NULLPTR &&
-         tss->stdc_raise_initiated_exception != WG14_SIGNALS_NULLPTR &&
-         WG14_SIGNALS_PREFIX(win32_exception_record_matches)(
-         tss->stdc_raise_initiated_exception, record))
-      {
-        // Return to stdc_raise() now and say we didn't have a handler.
-        tss->stdc_raise_initiated_exception->exception_was_unclaimed = true;
-        return EXCEPTION_CONTINUE_EXECUTION;
-      }
-      return EXCEPTION_CONTINUE_SEARCH;
+      // We don't have a handler installed for that signal. If this exception
+      // is one of OUR software raises (stdc_raise() of a signal with no
+      // installed handler/decider), continue execution so RaiseException()
+      // returns and stdc_raise() reports false, instead of the default
+      // unhandled behaviour which invokes Windows Error Reporting and
+      // terminates the process (analysis.md 2.16/W5). Genuine faults keep
+      // EXCEPTION_CONTINUE_SEARCH.
+      return WG14_SIGNALS_PREFIX(win32_unclaimed_software_raise)(record) ?
+             EXCEPTION_CONTINUE_EXECUTION :
+             EXCEPTION_CONTINUE_SEARCH;
     }
     struct WG14_SIGNALS_PREFIX(sighandler_info) *item =
     signo_to_sighandler_map_t_value(it);
@@ -722,26 +755,31 @@ extern "C"
           // vectored continue handler's follow-up invocation for the same
           // exception reuses it instead of re-running the deciders
           // (analysis.md 3.15/V5).
-          wg14_last_global_decider_record.ExceptionCode = record->ExceptionCode;
-          wg14_last_global_decider_record.ExceptionFlags =
-          record->ExceptionFlags;
-          wg14_last_global_decider_record.NumberParameters =
-          record->NumberParameters;
-          wg14_last_global_decider_record.ExceptionInformationFirst =
-          (record->NumberParameters > 0) ? record->ExceptionInformation[0] : 0;
-          wg14_last_global_decider_result = EXCEPTION_CONTINUE_EXECUTION;
+          WG14_SIGNALS_PREFIX(win32_record_global_decider_decision)(
+          record, EXCEPTION_CONTINUE_EXECUTION);
           return EXCEPTION_CONTINUE_EXECUTION;
         }
       } while(current != WG14_SIGNALS_NULLPTR);
     }
-    // None of our deciders want this, so call previously installed signal
-    // handler. Record the decision for the V5 dedup (analysis.md 3.15).
-    wg14_last_global_decider_record.ExceptionCode = record->ExceptionCode;
-    wg14_last_global_decider_record.ExceptionFlags = record->ExceptionFlags;
-    wg14_last_global_decider_record.NumberParameters = record->NumberParameters;
-    wg14_last_global_decider_record.ExceptionInformationFirst =
-    (record->NumberParameters > 0) ? record->ExceptionInformation[0] : 0;
-    wg14_last_global_decider_result = EXCEPTION_CONTINUE_SEARCH;
+    // None of our deciders want this. A software raise (stdc_raise()) that no
+    // global decider claimed must return false to the caller, not reach WER:
+    // the installed map entry means only that a handler is registered for the
+    // signal, not that the raise should terminate the process when unclaimed
+    // (analysis.md 2.16/W5 -- the map-entry-no-decider arm of PREI). Check the
+    // raise-initiated frame before falling back to "call previously installed
+    // signal handler" below.
+    if(WG14_SIGNALS_PREFIX(win32_unclaimed_software_raise)(record))
+    {
+      WG14_SIGNALS_PREFIX(win32_record_global_decider_decision)(
+      record, EXCEPTION_CONTINUE_EXECUTION);
+      WG14_SIGNALS_PREFIX(sighandler_info_release)(item);
+      UNLOCK(state->lock);
+      return EXCEPTION_CONTINUE_EXECUTION;
+    }
+    // Not a software raise: call previously installed signal handler. Record
+    // the decision for the V5 dedup (analysis.md 3.15).
+    WG14_SIGNALS_PREFIX(win32_record_global_decider_decision)(
+    record, EXCEPTION_CONTINUE_SEARCH);
     WG14_SIGNALS_PREFIX(sighandler_info_release)(item);
     UNLOCK(state->lock);
     return EXCEPTION_CONTINUE_SEARCH;

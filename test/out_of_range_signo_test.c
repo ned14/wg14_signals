@@ -72,6 +72,16 @@ int main(void)
   sigset_t guarded;
   sigemptyset(&guarded);
   sigaddset(&guarded, GUARDED_SIGNAL);
+  // On Windows the unclaimed-raise machinery (the unhandled exception filter
+  // and vectored continue handler that let an unclaimed stdc_raise() return
+  // false instead of reaching Windows Error Reporting) exists only after
+  // siginstall() (plans/analysis.md 2.16/W5). The sanity raise below is
+  // claimed by the frame decider, so it works without it, but the
+  // out-of-range raises would terminate the process. Install the guarded
+  // signal so the raise-initiated detection is active; harmless on POSIX,
+  // where the frame walk needs no kernel handler.
+  void *handlers = WG14_SIGNALS_PREFIX(siginstall)(&guarded);
+  CHECK(handlers != WG14_SIGNALS_NULLPTR);
   union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value = {.int_value = 7};
   (void) WG14_SIGNALS_PREFIX(sigguarded)(&guarded, guarded_func, noop_recovery,
                                          frame_decider, value);
@@ -80,6 +90,7 @@ int main(void)
   CHECK(pos_returned_false);
   CHECK(far_returned_false);
   CHECK(frame_decider_calls == 0);
+  CHECK(WG14_SIGNALS_PREFIX(siguninstall)(handlers) == 0);
 
   printf("out-of-range signo rejection checks passed\n");
   return ret;
