@@ -8,6 +8,8 @@
 #define _GNU_SOURCE
 #endif
 
+#define _CRT_SECURE_NO_WARNINGS 1
+
 #define WG14_SIGNALS_ENABLE_HEADER_ONLY 1
 
 #include "test_common.h"

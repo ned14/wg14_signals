@@ -35,11 +35,14 @@ int main(void)
     return ret;
   }
 
-  // The standard signals must all be covered.
+  // The standard signals must all be covered. SIGUSR1 is POSIX-only (MSVC
+  // defines no SIGUSR1), so its check is conditional.
   CHECK(sigismember(set, SIGILL) == 1);
   CHECK(sigismember(set, SIGTERM) == 1);
   CHECK(sigismember(set, SIGSEGV) == 1);
+#ifdef SIGUSR1
   CHECK(sigismember(set, SIGUSR1) == 1);
+#endif
 
   // libc-internal signals must be excluded (glibc only; other libcs do not
   // define these names).
