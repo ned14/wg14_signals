@@ -280,8 +280,11 @@ extern "C"
     struct WG14_SIGNALS_PREFIX(stdc_siginfo) rsi;
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) * tss;
     const sigset_t *guarded;
-    WG14_SIGNALS_PREFIX(sig_recover_t) recovery;
-    WG14_SIGNALS_PREFIX(sig_decide_t) decider;
+    // sig_recover_t/sig_decide_t are function types (thrd_signal_handle.h), so
+    // the members are pointers to them: a struct member of function type is
+    // ill-formed in both C11 and C++ (MSVC C2032/C3867).
+    WG14_SIGNALS_PREFIX(sig_recover_t) * recovery;
+    WG14_SIGNALS_PREFIX(sig_decide_t) * decider;
     union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value;
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *
     tss_front_at_entry;
