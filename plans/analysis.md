@@ -112,6 +112,52 @@ The `__MINGW32__` sigguarded guard now allows clang (`__clang__`), which impleme
 `__try`/`__except` on Windows targets -- the previous unconditional `#error` also
 blocked clang-based Windows builds.
 
+On 2026-08-21 the two tests fixed above (`out_of_range_signo_test`,
+`stdc_raise_uninstalled_test`) were found to still die with the raised exception
+code on **real** Windows (VS2022 x64 CI and a Windows ARM64 UTM VM), despite
+passing under the wine cross-check used to verify the 2026-08-20 fixes. Root
+cause: **real Windows ORs `EXCEPTION_SOFTWARE_ORIGINATE` (0x80) into
+`ExceptionFlags` of every record delivered by `RaiseException()`**, but
+`stdc_raise()`'s raise-initiated snapshot records only the flags it passed (0 on
+the NULL-info path, `info->ExceptionFlags & EXCEPTION_NONCONTINUABLE` on the
+info path), and the wine/ReactOS delivery model adds no such bit. The strict
+`state->ExceptionFlags == record->ExceptionFlags` comparison in
+`win32_exception_record_matches` therefore never matched on real Windows, the
+in-flight raise frame was never found, the unclaimed-raise machinery returned
+`CONTINUE_SEARCH`, and Windows Error Reporting terminated the process. All 37
+Windows tests pass on real Windows with the fix.
+
+Later the same day, simplifying the raise detection down to the
+`EXCEPTION_SOFTWARE_ORIGINATE` bit was attempted and **reverted** after
+empirical testing showed the bit cannot be relied on or forced:
+
+1. **The bit cannot be forced on for cross-platform consistency.** It was
+   proposed to pass `EXCEPTION_SOFTWARE_ORIGINATE` as the `RaiseException` flags
+   argument so every platform delivers it. Testing proved this impossible: both
+   kernel32 (real Windows; ReactOS `kernel32/client/except.c` masks the argument
+   to `EXCEPTION_NONCONTINUABLE`) and wine mask the argument to
+   `EXCEPTION_NONCONTINUABLE`, and the delivered 0x80 on real Windows comes from
+   ntdll's dispatcher, which adds it regardless of the argument. Under wine,
+   `RaiseException(code, EXCEPTION_SOFTWARE_ORIGINATE, ...)` delivers
+   `ExceptionFlags == 0` and `RaiseException(code, 0x81, ...)` delivers `0x01`.
+   The delivered flags are therefore OS-controlled, not caller-controlled.
+2. **The bit alone cannot discriminate our raises.** Replacing the four-field
+   comparison with "0x80 set + code matches" breaks the wine verification path
+   (wine never sets the bit, so every in-flight raise would be missed and the
+   unclaimed-raise machinery would return `CONTINUE_SEARCH` again) and
+   false-positives on real Windows (a user's own `RaiseException` of the same
+   code during our dispatch also carries the bit, and only the parameter fields
+   tell it apart).
+3. **The correct approach remains the masked comparison.** The raise frame keeps
+   its pre-delivery snapshot of all four identity fields
+   (`ExceptionCode`, `ExceptionFlags` masked to `EXCEPTION_NONCONTINUABLE`,
+   `NumberParameters`, `ExceptionInformationFirst`), and
+   `win32_exception_record_matches` masks `EXCEPTION_SOFTWARE_ORIGINATE` out of
+   both sides, making the comparison agnostic to whether the OS marks
+   software-originated exceptions. Both environments verified: the two failing
+   tests pass under wine (bit absent) and all 37 tests pass on real Windows
+   (bit present).
+
 ---
 
 ## 1. Findings, in priority order

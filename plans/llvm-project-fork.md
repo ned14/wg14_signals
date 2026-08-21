@@ -516,8 +516,9 @@ Local run results (macOS arm64, Release, clang) — `check-all` **completed
 same `check-all` (same configure flags, clang-23/lld-23, docker container
 `ghcr.io/llvm/arm64v8/libc-ubuntu-24.04@sha256:9ca390ed…`, build dir
 `/var/folders/…/T/kilo/llvm-linux-build`, script `.kilo/tmp/linux-check-all.sh`)
-was **started 2026-08-20 as a persistent process** (`bgp_0207f46bf001cIl6Xtj0RNdiKa`);
-results are recorded in the table when it completes.
+**completed 2026-08-21 with run 3 as the canonical baseline** (see the
+table below and §C.1 for the full procedure, resource constraints, and
+run history).
 
 | Suite | Result | Notes |
 |---|---|---|
@@ -529,6 +530,9 @@ results are recorded in the table when it completes.
 | | `check-clang`: 54,421 discovered — 53,061 passed, 0 failed, 30 expectedly-failed, 1,318 unsupported, 12 skipped (396.88 s) |
 | | `check-lld`: 3,240 discovered — 3,200 passed, 0 failed, 1 expectedly-failed, 39 unsupported (50.26 s) |
 | | `check-libc` (overlay, lit): 832 discovered — 832 passed, 0 failed (1296.27 s; includes building the 3,424 libc unit-test targets; the 32 check-all failures are all compiler-rt, so a per-suite `check-compiler-rt` re-run is not needed for the baseline — its failures are itemised above) |
+| **Linux arm64 `check-all`** (docker, clang-23/lld-23, Release, same projects) | **run 3 (canonical, 2026-08-21, log `check-all-linux-run3.log`): 141,736 discovered — 135,280 passed (95.45%), 42 failed (0.03%), 244 expectedly-failed, 6,081 unsupported, 89 skipped** (4579.23 s, `ninja: build stopped: subcommand failed`). Run 2 (log `check-all-linux.log`): same totals except 135,291 passed / **31 failed** — the difference is flaky sanitizer/cfi tests under the 7.75 GiB memory cap; the **stable intersection** is the environmental set below. **All failures are environmental/flaky, none signal-related** | |
+| | **Stable environmental failures (present in both runs, ~31; caused by root user + case-sensitive host fs + container)** — permission/umask: `LLVM :: tools/llvm-ar/error-opening-permission.test`, `llvm-ranlib/error-opening-permission.test`, `lit :: shtest-umask.py`, `lld :: ELF/file-access.s`, `lld :: ELF/lto/{resolution-err,thinlto-cant-write-index,thinlto-emit-imports}.ll`, `lld :: MachO/thinlto-emit-imports.ll`, `lld :: COFF/thinlto-emit-imports.ll`, 6 × `Clang :: Analysis/Scalable/*/…permissions.test`, `Profile-aarch64 :: {Posix/instrprof-fork.c, instrprof-set-dir-mode.c}` (umask/permission-sensitive), `libFuzzer-aarch64-default-Linux :: fuzzer-dirs.test`; case-insensitive fs: `Clang :: {APINotes/case-for-private-apinotes-file.c, Lexer/case-insensitive-include{-absolute,-system}.c, Modules/inferred-framework-case.m, PCH/case-insensitive-include.c, Preprocessor/nonportable-include-with-hmap.c}`; container: `LLVM :: tools/llvm-lipo/{create-executable,thin-executable-universal-binary}.test`, `LLVM :: tools/llvm-dwarfdump/X86/output.s` (flaky formatting), `DataFlowSanitizer-aarch64 :: release_shadow_space.c`, `Profile-aarch64 :: ContinuousSyncMode/online-merging.c` | |
+| | **Flaky/run-dependent failures (only in run 3)**: `HWAddressSanitizer-aarch64 :: TestCases/{bcmp.cpp,stack-oob.c,stack-underflow.c}`, `LeakSanitizer-HWAddressSanitizer-aarch64 :: TestCases/suppressions_default.cpp`, `LLVM :: tools/llvm-objcopy/ELF/strip-debug.test`, `lld :: COFF/lto-cache-errors.ll`, `lld :: MachO/invalid/invalid-lto-object-path.ll`, cfi `cross-dso/stats.cpp` ×2, cfi `mfcall.cpp`, cfi `cross-dso-diagnostic.cpp` — sanitizer/cfi tests that flake under the 4-way-lit memory pressure; treat as pass/fail-inconclusive, do not attribute to changes | |
 | Fault-injection matrix (SIGSEGV/SIGABRT/SIGFPE/SIGBUS/SIGILL/SIGTRAP/SIGINT/SIGTERM/SIGPIPE/SIGUSR1/SIGUSR2/SIGHUP into a tool: stack trace content, exit codes, cleanup-file behaviour) | TBD | gates 9a-9e |
 
 Out-of-scope suites to baseline from CI once the fork's Actions is
@@ -540,6 +544,111 @@ Every phase's verification step compares against the rows above; a row
 changing from pass to fail (or a TBD row first failing) is a regression
 to resolve before proceeding. Known failures today: §B's darwin lit
 0-tests failure and the standalone suite's platform exclusions (§A).
+
+### C.1 How to run the Linux test suite on this machine (exact procedure)
+
+Recorded 2026-08-20 after three failed attempts taught the following
+lessons. **Follow this exactly; do not improvise.**
+
+#### Container and environment
+
+- Docker on this host is a VM with only **7.75 GiB RAM** and Linux
+  **arm64** (aarch64), and runs as **root**. The image to use is the one
+  libc's own CI uses for the `linux-aarch64-clang` leg (pinned by digest):
+  ```
+  ghcr.io/llvm/arm64v8/libc-ubuntu-24.04@sha256:9ca390ed3546754c1d7cb669033c532c28d95a0327551c5754cbf72375178e37
+  ```
+  It contains clang-23/clang++-23, lld-23, gcc 13.3, cmake, ninja.
+- **Never write multi-line scripts with pipes/quotes into the `docker run`
+  command string** — the shell wrapper mangles `|`, `$(...)` and
+  multi-line bodies (observed: `don: command not found`, `redir error`,
+  `grep: passed: No such file or directory`). Instead write a script file
+  (e.g. `.kilo/tmp/<name>.sh`, executable, no inline `|` in echo
+  summaries — use `grep ... > log` then `grep` the log afterwards) and
+  invoke it as `docker run ... bash /work/.kilo/tmp/<name>.sh`.
+- **Mounts**: `/Users/ned/boostish/wg14_signals:/work` (the repo) and a
+  persistent host build dir, e.g.
+  `/var/folders/5s/4zr1hh3j76bbmmhx3gl_5wn40000gn/T/kilo/llvm-linux-build:/linuxbuild`.
+  The build dir must be on the host (not container /tmp) so a killed
+  container leaves the tree resumable.
+- **Capture the exit code into a file inside the container**, never rely
+  on the outer shell's `$?` (the first full run printed
+  `LINUX_CHECK_ALL_EXIT=0` while ninja had actually failed):
+  ```
+  ninja -C /linuxbuild check-all > /linuxbuild/check-all-linux.log 2>&1
+  rc=$?; echo RUN_RC=$rc >> /linuxbuild/check-all-linux.log
+  ```
+  and afterwards always verify with the lit summary block in the log
+  (`Total Discovered Tests` / `Passed` / `Failed` / `FAILED:`), not the
+  exit code alone.
+
+#### The three Linux runs and their exact commands
+
+1. **wg14_signals standalone glibc matrix** (16 configs) — script
+   `.kilo/tmp/wg14-glibc-matrix.sh`, run:
+   ```
+   docker run --rm -v /Users/ned/boostish/wg14_signals:/work \
+     ghcr.io/llvm/arm64v8/libc-ubuntu-24.04@sha256:9ca390ed… \
+     bash /work/.kilo/tmp/wg14-glibc-matrix.sh
+   ```
+   (clang-23/gcc × Debug/Release × C11/C23 × shared OFF/ON × fallback
+   OFF/ON, `-DCMAKE_TOOLCHAIN_FILE=/work/cmake/sanitize-toolchain.cmake`,
+   `ctest -E benchmark`). Expected: **38/38 passed in every config**.
+2. **wg14_signals musl matrix** (4 configs) — script
+   `.kilo/tmp/wg14-musl-matrix.sh`, image `alpine:3.20`, run with
+   `sh -c 'apk add --no-cache build-base cmake ninja > /dev/null && sh
+   /work/.kilo/tmp/wg14-musl-matrix.sh'`. Expected: **38/38 in every
+   config**.
+3. **libc fullbuild** (the `linux-aarch64-clang` CI leg) — script
+   `.kilo/tmp/libc-fullbuild-linux.sh`; requires **`--privileged`**
+   (CI does the same; some tests need SYS_TIME). Targets `install` then
+   `check-libc-build` then `check-libc`. Expected: **check-libc 1157/1157
+   passed**.
+4. **Full monorepo `check-all`** — configure + build + test script
+   `.kilo/tmp/linux-check-all.sh` (llvm;clang;lld;compiler-rt;libc,
+   Release, clang-23, `-DLLVM_USE_LINKER=lld-23`, benchmarks/examples/
+   docs OFF, `-DLLVM_PARALLEL_LINK_JOBS=4`). **Constraints that prevent
+   failures:**
+   - Do NOT let ninja auto-detect parallelism: AMDGPU `llvm-tblgen` gets
+     OOM-`Killed` at `-j12` inside the 7.75 GiB VM. Configure with
+     `-DLLVM_LIT_ARGS="-j4"` and run `ninja -C /linuxbuild -j3 check-all`
+     (also cap lit: `-DLLVM_LIT_ARGS="-j4"`; tests run 4-way).
+   - Expected (run 3, canonical): **141,736 discovered — 135,280 passed,
+     42 failed, 244 expectedly-failed, 6,081 unsupported, 89 skipped**
+     (4579 s). The 42 failures are environmental/flaky: ~31 stable
+     (root-user/umask `error-opening-permission`-class tests, docker runs
+     as root; case-sensitive-fs `case-insensitive-include` tests;
+     `llvm-lipo` universal-binary tests; dfsan `release_shadow_space.c`;
+     profile `online-merging.c`; `llvm-dwarfdump/X86/output.s`) plus ~11
+     flaky sanitizer/cfi tests that vary run to run. **None are
+     signal-related.** Keep the same image/flags so the failure set stays
+     comparable across phases.
+   - Resuming: on the same bind mount, a re-run is just `ninja -C
+     /linuxbuild -j3 check-all` (incremental).
+   - To get per-suite counts, run `ninja -C /linuxbuild check-llvm
+     check-clang check-lld check-libc check-compiler-rt` with the same
+     `-j3`/lit caps and capture each lit summary block.
+
+#### What NOT to do (mistakes recorded 2026-08-20)
+
+- Do not pass multi-line scripts with `|`/`$()` inline in the docker
+  command (broken quoting).
+- Do not use the default ninja parallelism in the 7.75 GiB VM (OOM kills).
+- Do not trust the outer `$?` echo; capture rc into the log and read the
+  lit summary.
+- Do not run the build in a container-local dir (lost on `--rm`; not
+  resumable).
+- Do not expect the 31-42 environmental failures to disappear on a plain
+  re-run; they are the baseline, and the *stable set* (~31, listed in the
+  table above) is what must stay stable across phases. The flaky
+  sanitizer/cfi subset (run 3's extra 11) is expected to vary run to run.
+- **Run history (all logs in the build dir `/var/folders/…/T/kilo/llvm-linux-build/`):**
+  run 1 — OOM-killed at ~1,350/8,318 objects then resumed; its outer
+  `$?` echo wrongly printed 0 (rc-capture bug). Run 2 —
+  `check-all-linux.log`: 31 failed. Run 3 (canonical) —
+  `check-all-linux-run3.log`: 42 failed, 135,280 passed. Use run 3's
+  numbers as the Linux baseline and re-run with the identical
+  image/flags/script so the failure set stays comparable.
 
 ### D. Fork CI baseline from PR #1 (recorded 2026-08-20)
 

@@ -46,6 +46,29 @@ limitations under the License.
 #endif
 #include <windows.h>
 
+// EXCEPTION_SOFTWARE_ORIGINATE (0x80, "exception originated in software"):
+// real Windows ORs this bit into the ExceptionFlags of every EXCEPTION_RECORD
+// delivered by RaiseException(), while genuine hardware faults (access
+// violations, illegal instructions, ...) carry ExceptionFlags == 0 (verified
+// on real Windows). The wine/ReactOS delivery model adds no such bit (verified
+// under wine). The caller cannot force the bit on for consistency: both
+// kernel32 (real Windows, per ReactOS kernel32/client/except.c) and wine mask
+// RaiseException()'s flags argument to EXCEPTION_NONCONTINUABLE -- under wine,
+// RaiseException(code, EXCEPTION_SOFTWARE_ORIGINATE, ...) delivers
+// ExceptionFlags == 0 and RaiseException(code, 0x81, ...) delivers 0x01 -- and
+// on real Windows the delivered 0x80 comes from ntdll's dispatcher, which adds
+// it regardless of the argument. The bit therefore cannot itself discriminate
+// our software raises from genuine faults: win32_matching_raise_frame must keep
+// comparing the raise frame's pre-delivery snapshot field-for-field against the
+// delivered record, and win32_exception_record_matches masks the bit out of
+// both sides so the same code works whether or not the OS marks
+// software-originated exceptions (analysis.md 3.15). MinGW's winnt.h (used to
+// cross-compile this backend for wine verification) defines only
+// EXCEPTION_NONCONTINUABLE, so supply the fallback.
+#ifndef EXCEPTION_SOFTWARE_ORIGINATE
+#define EXCEPTION_SOFTWARE_ORIGINATE 0x80
+#endif
+
 struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t)
 {
   struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) * prev;
@@ -59,6 +82,17 @@ struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t)
   // out_of_range_signo_test).
   bool exception_was_claimed;
 
+  // Identity fields of the in-flight raise's exception, snapshotted BEFORE
+  // RaiseException() delivers the record. win32_matching_raise_frame matches a
+  // delivered record against this snapshot field-for-field (see
+  // win32_exception_record_matches): the delivered record carries the same
+  // code, the caller's flags masked to EXCEPTION_NONCONTINUABLE (plus
+  // EXCEPTION_SOFTWARE_ORIGINATE on real Windows, masked out in the
+  // comparison), the same parameter count and first parameter. The
+  // pre-2026-08-21 full-field comparison is required: wine never sets the
+  // software-originate bit, and a user's own RaiseException of the same code
+  // during our dispatch would carry it, so the bit alone cannot identify our
+  // raise on either environment.
   DWORD ExceptionCode;
   DWORD ExceptionFlags;
   DWORD NumberParameters;
@@ -308,6 +342,15 @@ extern "C"
   // each dispatch has its own EXCEPTION_RECORD (so a nested exception raised
   // by a decider has a different record and runs the pass fresh), and under a
   // debugger only the continue handler runs so the pass executes exactly once.
+  //
+  // The snapshot reuses sig_global_state_tss_state_win_t: its identity fields
+  // are the same four the raise frame carries, and
+  // win32_exception_record_matches serves both comparisons. For the dedup both
+  // sides are DELIVERED records (the unhandled filter passes the live record to
+  // the pass, which records it, and the continue handler compares the same live
+  // record against the snapshot), so their flags agree including
+  // EXCEPTION_SOFTWARE_ORIGINATE; masking that bit out in the shared comparison
+  // is harmless here and necessary for the raise-frame side.
   static WG14_SIGNALS_THREAD_LOCAL struct WG14_SIGNALS_PREFIX(
   sig_global_state_tss_state_win_t) wg14_last_global_decider_record;
   static WG14_SIGNALS_THREAD_LOCAL LONG wg14_last_global_decider_result;
@@ -326,23 +369,34 @@ extern "C"
     wg14_last_global_decider_result = result;
   }
 
-  // Compares a sig_global_state_tss_state_win_t snapshot (a raise-initiated-
-  // exception frame or the V5 dedup entry above) against a live
-  // EXCEPTION_RECORD: the two describe the same exception when the exception
-  // code, flags, parameter count and (when parameters are present) the first
-  // parameter all agree (analysis.md 3.15/V5). The first-parameter comparison
-  // applies only when parameters exist: a 0-parameter exception --
-  // stdc_raise(signo, NULL, NULL) and RaiseException with no arguments, the
-  // common paths -- matches on code/flags/count alone (the pre-2026-08-20 form
-  // `record->NumberParameters > 0 && ...` made every 0-parameter match fail,
-  // breaking both the V5 dedup and the unclaimed-raise detection on Windows
-  // CI).
+  // Compares an identity snapshot (the V5 dedup entry, or the in-flight raise
+  // frame) against a live EXCEPTION_RECORD: the two describe the same exception
+  // when the exception code, flags, parameter count and (when parameters are
+  // present) the first parameter all agree (analysis.md 3.15/V5). The
+  // first-parameter comparison applies only when parameters exist: a
+  // 0-parameter exception matches on code/flags/count alone (the
+  // pre-2026-08-20 form `record->NumberParameters > 0 && ...` made every
+  // 0-parameter match fail, breaking the V5 dedup on Windows CI).
+  //
+  // EXCEPTION_SOFTWARE_ORIGINATE is masked out of both sides: real Windows ORs
+  // it into every RaiseException-delivered record, but stdc_raise()'s raise
+  // frame snapshots only the flags it passed (0, or the caller's flags masked
+  // to EXCEPTION_NONCONTINUABLE), and the wine/ReactOS delivery model used to
+  // verify this backend adds no such bit. Passing the bit to RaiseException
+  // cannot make the delivered records consistent -- both kernel32 and wine
+  // mask the flags argument to EXCEPTION_NONCONTINUABLE, and on real Windows
+  // the delivered 0x80 comes from ntdll regardless of the argument (see the
+  // EXCEPTION_SOFTWARE_ORIGINATE comment at the top of this file). Masking
+  // makes the comparison agnostic to whether the OS marks software-originated
+  // exceptions; the raise-frame identity is carried by the other three fields,
+  // so the bit cannot be relied on to identify our raise (analysis.md 3.15).
   static bool WG14_SIGNALS_PREFIX(win32_exception_record_matches)(
   const struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) * state,
   const EXCEPTION_RECORD *record)
   {
     return state->ExceptionCode == record->ExceptionCode &&
-           state->ExceptionFlags == record->ExceptionFlags &&
+           (state->ExceptionFlags & ~EXCEPTION_SOFTWARE_ORIGINATE) ==
+           (record->ExceptionFlags & ~EXCEPTION_SOFTWARE_ORIGINATE) &&
            state->NumberParameters == record->NumberParameters &&
            (record->NumberParameters == 0 || state->ExceptionInformationFirst ==
                                              record->ExceptionInformation[0]);
@@ -574,10 +628,12 @@ extern "C"
       // EXCEPTION_NONCONTINUABLE): only EXCEPTION_NONCONTINUABLE is a valid
       // input, and the delivered record carries only it. The snapshot below is
       // compared field-for-field against the delivered record by
-      // win32_exception_record_matches, so it must hold exactly what the OS
-      // will deliver -- an unmasked snapshot would never match a caller that
-      // passed stray flag bits, and the raise-initiated detection would miss,
-      // letting Windows Error Reporting terminate the process.
+      // win32_exception_record_matches (which masks the OS's
+      // EXCEPTION_SOFTWARE_ORIGINATE out of the delivered flags), so it must
+      // hold exactly what the OS will deliver -- an unmasked snapshot would
+      // never match a caller that passed stray flag bits, and the
+      // raise-initiated detection would miss, letting Windows Error Reporting
+      // terminate the process.
       current2.ExceptionCode = win32sehcode;
       current2.ExceptionFlags = info->ExceptionFlags & EXCEPTION_NONCONTINUABLE;
       current2.NumberParameters = info->NumberParameters;
@@ -713,17 +769,15 @@ extern "C"
   // decider already claimed it, in which case stdc_raise() returns true), and
   // EXCEPTION_CONTINUE_SEARCH for a genuine fault.
   //
-  // The full-record comparison (win32_exception_record_matches) is correct for
-  // both raise paths: the NULL-info path snapshots ExceptionFlags=0/
-  // NumberParameters=0 and RaiseException(code, 0, 0, NULL) delivers exactly
-  // that (matching via the NumberParameters == 0 short-circuit), and the info
-  // path snapshots all four fields from the exact values passed to
-  // RaiseException, which preserves them. Comparing only the exception code
-  // would be a false-positive hazard: a genuine fault of the same code raised
-  // during an in-flight raise (e.g. stdc_raise(SIGSEGV, NULL, NULL) whose
-  // decider faults with a real 0xC0000005 access violation carrying
-  // NumberParameters == 2) would be mistaken for the software raise, continued
-  // via EXCEPTION_CONTINUE_EXECUTION, and re-executed forever.
+  // win32_matching_raise_frame compares the raise frame's pre-delivery snapshot
+  // field-for-field against the delivered record
+  // (win32_exception_record_matches, masking EXCEPTION_SOFTWARE_ORIGINATE), so
+  // a genuine fault of the same code raised during an in-flight raise (e.g.
+  // stdc_raise(SIGSEGV, NULL, NULL) whose decider faults with a real 0xC0000005
+  // access violation carrying NumberParameters == 2) is not mistaken for the
+  // software raise and re-executed forever -- real Windows sets the bit only on
+  // RaiseException- delivered records, but wine sets it on none, so the bit
+  // alone cannot discriminate (analysis.md 3.15).
   static long WG14_SIGNALS_PREFIX(win32_unclaimed_software_raise)(
   const EXCEPTION_RECORD *record)
   {
