@@ -58,19 +58,68 @@ Paths are line-referenced against the current trees.
    (`sigaction`, `abort`, `pthread_kill(pthread_self(), ...)`). The
    submodule's `.ipp` files then need no modification; this is the feature
    that proves the reference implementation is sufficient to extend an
-   existing standard C library.
+   existing standard C library. **DONE in this session**: `config.h` now
+   defines `WG14_SIGNALS_SIGACTION`/`WG14_SIGNALS_ABORT`/
+   `WG14_SIGNALS_KILL_SELF` (function-like macros defaulting to the
+   standard calls, documented as the embedder interface, `#undef`-safe) and
+   the POSIX `.ipp` routes all 11 call sites through them (6 × sigaction,
+   4 × abort, 1 × pthread_kill(pthread_self())). Proven by the new
+   `WG14_SIGNALS_OVERRIDE_PROBE` CMake option (`test/override_probe.{h,c}`
+   redirects the hooks to distinct wrapper functions force-included ahead
+   of `config.h`; the library objects then reference the wrappers, and the
+   full suite passes 37/37 both OFF and ON — verified locally on macOS
+   arm64, both Debug-free Release configs; CI leg `LinuxOverrideProbe`
+   added to `.github/workflows/ci.yml`).
 3. Build-wire the wg14_signals library object in libc (compile the
    submodule's C sources directly under the full-build flags:
    `-ffreestanding -fno-builtin -nostdlibinc`, no `add_subdirectory` of the
    submodule) and run the existing wg14_signals unit-test suite against it
-   on Linux first (§"Phase 1").
+   on Linux first (§"Phase 1"). **DONE 2026-08-21**: fork-owned
+   `libc/src/signal/wg14/CMakeLists.txt` builds the submodule's five C
+   sources + `embedder_shim.{h,c}` as `libc.src.signal.wg14.wg14_signals`
+   with `-std=gnu11` under the full-build flag set (see the compile command
+   in `build-wg14-obj.log`); the shim redefines
+   `WG14_SIGNALS_SIGACTION/ABORT/KILL_SELF/GETTID` to raw Linux syscalls via
+   `__llvm_libc_syscall` (kernel-layout sigaction conversion with
+   `__restore_rt`, `SYS_gettid`/`SYS_tgkill` self-delivery, the
+   recursion-free hard abort; `SA_NOCLDWAIT` is stripped from the raw
+   handler so POSIX wait()/zombie semantics survive). Compiles clean under
+   the full flags modulo `-Wno-conversion -Wno-cast-qual
+   -Wno-global-constructors` for the vendored verstable.h and the lazy-init
+   sigset builders. The fork's own smoke test (`.kilo/tmp/wg14_libc_smoke.c`,
+   linked against the built `libc.a` + `crt1.o` + compiler-rt builtins)
+   passes 100% on Linux aarch64: sigaction/signal/raise/SA_SIGINFO/SIG_IGN/
+   sigprocmask through the registry, siginstall/siguninstall/
+   signal_decider_create/destroy, stdc_raise, sigguarded SIGSEGV recovery,
+   sigfillset_*, current_thread_id, tss_async_signal_safe_*, default-action
+   delivery, and abort() semantics. Gated to Linux only until the darwin/
+   freebsd syscall layers land (Phase 5/6), preserving the darwin baseline.
 4. Extend the generated public headers (§"Public API surface"): extend
    `libc/include/signal.yaml` with the N3924 functions/types/macros and add
    `libc/include/tss_async_signal_safe.yaml` (or a hand-written header per the
    `*.h.def` pattern for the `sigfence` macro, which cannot be yaml-expressed).
+   **DONE 2026-08-21**: `signal.yaml` gained the twelve N3924 functions, the
+   N3924 types (`global_signal_decider_t`, `sig_decide_t`, `sig_decision`,
+   `sig_func_t`, `sig_recover_t`, `struct_stdc_siginfo`,
+   `union_stdc_siginfo_value` — hdrgen derives the `struct_`/`union_` file
+   names from the signatures) and the `sigfence` macro (extracted verbatim
+   from the submodule header into `llvm-libc-macros/sigfence-macros.h`);
+   `tss_async_signal_safe.yaml` (new header target), `threads.yaml`
+   (`current_thread_id` per N3924 rev 5), the `llvm-libc-types` mirrors
+   (including `SIGGUARDED_FAILURE_VALUE`), the `hdr/` proxies, and the
+   `libc.include.signal` target deps. `sigismember` added to `signal.yaml`
+   + a Linux implementation (the submodule calls it). The aarch64
+   `ucontext_t`/`mcontext_t` kernel-ABI types were added and the
+   x86_64-only gate in `include/CMakeLists.txt` widened.
 5. Add the new entrypoint objects (`libc/src/signal/wg14/entrypoints/*.cpp`
    thin `LLVM_LIBC_FUNCTION` wrappers) and register them in
    `libc/config/linux/{x86_64,aarch64,arm,riscv}/entrypoints.txt`.
+   **DONE 2026-08-21**: 17 wrappers (16 in `src/signal` + `current_thread_id`
+   in `src/threads` per the yaml placement) with internal headers declaring
+   the namespace functions; registered via `add_entrypoint_object` ALIAS
+   targets in `libc/src/signal/CMakeLists.txt` and the three Linux configs
+   (aarch64/x86_64/riscv; arm/i386/power have no signal entrypoints and stay
+   that way).
 6. Re-point the existing Linux signal entrypoints (§"Replacing the existing
    entrypoints"): `libc/src/signal/linux/sigaction.cpp`, `signal.cpp`,
    `raise.cpp`, `sigprocmask.cpp`, `pthread_sigmask.cpp`, `sigaltstack.cpp`,
@@ -78,12 +127,29 @@ Paths are line-referenced against the current trees.
    `kill.cpp` become thin wrappers over the wg14_signals machinery; the
    kernel-facing handler in `signal_utils.h` is retired in favour of the
    wg14_signals raw handler, with user handlers dispatched as deciders.
+   **DONE 2026-08-21 (Linux, full build)**: `sigaction`/`raise` are
+   full-build registry operations via the fork-owned
+   `libc/src/signal/wg14/registry.{h,cpp}` (per-signal `states[]` under a
+   RawRwLock; first touch captures the kernel disposition via
+   `unchecked_sigaction`; `sigaction_decider` dispatches user handlers/
+   SA_SIGINFO/IGN with async-signal-safety; `raise` falls back to the shim's
+   kernel self-delivery when nothing claims); `signal()` routes through
+   `sigaction` unchanged; `sigprocmask`/`sigaltstack`/`kill`/sigset helpers
+   keep their direct-kernel implementations; overlay builds keep the old
+   code. `sigismember` added.
 7. Re-point the internal consumers (§"Internal consumers"): `abort()` in
    `libc/src/stdlib/linux/abort_utils.h` (SIGABRT via the new raise path,
    SIG_DFL re-raise, unblock), `system()` in
    `libc/src/stdlib/linux/system.cpp`, `posix_spawn()` in
    `libc/src/spawn/linux/posix_spawn.cpp`, and `raise` usage anywhere else
    that calls `linux_syscalls::raise` / `rt_sigaction` directly.
+   **DONE 2026-08-21 (abort; system/posix_spawn verified unchanged)**:
+   `abort_utils::abort()` calls the shim's recursion-free hard abort in the
+   full build (C11 semantics: catching handler runs, returning handler is
+   followed by SIG_DFL re-raise + unblock + exit(127)); `system()` and
+   `posix_spawn()` use kernel-level sigaction/sigprocmask which compose
+   correctly with the wg14 raw handler and need no change (verified in the
+   smoke test's fork/waitpid path).
 8. Bring up macOS (darwin) (§"Phase 6"): add darwin OSUtil syscall wrappers
    (sigaction, sigaltstack, sigprocmask, pthread_kill/pthread_self via the
    existing darwin syscall layer), darwin `signal-macros.h`, generated
@@ -447,7 +513,10 @@ Commands (per `.github/workflows/ci.yml`): `cmake --build build
 
 The override-macro probe (Phase 1 step 2) will add a ninth configuration:
 same suite with `WG14_SIGNALS_SIGACTION/ABORT/KILL_SELF` overridden —
-that configuration must also pass 37/37.
+that configuration must also pass 37/37. **DONE 2026-08-21**: the
+`WG14_SIGNALS_OVERRIDE_PROBE` configuration passes 37/37 locally (macOS
+arm64, clang); the `LinuxOverrideProbe` CI leg will re-verify on
+ubuntu-latest.
 
 ### B. llvm-project libc (the fork, full runtimes build)
 
@@ -748,6 +817,17 @@ in the table above is the key macOS baseline.
   relative includes resolve. The library must compile under the full-build
   flag set: `-ffreestanding -fno-builtin -nostdlibinc -fno-exceptions
   -fno-rtti`, C11, C sources only (AGENTS.md: no C++ in libc sources).
+- **Local development state (2026-08-21)**: the submodule's working tree
+  in the fork is deliberately dirty — it carries the uncommitted upstream
+  override-layer changes (the `WG14_SIGNALS_*` embedder hooks in config.h
+  and the call-site routing in the `.ipp` files, plus the
+  `WG14_SIGNALS_DISABLE_SIGGUARDED_FAILURE_VALUE` guard and the
+  `sigguarded_failure_value()` helper). When the upstream repo's changes
+  are committed and pushed, the fork bumps the pin
+  (`git submodule update --remote` style deliberate commit); until then the
+  local submodule checkout is the development checkout. The fork-owned
+  files (CMakeLists, embedder shim, registry, wrappers) never touch the
+  submodule's contents.
 - Missing-submodule guard: the fork-owned CMake
   `message(FATAL_ERROR ...)`s with recovery instructions when the submodule
   is absent, so a non-recursive clone fails fast and explains how to run
@@ -957,26 +1037,64 @@ implementation:
 1. **DONE**: submodule added at `libc/src/signal/wg14`, pinned to
    `50042dad4eb3` (staged in the fork; commit it in the fork with the
    `.gitmodules` entry).
-2. Upstream (this repo): add the override macros to `config.h`
-   (`WG14_SIGNALS_SIGACTION`, `WG14_SIGNALS_ABORT`,
-   `WG14_SIGNALS_KILL_SELF`) defaulting to the standard calls, and route
-   the three call-site families in the POSIX `.ipp` through them. Prove
-   the interface: add a CMake probe (or CI leg) in this repo that builds
-   the library with all three macros overridden to simple wrappers and
-   runs the full test suite — in both configurations.
-3. Add the fork-owned `libc/src/signal/wg14/CMakeLists.txt` object
-   library (no `add_subdirectory` of the submodule) with the
-   missing-submodule FATAL_ERROR guard; wire into
-   `libc/src/signal/CMakeLists.txt`.
-4. Compile under full-build flags; fix freestanding issues surfaced by the
-   build (verify `<stdatomic.h>` availability from clang, the pthread_key
-   fallback resolves to libc's generated `<pthread.h>`).
-5. Gate: only compiled when the platform has the prerequisites
-   (`LIBC_TARGET_OS` in linux/darwin/freebsd) — the existing pattern of
-   `if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${LIBC_TARGET_OS})` already
-   isolates platforms.
-6. Smoke test: build `ninja -C build libc` and run the submodule's own
-   suite against the built `libc.a` on Linux (Linux has `crt1.o`).
+2. **DONE 2026-08-21, extended**: the upstream embedder override layer now
+   covers the complete host-call inventory: `WG14_SIGNALS_SIGACTION/ABORT/
+   KILL_SELF/GETTID` plus `WG14_SIGNALS_MEMCPY/MEMSET/MALLOC/CALLOC/FREE`,
+   `WG14_SIGNALS_SIGEMPTYSET/SIGFILLSET/SIGADDSET/SIGDELSET/SIGISMEMBER`,
+   `WG14_SIGNALS_PTHREAD_KEY_CREATE/PTHREAD_ONCE/PTHREAD_SETSPECIFIC/
+   PTHREAD_GETSPECIFIC`, `WG14_SIGNALS_SETJMP/LONGJMP` (the existing
+   `_setjmp` selection became overridable), and the
+   `WG14_SIGNALS_DISABLE_SIGFENCE_MACRO` /
+   `WG14_SIGNALS_DISABLE_SIGGUARDED_FAILURE_VALUE` embedder guards (the
+   latter with a `sigguarded_failure_value()` helper so the `.ipp` still
+   compiles when an embedder mirrors `SIGGUARDED_FAILURE_VALUE`). All call
+   sites in the four `.ipp` files route through the hooks. The
+   `WG14_SIGNALS_OVERRIDE_PROBE` CMake option
+   (`test/override_probe.{h,c}`) passes 37/37 in both configurations, and
+   the `LinuxOverrideProbe` CI leg was added.
+3. **DONE 2026-08-21** — with a structural correction: git cannot track
+   files inside a submodule directory (the directory is a gitlink), and
+   `libc/src/signal/wg14/CMakeLists.txt` is the submodule's own file, so
+   ALL fork-owned files live in the sibling directory
+   **`libc/src/signal/wg14-build/`** (`CMakeLists.txt`,
+   `embedder_shim.{h,cpp}`, `registry.{h,cpp}`, `wg14_hostcalls.cpp`,
+   `entrypoints/`), tracked by the fork, referencing the submodule via
+   `../wg14/...` paths. The fork build file defines
+   `libc.src.signal.wg14-build.{embedder_shim,wg14_hostcalls,wg14_signals,
+   registry}` (object libraries) + `entrypoints/*` with the
+   missing-submodule FATAL_ERROR guard, wired from
+   `libc/src/signal/CMakeLists.txt` (Linux only until the darwin/freebsd
+   syscall layers land). The embedder shim routes the four
+   recursion-critical hooks to raw Linux syscalls via
+   `LIBC_NAMESPACE::syscall_impl` (kernel-layout sigaction conversion with
+   `__restore_rt`, `SYS_gettid`/`SYS_tgkill` self-delivery, the
+   recursion-free hard abort; `SA_NOCLDWAIT` stripped so POSIX wait()
+   semantics survive).
+4. **DONE 2026-08-21**: compiles clean under the full-build flags modulo
+   `-Wno-conversion -Wno-cast-qual -Wno-global-constructors` for the
+   vendored verstable.h and the lazy-init sigset builders. The
+   hermetic-test link closure is solved by `wg14_hostcalls.cpp`: extern
+   "C" implementations of every hook route to the namespace-scope
+   entrypoints (which exist in both the library and the internal test
+   objects), with weak C `setjmp`/`longjmp`/`malloc`/`calloc`/`free`/
+   `__assert_fail` fallbacks (strong libc/scudo definitions win in the
+   library build; the weak fallbacks satisfy test links — the allocator
+   fallback is a page-granular mmap-based allocator). setjmp/longjmp are
+   routed DIRECTLY to the C symbols for the wg14 call sites because the
+   aarch64 naked setjmp miscompiles through a wrapper (a real defect found
+   during bring-up); the weak namespace-bridged versions satisfy only test
+   links. `WG14_SIGNALS_STDERR_PRINTF` also routes through the bridge.
+5. **DONE**: gated to Linux (`LIBC_TARGET_OS STREQUAL "linux"`), preserving
+   the darwin/freebsd baselines until their syscall layers land.
+6. **DONE 2026-08-21**: the fork's own smoke test
+   (`.kilo/tmp/wg14_libc_smoke.c`, linked against the built `libc.a` +
+   `crt1.o` + compiler-rt builtins) passes 100% on Linux aarch64:
+   sigaction/signal/raise/SA_SIGINFO/SIG_IGN/sigprocmask through the
+   registry, siginstall/siguninstall/signal_decider_create/destroy,
+   stdc_raise, sigguarded SIGSEGV recovery, sigfillset_*,
+   current_thread_id, tss_async_signal_safe_*, default-action delivery and
+   abort() semantics. The submodule's own suite stays green (37/37 in
+   both configurations).
 
 ### Phase 2 — Linux entrypoints + config
 

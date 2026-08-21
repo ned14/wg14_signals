@@ -117,7 +117,7 @@ PVOID hDll, DWORD reason, PVOID reserved)
     {
       WG14_SIGNALS_PREFIX(thread_atexit_item_t) *next = items->next;
       items->func(items->obj);
-      free(items);
+      WG14_SIGNALS_FREE(items);
       items = next;
     }
   }
@@ -134,7 +134,7 @@ WG14_SIGNALS_EXTERN int
 WG14_SIGNALS_PREFIX(thread_atexit)(void (*func)(void *obj), void *obj)
 {
   WG14_SIGNALS_PREFIX(thread_atexit_item_t) *item =
-  (WG14_SIGNALS_PREFIX(thread_atexit_item_t) *) malloc(
+  (WG14_SIGNALS_PREFIX(thread_atexit_item_t) *) WG14_SIGNALS_MALLOC(
   sizeof(WG14_SIGNALS_PREFIX(thread_atexit_item_t)));
   if(item == WG14_SIGNALS_NULLPTR)
   {
@@ -173,8 +173,8 @@ static void WG14_SIGNALS_PREFIX(thread_atexit_run)(void *unused)
   (void) unused;
   // Prevent pthread from re-invoking the destructor
   // (PTHREAD_DESTRUCTOR_ITERATIONS).
-  pthread_setspecific(WG14_SIGNALS_PREFIX(thread_atexit_key),
-                      WG14_SIGNALS_NULLPTR);
+  WG14_SIGNALS_PTHREAD_SETSPECIFIC(WG14_SIGNALS_PREFIX(thread_atexit_key),
+                                   WG14_SIGNALS_NULLPTR);
   WG14_SIGNALS_PREFIX(thread_atexit_item_t) *items =
   WG14_SIGNALS_PREFIX(thread_atexit_items);
   WG14_SIGNALS_PREFIX(thread_atexit_items) = WG14_SIGNALS_NULLPTR;
@@ -182,15 +182,16 @@ static void WG14_SIGNALS_PREFIX(thread_atexit_run)(void *unused)
   {
     WG14_SIGNALS_PREFIX(thread_atexit_item_t) *next = items->next;
     items->func(items->obj);
-    free(items);
+    WG14_SIGNALS_FREE(items);
     items = next;
   }
 }
 
 static void WG14_SIGNALS_PREFIX(thread_atexit_key_init)(void)
 {
-  if(0 != pthread_key_create(&WG14_SIGNALS_PREFIX(thread_atexit_key),
-                             WG14_SIGNALS_PREFIX(thread_atexit_run)))
+  if(0 !=
+     WG14_SIGNALS_PTHREAD_KEY_CREATE(&WG14_SIGNALS_PREFIX(thread_atexit_key),
+                                     WG14_SIGNALS_PREFIX(thread_atexit_run)))
   {
     WG14_SIGNALS_PREFIX(thread_atexit_key) = (pthread_key_t) -1;
   }
@@ -201,7 +202,7 @@ WG14_SIGNALS_EXTERN int
 WG14_SIGNALS_PREFIX(thread_atexit)(void (*func)(void *obj), void *obj)
 {
   WG14_SIGNALS_PREFIX(thread_atexit_item_t) *item =
-  (WG14_SIGNALS_PREFIX(thread_atexit_item_t) *) malloc(
+  (WG14_SIGNALS_PREFIX(thread_atexit_item_t) *) WG14_SIGNALS_MALLOC(
   sizeof(WG14_SIGNALS_PREFIX(thread_atexit_item_t)));
   if(item == WG14_SIGNALS_NULLPTR)
   {
@@ -211,21 +212,23 @@ WG14_SIGNALS_PREFIX(thread_atexit)(void (*func)(void *obj), void *obj)
   item->func = func;
   item->obj = obj;
   static pthread_once_t once = PTHREAD_ONCE_INIT;
-  if(0 != pthread_once(&once, WG14_SIGNALS_PREFIX(thread_atexit_key_init)) ||
+  if(0 != WG14_SIGNALS_PTHREAD_ONCE(
+          &once, WG14_SIGNALS_PREFIX(thread_atexit_key_init)) ||
      WG14_SIGNALS_PREFIX(thread_atexit_key) == (pthread_key_t) -1)
   {
-    free(item);
+    WG14_SIGNALS_FREE(item);
     errno = ENOMEM;
     return -1;
   }
   item->next = WG14_SIGNALS_PREFIX(thread_atexit_items);
   WG14_SIGNALS_PREFIX(thread_atexit_items) = item;
   // Keep the key's value non-NULL so the destructor runs at thread exit.
-  if(0 != pthread_setspecific(WG14_SIGNALS_PREFIX(thread_atexit_key),
-                              WG14_SIGNALS_PREFIX(thread_atexit_items)))
+  if(0 !=
+     WG14_SIGNALS_PTHREAD_SETSPECIFIC(WG14_SIGNALS_PREFIX(thread_atexit_key),
+                                      WG14_SIGNALS_PREFIX(thread_atexit_items)))
   {
     WG14_SIGNALS_PREFIX(thread_atexit_items) = item->next;
-    free(item);
+    WG14_SIGNALS_FREE(item);
     errno = ENOMEM;
     return -1;
   }

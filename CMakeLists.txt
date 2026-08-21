@@ -13,6 +13,16 @@ option(HEADER_ONLY_BUILD "Build using header only (unity build)" OFF)
 # package's exported target) select the same path.
 option(WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS
   "Force the tss_async_signal_safe hash-table TLS path on all platforms" OFF)
+# Prove the embedder override interface (plans/llvm-project-fork.md Phase 1.2):
+# compile the library with the three override hooks
+# (WG14_SIGNALS_SIGACTION/ABORT/KILL_SELF in config.h) redirected to distinct
+# wrapper functions in test/override_probe.{h,c}. An embedding standard C
+# library redefines exactly these hooks to its own kernel-facing layer; the
+# probe substitutes pass-through wrappers to the host libc and the full test
+# suite must pass unchanged. POSIX platforms only (the wrappers need
+# sigaction/pthread_kill; the Windows backend is not built in libc).
+option(WG14_SIGNALS_OVERRIDE_PROBE
+  "Build the library with the embedder override hooks redirected to wrapper functions" OFF)
 set(WG14_SIGNALS_CXA_THREAD_ATEXIT_LIB "" CACHE STRING
   "Library that supplies __cxa_thread_atexit() (empty if the C runtime does)")
 
@@ -117,6 +127,22 @@ target_link_libraries(${PROJECT_NAME} PUBLIC $<$<PLATFORM_ID:FreeBSD>:stdthreads
 # include fails (analysis.md CSTD).
 target_compile_features(${PROJECT_NAME} PUBLIC c_std_11 cxx_std_11)
 target_compile_definitions(${PROJECT_NAME} PRIVATE WG14_SIGNALS_SOURCE)
+if(WG14_SIGNALS_OVERRIDE_PROBE)
+  if(WIN32)
+    message(WARNING "WG14_SIGNALS_OVERRIDE_PROBE is only supported on POSIX platforms; ignoring")
+  else()
+    target_sources(${PROJECT_NAME} PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/test/override_probe.c")
+    if(MSVC)
+      target_compile_options(${PROJECT_NAME} PRIVATE
+        "/FI${CMAKE_CURRENT_SOURCE_DIR}/test/override_probe.h")
+    else()
+      target_compile_options(${PROJECT_NAME} PRIVATE
+        "-include;${CMAKE_CURRENT_SOURCE_DIR}/test/override_probe.h")
+    endif()
+    message(STATUS "WG14_SIGNALS_OVERRIDE_PROBE=ON: routing sigaction/abort/pthread_kill(pthread_self(), ...) through the embedder override hooks")
+  endif()
+endif()
 # Feature-test-macro discipline (plans/ideas.md 2.2): the library needs the
 # POSIX signal surface — NSIG (used unguarded by the signo-to-sighandler map,
 # finding `NSIG`), the sigset functions, and SIGSYS/SIGXCPU/SIGXFSZ

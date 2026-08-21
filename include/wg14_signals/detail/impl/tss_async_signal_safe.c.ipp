@@ -165,13 +165,13 @@ WG14_SIGNALS_THREAD_LOCAL
   const struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr) * attr)
   {
     struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *mem =
-    (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *) calloc(
+    (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *) WG14_SIGNALS_CALLOC(
     1, sizeof(struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s)));
     if(mem == WG14_SIGNALS_NULLPTR)
     {
       return -1;
     }
-    memcpy(&mem->attr, attr, sizeof(mem->attr));
+    WG14_SIGNALS_MEMCPY(&mem->attr, attr, sizeof(mem->attr));
     WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_init)
     (&mem->thread_id_to_tls_map);
     *val = mem;
@@ -214,7 +214,7 @@ WG14_SIGNALS_THREAD_LOCAL
     WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_cleanup)
     (&mem->thread_id_to_tls_map);
     UNLOCK(mem->lock);
-    free(mem);
+    WG14_SIGNALS_FREE(mem);
     return 0;
   }
 
@@ -254,7 +254,7 @@ WG14_SIGNALS_THREAD_LOCAL
         {
           mem->state = WG14_SIGNALS_NULLPTR;
         }
-        free(state);
+        WG14_SIGNALS_FREE(state);
       }
       UNLOCK(mem->lock);
     }
@@ -269,7 +269,7 @@ WG14_SIGNALS_THREAD_LOCAL
          atomic_fetch_sub_explicit(
          &state->count, 1, WG14_SIGNALS_ATOMIC_PREFIX memory_order_relaxed))
       {
-        free(state);
+        WG14_SIGNALS_FREE(state);
       }
     }
     return ret;
@@ -318,7 +318,8 @@ WG14_SIGNALS_THREAD_LOCAL
       }
       if(mem->state == WG14_SIGNALS_NULLPTR)
       {
-        mem->state = (struct WG14_SIGNALS_PREFIX(deinit_state) *) calloc(
+        mem->state =
+        (struct WG14_SIGNALS_PREFIX(deinit_state) *) WG14_SIGNALS_CALLOC(
         1, sizeof(struct WG14_SIGNALS_PREFIX(deinit_state)));
         if(mem->state == WG14_SIGNALS_NULLPTR)
         {

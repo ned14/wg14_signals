@@ -40,12 +40,19 @@ extern "C"
 {
 #endif
 
+#ifndef WG14_SIGNALS_SETJMP
 #if WG14_SIGNALS_HAVE__SETJMP
 #define WG14_SIGNALS_SETJMP _setjmp
-#define WG14_SIGNALS_LONGJMP _longjmp
 #else
 #define WG14_SIGNALS_SETJMP setjmp
+#endif
+#endif
+#ifndef WG14_SIGNALS_LONGJMP
+#if WG14_SIGNALS_HAVE__SETJMP
+#define WG14_SIGNALS_LONGJMP _longjmp
+#else
 #define WG14_SIGNALS_LONGJMP longjmp
+#endif
 #endif
 
 #ifdef __cplusplus
@@ -65,22 +72,23 @@ extern "C"
     SIGSYS,
 #endif
     };
-    if(sigismember(&v, signos[0]))
+    if(WG14_SIGNALS_SIGISMEMBER(&v, signos[0]))
     {
       return &v;
     }
     sigset_t x;
-    sigemptyset(&x);
+    WG14_SIGNALS_SIGEMPTYSET(&x);
     for(size_t n = 0; n < sizeof(signos) / sizeof(signos[0]); n++)
     {
-      sigaddset(&x, signos[n]);
+      WG14_SIGNALS_SIGADDSET(&x, signos[n]);
     }
     v = x;
     return &v;
   }
   int WG14_SIGNALS_PREFIX(sigfillset_synchronous)(sigset_t *set)
   {
-    memcpy(set, WG14_SIGNALS_PREFIX(synchronous_sigset)(), sizeof(*set));
+    WG14_SIGNALS_MEMCPY(set, WG14_SIGNALS_PREFIX(synchronous_sigset)(),
+                        sizeof(*set));
     return 0;
   }
 
@@ -95,23 +103,23 @@ extern "C"
                                  SIGPOLL,
 #endif
                                  SIGPROF, SIGURG,  SIGVTALRM};
-    if(sigismember(&v, signos[0]))
+    if(WG14_SIGNALS_SIGISMEMBER(&v, signos[0]))
     {
       return &v;
     }
     sigset_t x;
-    sigemptyset(&x);
+    WG14_SIGNALS_SIGEMPTYSET(&x);
     for(size_t n = 0; n < sizeof(signos) / sizeof(signos[0]); n++)
     {
-      sigaddset(&x, signos[n]);
+      WG14_SIGNALS_SIGADDSET(&x, signos[n]);
     }
     v = x;
     return &v;
   }
   int WG14_SIGNALS_PREFIX(sigfillset_asynchronous_nondebug)(sigset_t *set)
   {
-    memcpy(set, WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(),
-           sizeof(*set));
+    WG14_SIGNALS_MEMCPY(
+    set, WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(), sizeof(*set));
     return 0;
   }
 
@@ -129,22 +137,23 @@ extern "C"
     SIGXFSZ,
 #endif
     };
-    if(sigismember(&v, signos[0]))
+    if(WG14_SIGNALS_SIGISMEMBER(&v, signos[0]))
     {
       return &v;
     }
     sigset_t x;
-    sigemptyset(&x);
+    WG14_SIGNALS_SIGEMPTYSET(&x);
     for(size_t n = 0; n < sizeof(signos) / sizeof(signos[0]); n++)
     {
-      sigaddset(&x, signos[n]);
+      WG14_SIGNALS_SIGADDSET(&x, signos[n]);
     }
     v = x;
     return &v;
   }
   int WG14_SIGNALS_PREFIX(sigfillset_asynchronous_debug)(sigset_t *set)
   {
-    memcpy(set, WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(), sizeof(*set));
+    WG14_SIGNALS_MEMCPY(set, WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(),
+                        sizeof(*set));
     return 0;
   }
 
@@ -153,10 +162,10 @@ extern "C"
 static void __attribute__((noreturn)) default_abort(void)
 {
   struct sigaction sa;
-  memset(&sa, 0, sizeof(sa));
+  WG14_SIGNALS_MEMSET(&sa, 0, sizeof(sa));
   sa.sa_handler = SIG_DFL;
-  (void) sigaction(SIGABRT, &sa, WG14_SIGNALS_NULLPTR);
-  abort();
+  (void) WG14_SIGNALS_SIGACTION(SIGABRT, &sa, WG14_SIGNALS_NULLPTR);
+  WG14_SIGNALS_ABORT();
 }
 #endif
 
@@ -177,7 +186,7 @@ static void __attribute__((noreturn)) default_abort(void)
         // si->si_signo / si->si_code without checking for NULL, so synthesise a
         // minimal zeroed siginfo_t instead of passing NULL through.
         siginfo_t synthesized;
-        memset(&synthesized, 0, sizeof(synthesized));
+        WG14_SIGNALS_MEMSET(&synthesized, 0, sizeof(synthesized));
         synthesized.si_signo = signo;
         synthesized.si_code = SI_USER;
         sa->sa_sigaction(signo, &synthesized, context);
@@ -213,14 +222,14 @@ static void __attribute__((noreturn)) default_abort(void)
         // delivery that completes this thread's re-raise, so the restore below
         // runs only after the process has been resumed.
         struct sigaction current;
-        memset(&current, 0, sizeof(current));
-        (void) sigaction(signo, WG14_SIGNALS_NULLPTR, &current);
+        WG14_SIGNALS_MEMSET(&current, 0, sizeof(current));
+        (void) WG14_SIGNALS_SIGACTION(signo, WG14_SIGNALS_NULLPTR, &current);
         struct sigaction dfl;
-        memset(&dfl, 0, sizeof(dfl));
+        WG14_SIGNALS_MEMSET(&dfl, 0, sizeof(dfl));
         dfl.sa_handler = SIG_DFL;
-        (void) sigaction(signo, &dfl, WG14_SIGNALS_NULLPTR);
-        (void) pthread_kill(pthread_self(), signo);
-        (void) sigaction(signo, &current, WG14_SIGNALS_NULLPTR);
+        (void) WG14_SIGNALS_SIGACTION(signo, &dfl, WG14_SIGNALS_NULLPTR);
+        (void) WG14_SIGNALS_KILL_SELF(signo);
+        (void) WG14_SIGNALS_SIGACTION(signo, &current, WG14_SIGNALS_NULLPTR);
         return true;
       }
       }
@@ -285,7 +294,7 @@ static void __attribute__((noreturn)) default_abort(void)
       // re-raised (analysis UNKN). invoke_sigaction()'s SIG_DFL branch performs
       // the reset-and-raise and restores the current handler afterwards.
       struct sigaction dfl;
-      memset(&dfl, 0, sizeof(dfl));
+      WG14_SIGNALS_MEMSET(&dfl, 0, sizeof(dfl));
       dfl.sa_handler = SIG_DFL;
       (void) WG14_SIGNALS_PREFIX(invoke_sigaction)(&dfl, signo, siginfo,
                                                    context);
@@ -303,18 +312,18 @@ static void __attribute__((noreturn)) default_abort(void)
     if(signals == WG14_SIGNALS_NULLPTR || guarded == WG14_SIGNALS_NULLPTR ||
        decider == WG14_SIGNALS_NULLPTR)
     {
-      abort();
+      WG14_SIGNALS_ABORT();
     }
     if(0 != WG14_SIGNALS_PREFIX(sig_global_tss_state_init)())
     {
-      return WG14_SIGNALS_PREFIX(SIGGUARDED_FAILURE_VALUE);
+      return WG14_SIGNALS_PREFIX(sigguarded_failure_value)();
     }
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
     WG14_SIGNALS_PREFIX(sig_global_tss_state)();
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *old =
     tss->front,
                                                                        current;
-    memset(&current, 0, sizeof(current));
+    WG14_SIGNALS_MEMSET(&current, 0, sizeof(current));
     current.prev = old;
     current.guarded = signals;
     current.recovery = recovery;
@@ -370,16 +379,16 @@ static void __attribute__((noreturn)) default_abort(void)
     if(signo < 1 || signo >= NSIG)
     {
       // No frame can guard an out-of-range signo and no handler can be
-      // installed for one. On macOS/BSD sigismember() is a shift-count macro,
-      // so a negative or >= NSIG signo is UB there and probe-verified to
-      // deterministically alias another signal's frame decider --
-      // stdc_raise(-1) inside a frame guarding SIGUSR2 invoked that frame's
-      // decider with rsi->signo == -1 (the masking turns 1u << -2 into 1u <<
-      // 30, i.e. signal 31); glibc's sigismember returns 0 and Windows' is
-      // total, so the bug was invisible there (plans/analysis.md NEGS). Reject
-      // before the frame walk: the signo-to-sighandler map's get() would report
-      // absence anyway, so this is the documented "no decider installed for
-      // that signal" return.
+      // installed for one. On macOS/BSD WG14_SIGNALS_SIGISMEMBER() is a
+      // shift-count macro, so a negative or >= NSIG signo is UB there and
+      // probe-verified to deterministically alias another signal's frame
+      // decider -- stdc_raise(-1) inside a frame guarding SIGUSR2 invoked that
+      // frame's decider with rsi->signo == -1 (the masking turns 1u << -2 into
+      // 1u << 30, i.e. signal 31); glibc's sigismember returns 0 and Windows'
+      // is total, so the bug was invisible there (plans/analysis.md NEGS).
+      // Reject before the frame walk: the signo-to-sighandler map's get() would
+      // report absence anyway, so this is the documented "no decider installed
+      // for that signal" return.
       return false;
     }
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
@@ -388,7 +397,7 @@ static void __attribute__((noreturn)) default_abort(void)
     tss->front;
     while(frame != WG14_SIGNALS_NULLPTR)
     {
-      if(sigismember(frame->guarded, signo))
+      if(WG14_SIGNALS_SIGISMEMBER(frame->guarded, signo))
       {
         // With SA_NODEFER a second delivery of a guarded signal re-enters here
         // on the same frame while the outer decider is still executing. A
@@ -506,7 +515,7 @@ static void __attribute__((noreturn)) default_abort(void)
         {
           // sigdecider_abandon not called on topmost sigguarded()
           assert(tss->front == rsi->internal_local_decider);
-          abort();
+          WG14_SIGNALS_ABORT();
         }
         // Pop the top most sigguarded()
         tss->front = tss->front->prev;
@@ -545,7 +554,7 @@ static void __attribute__((noreturn)) default_abort(void)
         {
           // sigdecider_abandon not called on topmost sigguarded()
           assert(tss->front == rsi->internal_local_decider->prev);
-          abort();
+          WG14_SIGNALS_ABORT();
         }
         tss->front = rsi->internal_local_decider;
       }
@@ -573,10 +582,10 @@ static void __attribute__((noreturn)) default_abort(void)
   struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo)
   {
     struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
+    WG14_SIGNALS_MEMSET(&sa, 0, sizeof(sa));
     sa.sa_sigaction = WG14_SIGNALS_PREFIX(raw_signal_handler);
     sa.sa_flags = SA_SIGINFO | SA_NOCLDWAIT | SA_NODEFER;
-    if(-1 == sigaction(signo, &sa, &item->old_handler))
+    if(-1 == WG14_SIGNALS_SIGACTION(signo, &sa, &item->old_handler))
     {
       return false;
     }
@@ -586,7 +595,8 @@ static void __attribute__((noreturn)) default_abort(void)
   static bool WG14_SIGNALS_PREFIX(uninstall_sighandler_impl)(
   struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo)
   {
-    (void) sigaction(signo, &item->old_handler, WG14_SIGNALS_NULLPTR);
+    (void) WG14_SIGNALS_SIGACTION(signo, &item->old_handler,
+                                  WG14_SIGNALS_NULLPTR);
     return true;
   }
 

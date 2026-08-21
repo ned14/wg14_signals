@@ -392,15 +392,36 @@ extern "C"
   cppreference.com/c/compiler_support/23) and a `const` object otherwise
   (WG14_SIGNALS_C23_CONSTEXPR_OR_CONST); on C11/C17 compilers it is a
   macro expanding to a compound literal.
+
+  Embedders whose own generated `<signal.h>` provides a mirrored
+  `SIGGUARDED_FAILURE_VALUE` (e.g. an embedding libc that declares the N3924
+  API in its own headers) must define
+  `WG14_SIGNALS_DISABLE_SIGGUARDED_FAILURE_VALUE` before including this header
+  to suppress this definition and avoid a duplicate-symbol / macro-redefinition
+  conflict; the embedder's mirror must be layout-identical. The implementation
+  helper `WG14_SIGNALS_PREFIX(sigguarded_failure_value)()` below is always
+  defined so the `.ipp` implementation still compiles in the disabled case.
   */
+#if !defined(WG14_SIGNALS_DISABLE_SIGGUARDED_FAILURE_VALUE)
 #if defined(__cplusplus)
   constexpr WG14_SIGNALS_PREFIX(stdc_siginfo_value)
   WG14_SIGNALS_PREFIX(SIGGUARDED_FAILURE_VALUE){-99};
 #else
-static WG14_SIGNALS_C23_CONSTEXPR_OR_CONST union WG14_SIGNALS_PREFIX(
-stdc_siginfo_value)
-WG14_SIGNALS_PREFIX(SIGGUARDED_FAILURE_VALUE) = {.int_value = -99};
+  static WG14_SIGNALS_C23_CONSTEXPR_OR_CONST union WG14_SIGNALS_PREFIX(
+  stdc_siginfo_value)
+  WG14_SIGNALS_PREFIX(SIGGUARDED_FAILURE_VALUE) = {.int_value = -99};
 #endif
+#endif
+  //! \brief Implementation helper: the SIGGUARDED_FAILURE_VALUE value, usable
+  //! even when the SIGGUARDED_FAILURE_VALUE definition above is suppressed by
+  //! an embedder. Returns the union whose int_value member is -99.
+  static WG14_SIGNALS_INLINE union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
+  WG14_SIGNALS_PREFIX(sigguarded_failure_value)(void)
+  {
+    union WG14_SIGNALS_PREFIX(stdc_siginfo_value) v;
+    v.int_value = -99;
+    return v;
+  }
   //! \brief Typedef to a system specific error code type
 #ifdef _WIN32
   typedef long WG14_SIGNALS_PREFIX(stdc_siginfo_error_code_t);

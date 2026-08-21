@@ -524,7 +524,7 @@ extern "C"
     // exception handler (analysis.md 2.19/X3).
     if(0 != WG14_SIGNALS_PREFIX(sig_global_tss_state_init)())
     {
-      return WG14_SIGNALS_PREFIX(SIGGUARDED_FAILURE_VALUE);
+      return WG14_SIGNALS_PREFIX(sigguarded_failure_value)();
     }
     // Snapshot the per-thread chain heads so the frame filter can restore them
     // when a claimed raise unwinds the stack below this __except. Frames pushed

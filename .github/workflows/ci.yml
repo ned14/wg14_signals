@@ -48,6 +48,39 @@ jobs:
       shell: bash
       run: cd build && ctest --output-on-failure --timeout 300 -E benchmark
 
+  LinuxOverrideProbe:
+    name: Linux override-hook probe (clang, Debug, C11)
+    # plans/llvm-project-fork.md Phase 1.2: the embedder override interface
+    # (WG14_SIGNALS_SIGACTION/ABORT/KILL_SELF in config.h) must be proven by
+    # building the whole library with all three hooks redirected to wrapper
+    # functions and running the full suite — the same macro expansion an
+    # embedding standard C library (e.g. the llvm-project libc integration)
+    # overrides. One focused leg keeps the cost of the ninth configuration
+    # down while the wrapper functions are compiled and referenced by the
+    # library objects (verified by nm in the Build step).
+    runs-on: ubuntu-latest
+    env:
+      NAME: LinuxOverrideProbe
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Configure Linux override probe
+      shell: bash
+      run: |
+        mkdir build && cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_STANDARD=11 -DWG14_SIGNALS_OVERRIDE_PROBE=ON -DCMAKE_TOOLCHAIN_FILE=$PWD/../cmake/sanitize-toolchain.cmake
+
+    - name: Build Linux override probe
+      shell: bash
+      run: |
+        cd build && cmake --build . --parallel
+        nm lib/libwg14_signals.a | grep -c wg14_override_sigaction || true
+
+    - name: CMake tests Linux override probe
+      shell: bash
+      run: cd build && ctest --output-on-failure --timeout 300 -E benchmark
+
   Musl:
     name: Musl (Alpine, C${{ matrix.standard }}, shared=${{ matrix.shared }})
     runs-on: ubuntu-latest

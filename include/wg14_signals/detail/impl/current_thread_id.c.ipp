@@ -76,7 +76,7 @@ extern "C"
 #ifdef _WIN32
     return (WG14_SIGNALS_PREFIX(thread_id_t)) GetCurrentThreadId();
 #elif defined(__linux__)
-  return (WG14_SIGNALS_PREFIX(thread_id_t)) syscall(SYS_gettid);
+  return (WG14_SIGNALS_PREFIX(thread_id_t)) WG14_SIGNALS_GETTID();
 #elif defined(__APPLE__)
   thread_port_t tid = mach_thread_self();
   mach_port_deallocate(mach_task_self(), tid);

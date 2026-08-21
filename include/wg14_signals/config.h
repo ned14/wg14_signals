@@ -154,6 +154,136 @@ which are async signal safe, and which are not.
 #define WG14_SIGNALS_STDERR_PRINTF(...) fprintf(stderr, __VA_ARGS__)
 #endif
 
+//! \brief Embedder override hooks (the "OS abstraction layer").
+//!
+//! The POSIX backend calls, by name, the very functions an embedding
+//! standard C library may itself be implementing on top of this library:
+//! `sigaction()`, `abort()` and `pthread_kill(pthread_self(), ...)`. If
+//! those calls resolve to the embedding library's public entrypoints, the
+//! library recurses into itself (`sigaction()` calling `sigaction()`,
+//! `raise()` calling `stdc_raise()`). Each hook below is a function-like
+//! macro defaulting to the standard C/POSIX call; an embedding library
+//! redefines the hook to its own internal function by defining the macro
+//! before including this header (or on the compiler command line). The
+//! replacement function must preserve the guarantees of the API whose
+//! implementation it routes (see the ASYNC-SIGNAL-SAFE / THREADSAFE
+//! documentation of the public API), and the hooks are `#undef`-safe: the
+//! standalone build continues to use the defaults, so the same macro
+//! expansion the embedder overrides is what the unmodified reference
+//! implementation's own test suite exercises.
+//!
+//! `WG14_SIGNALS_SIGACTION(signum, act, oldact)` routes every internal
+//! `sigaction()` call (install the library's raw handler, query/restore a
+//! previous disposition, reset to `SIG_DFL`). An embedding libc whose
+//! `sigaction` entrypoint is the registry itself must point this at its
+//! kernel-facing syscall wrapper.
+//!
+//! `WG14_SIGNALS_ABORT()` routes every internal `abort()` call (bad-argument
+//! and invariant-violation exits). An embedding libc whose `abort()` raises
+//! through this library must point this at its internal abort, which must
+//! not loop (it resets to `SIG_DFL` before re-raising).
+//!
+//! `WG14_SIGNALS_KILL_SELF(signo)` routes the self-delivery used to take a
+//! signal's default action (`SIG_DFL`: reset the disposition, re-deliver to
+//! this thread, restore the disposition). An embedding libc that does not
+//! provide `pthread_kill`/`pthread_self` must point this at its own
+//! thread-directed delivery (e.g. the `tgkill`/`gettid` syscall pair).
+#ifndef WG14_SIGNALS_SIGACTION
+#define WG14_SIGNALS_SIGACTION(signum, act, oldact)                            \
+  sigaction(signum, act, oldact)
+#endif
+
+#ifndef WG14_SIGNALS_ABORT
+#define WG14_SIGNALS_ABORT() abort()
+#endif
+
+#ifndef WG14_SIGNALS_KILL_SELF
+#define WG14_SIGNALS_KILL_SELF(signo) pthread_kill(pthread_self(), (signo))
+#endif
+
+//! \brief `WG14_SIGNALS_GETTID()` routes the thread-id query used by
+//! `current_thread_id()` on Linux. An embedding standard C library that does
+//! not expose `syscall()` under that name (e.g. LLVM-libc, whose generated
+//! `<unistd.h>` declares the fixed-arity `__llvm_libc_syscall` instead) must
+//! point this at its own kernel-facing thread-id query (e.g. the
+//! `SYS_gettid` syscall). The default is the standard `syscall(SYS_gettid)`.
+//! The replacement must be async-signal-safe and thread-safe (it runs inside
+//! signal handlers).
+#ifndef WG14_SIGNALS_GETTID
+#define WG14_SIGNALS_GETTID() syscall(SYS_gettid)
+#endif
+
+//! \brief Embedder override hooks for the remaining host calls (the
+//! "OS abstraction layer" call-site families, part 2).
+//!
+//! Besides sigaction/abort/pthread_kill(pthread_self(), ...)/gettid, the
+//! POSIX backend calls the C library's memory, sigset, setjmp and
+//! pthread-key functions by name. An embedding standard C library whose
+//! public entrypoints are the very registry being replaced (or whose
+//! internal build provides only C++-linkage symbols for them, as
+//! LLVM-libc's hermetic test builds do) must route these calls through its
+//! own layer too; each hook below defaults to the standard call and is
+//! #undef-safe. The replacements must preserve the guarantees of the
+//! ASYNC-SIGNAL-SAFE / THREADSAFE APIs whose implementation they route.
+#ifndef WG14_SIGNALS_MEMCPY
+#define WG14_SIGNALS_MEMCPY(dest, src, n) memcpy((dest), (src), (n))
+#endif
+#ifndef WG14_SIGNALS_MEMSET
+#define WG14_SIGNALS_MEMSET(dest, c, n) memset((dest), (c), (n))
+#endif
+#ifndef WG14_SIGNALS_MALLOC
+#define WG14_SIGNALS_MALLOC(n) malloc(n)
+#endif
+#ifndef WG14_SIGNALS_CALLOC
+#define WG14_SIGNALS_CALLOC(n, s) calloc((n), (s))
+#endif
+#ifndef WG14_SIGNALS_FREE
+#define WG14_SIGNALS_FREE(p) free(p)
+#endif
+#ifndef WG14_SIGNALS_SIGEMPTYSET
+#define WG14_SIGNALS_SIGEMPTYSET(set) sigemptyset(set)
+#endif
+#ifndef WG14_SIGNALS_SIGFILLSET
+#define WG14_SIGNALS_SIGFILLSET(set) sigfillset(set)
+#endif
+#ifndef WG14_SIGNALS_SIGADDSET
+#define WG14_SIGNALS_SIGADDSET(set, signo) sigaddset((set), (signo))
+#endif
+#ifndef WG14_SIGNALS_SIGDELSET
+#define WG14_SIGNALS_SIGDELSET(set, signo) sigdelset((set), (signo))
+#endif
+#ifndef WG14_SIGNALS_SIGISMEMBER
+#define WG14_SIGNALS_SIGISMEMBER(set, signo) sigismember((set), (signo))
+#endif
+#ifndef WG14_SIGNALS_PTHREAD_KEY_CREATE
+#define WG14_SIGNALS_PTHREAD_KEY_CREATE(key, dtor)                             \
+  pthread_key_create((key), (dtor))
+#endif
+#ifndef WG14_SIGNALS_PTHREAD_ONCE
+#define WG14_SIGNALS_PTHREAD_ONCE(once, init) pthread_once((once), (init))
+#endif
+#ifndef WG14_SIGNALS_PTHREAD_SETSPECIFIC
+#define WG14_SIGNALS_PTHREAD_SETSPECIFIC(key, value)                           \
+  pthread_setspecific((key), (value))
+#endif
+#ifndef WG14_SIGNALS_PTHREAD_GETSPECIFIC
+#define WG14_SIGNALS_PTHREAD_GETSPECIFIC(key) pthread_getspecific(key)
+#endif
+#ifndef WG14_SIGNALS_SETJMP
+#if WG14_SIGNALS_HAVE__SETJMP
+#define WG14_SIGNALS_SETJMP(buf) _setjmp(buf)
+#else
+#define WG14_SIGNALS_SETJMP(buf) setjmp(buf)
+#endif
+#endif
+#ifndef WG14_SIGNALS_LONGJMP
+#if WG14_SIGNALS_HAVE__SETJMP
+#define WG14_SIGNALS_LONGJMP(buf, val) _longjmp((buf), (val))
+#else
+#define WG14_SIGNALS_LONGJMP(buf, val) longjmp((buf), (val))
+#endif
+#endif
+
 #ifdef __cplusplus
 extern "C"
 {

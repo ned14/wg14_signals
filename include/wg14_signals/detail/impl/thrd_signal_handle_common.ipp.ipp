@@ -185,7 +185,7 @@ extern "C"
         struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *i =
         item->deferred_frees.front;
         LIST_REMOVE(item->deferred_frees, i);
-        free(i);
+        WG14_SIGNALS_FREE(i);
       }
       // Any decider node still registered for this signal (its
       // signal_decider_destroy() handle not yet called) is detached rather than
@@ -198,7 +198,7 @@ extern "C"
         item->global_handler.front;
         LIST_REMOVE(item->global_handler, i);
       }
-      free(item);
+      WG14_SIGNALS_FREE(item);
     }
   }
 
@@ -320,12 +320,13 @@ extern "C"
       return 0;
     }
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *mem =
-    (struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *) calloc(
+    (struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *)
+    WG14_SIGNALS_CALLOC(
     1, sizeof(struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t)));
     if(mem == WG14_SIGNALS_NULLPTR)
     {
-      // calloc() usually sets ENOMEM itself, but set it explicitly so the
-      // failure is always observable via errno by stdc_raise()'s callers
+      // WG14_SIGNALS_CALLOC() usually sets ENOMEM itself, but set it explicitly
+      // so the failure is always observable via errno by stdc_raise()'s callers
       // (plans/analysis.md 3.7).
       errno = ENOMEM;
       return -1;
@@ -352,13 +353,13 @@ WG14_SIGNALS_PREFIX(sig_tss_state_raw)(void)
 static int sig_global_state_tss_state_create(void **dest)
 {
   assert(*dest == WG14_SIGNALS_NULLPTR);
-  *dest =
-  calloc(1, sizeof(struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t)));
+  *dest = WG14_SIGNALS_CALLOC(
+  1, sizeof(struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t)));
   return (*dest != WG14_SIGNALS_NULLPTR) ? 0 : -1;
 }
 static int sig_global_state_tss_state_destroy(void *p)
 {
-  free(p);
+  WG14_SIGNALS_FREE(p);
   return 0;
 }
 static int WG14_SIGNALS_PREFIX(sig_global_tss_state_create)(void)
@@ -431,7 +432,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
     if(WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_is_end)(it))
     {
       struct WG14_SIGNALS_PREFIX(sighandler_info) *newitem =
-      (struct WG14_SIGNALS_PREFIX(sighandler_info) *) calloc(
+      (struct WG14_SIGNALS_PREFIX(sighandler_info) *) WG14_SIGNALS_CALLOC(
       1, sizeof(struct WG14_SIGNALS_PREFIX(sighandler_info)));
       if(newitem == WG14_SIGNALS_NULLPTR)
       {
@@ -445,7 +446,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
         // every subsequent library call (and any signal delivery through
         // raw_signal_handler) spin forever (analysis.md 2.20/Y1).
         int errcode = errno;
-        free(newitem);
+        WG14_SIGNALS_FREE(newitem);
         errno = errcode;
         UNLOCK(state->lock);
         return false;
@@ -496,7 +497,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
         struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *i =
         signo_to_sighandler_map_t_value(it)->deferred_frees.front;
         LIST_REMOVE(signo_to_sighandler_map_t_value(it)->deferred_frees, i);
-        free(i);
+        WG14_SIGNALS_FREE(i);
       }
       const bool need_to_destroy_tss = (0 == --state->sighandlers_count);
       if(0 == --signo_to_sighandler_map_t_value(it)->install_count)
@@ -522,7 +523,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
 
   void *WG14_SIGNALS_PREFIX(siginstall)(const sigset_t *guarded)
   {
-    sigset_t *ret = (sigset_t *) malloc(sizeof(sigset_t));
+    sigset_t *ret = (sigset_t *) WG14_SIGNALS_MALLOC(sizeof(sigset_t));
     if(ret == WG14_SIGNALS_NULLPTR)
     {
       return WG14_SIGNALS_NULLPTR;
@@ -531,13 +532,13 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
     {
       // "All the standard POSIX signals" (the documented contract for a null
       // guarded set) is every signal below NSIG except the libc-internal and
-      // realtime ones: a raw sigfillset() on glibc would also cover
-      // SIGCANCEL/SIGSETXID (glibc's internal pthread-cancellation/setxid
+      // realtime ones: a raw WG14_SIGNALS_SIGFILLSET() on glibc would also
+      // cover SIGCANCEL/SIGSETXID (glibc's internal pthread-cancellation/setxid
       // signals) and the realtime range, which must not have library handlers
       // installed (analysis.md RTIM). Fill first, then exclude those ranges,
       // so the semantics stay "all signals minus the internal/realtime ones"
       // rather than "whatever the helper sets happen to contain".
-      sigfillset(ret);
+      WG14_SIGNALS_SIGFILLSET(ret);
       // The realtime range. SIGRTMIN/SIGRTMAX may be compile-time constants
       // (musl, BSD) or, on glibc, the runtime functions
       // __libc_current_sigrtmin()/__libc_current_sigrtmax() -- both forms are
@@ -545,7 +546,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
 #if defined(SIGRTMIN) && defined(SIGRTMAX)
       for(int signo = (int) SIGRTMIN; signo <= (int) SIGRTMAX; signo++)
       {
-        sigdelset(ret, signo);
+        WG14_SIGNALS_SIGDELSET(ret, signo);
       }
 #endif
     }
@@ -557,13 +558,13 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
     // set was supplied: SIGCANCEL/SIGSETXID are glibc's own
     // pthread-cancellation/setxid signals and must never be intercepted by a
     // library handler (analysis.md RTIM). This applies to explicit guarded
-    // inputs too -- a caller doing sigfillset(&set); siginstall(&set) would
-    // otherwise hit them through the same handle.
+    // inputs too -- a caller doing WG14_SIGNALS_SIGFILLSET(&set);
+    // siginstall(&set) would otherwise hit them through the same handle.
 #ifdef SIGCANCEL
-    sigdelset(ret, SIGCANCEL);
+    WG14_SIGNALS_SIGDELSET(ret, SIGCANCEL);
 #endif
 #ifdef SIGSETXID
-    sigdelset(ret, SIGSETXID);
+    WG14_SIGNALS_SIGDELSET(ret, SIGSETXID);
 #endif
     for(int signo = 1; signo < NSIG; signo++)
     {
@@ -577,7 +578,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
         continue;
       }
 #endif
-      if(sigismember(ret, signo))
+      if(WG14_SIGNALS_SIGISMEMBER(ret, signo))
       {
         if(!WG14_SIGNALS_PREFIX(install_sighandler)(signo))
         {
@@ -605,12 +606,12 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
               continue;
             }
 #endif
-            if(sigismember(ret, rollback_signo))
+            if(WG14_SIGNALS_SIGISMEMBER(ret, rollback_signo))
             {
               (void) WG14_SIGNALS_PREFIX(uninstall_sighandler)(rollback_signo);
             }
           }
-          free(ret);
+          WG14_SIGNALS_FREE(ret);
           errno = errcode;
           return WG14_SIGNALS_NULLPTR;
         }
@@ -633,7 +634,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
       {
         continue;
       }
-      if(sigismember(sigset, signo))
+      if(WG14_SIGNALS_SIGISMEMBER(sigset, signo))
       {
         if(!WG14_SIGNALS_PREFIX(uninstall_sighandler)(signo))
         {
@@ -641,7 +642,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
         }
       }
     }
-    free(ss);
+    WG14_SIGNALS_FREE(ss);
     return 0;
   }
 
@@ -672,7 +673,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
       {
         continue;
       }
-      if(sigismember(guarded, signo))
+      if(WG14_SIGNALS_SIGISMEMBER(guarded, signo))
       {
         signo_count++;
       }
@@ -686,18 +687,17 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
     (sizeof(sigset_t) +
      sizeof(struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *) - 1) &
     ~(sizeof(struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *) - 1);
-    void *ret =
-    malloc(sigset_t_size +
-           (signo_count + 1) *
-           sizeof(struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *));
+    void *ret = WG14_SIGNALS_MALLOC(
+    sigset_t_size + (signo_count + 1) * sizeof(struct WG14_SIGNALS_PREFIX(
+                                        global_signal_decider_t) *));
     if(ret == WG14_SIGNALS_NULLPTR)
     {
       return WG14_SIGNALS_NULLPTR;
     }
-    memset(ret, 0,
-           sigset_t_size +
-           (signo_count + 1) *
-           sizeof(struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *));
+    WG14_SIGNALS_MEMSET(ret, 0,
+                        sigset_t_size +
+                        (signo_count + 1) * sizeof(struct WG14_SIGNALS_PREFIX(
+                                            global_signal_decider_t) *));
     *(sigset_t *) ret = *guarded;
     struct WG14_SIGNALS_PREFIX(global_signal_decider_t) **retp =
     (struct WG14_SIGNALS_PREFIX(global_signal_decider_t) **) ((char *) ret +
@@ -711,7 +711,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
       {
         continue;
       }
-      if(sigismember(guarded, signo))
+      if(WG14_SIGNALS_SIGISMEMBER(guarded, signo))
       {
         LOCK(state->lock);
         WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_itr)
@@ -733,7 +733,8 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
           continue;
         }
         struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *i =
-        (struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *) calloc(
+        (struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *)
+        WG14_SIGNALS_CALLOC(
         1, sizeof(struct WG14_SIGNALS_PREFIX(global_signal_decider_t)));
         if(i == WG14_SIGNALS_NULLPTR)
         {
@@ -807,9 +808,9 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
           struct WG14_SIGNALS_PREFIX(global_signal_decider_t) *i =
           signo_to_sighandler_map_t_value(it)->deferred_frees.front;
           LIST_REMOVE(signo_to_sighandler_map_t_value(it)->deferred_frees, i);
-          free(i);
+          WG14_SIGNALS_FREE(i);
         }
-        if(sigismember(guarded, signo))
+        if(WG14_SIGNALS_SIGISMEMBER(guarded, signo))
         {
           if(*retp != WG14_SIGNALS_NULLPTR)
           {
@@ -835,7 +836,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
               // before its unlocked decider call), so free it now. Leaving it
               // to the post-unlock block would decrement the refcount a second
               // time 0 -> -1 and never free it (analysis.md 2.24/AB1).
-              free(*retp);
+              WG14_SIGNALS_FREE(*retp);
               *retp = WG14_SIGNALS_NULLPTR;
             }
             else
@@ -847,7 +848,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
         }
       }
       UNLOCK(state->lock);
-      if(sigismember(guarded, signo))
+      if(WG14_SIGNALS_SIGISMEMBER(guarded, signo))
       {
         if(*retp != WG14_SIGNALS_NULLPTR)
         {
@@ -858,13 +859,13 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
           // (analysis.md 2.23/AA1 concurrent sibling).
           if(0 == --(*retp)->refcount)
           {
-            free(*retp);
+            WG14_SIGNALS_FREE(*retp);
           }
         }
         retp++;
       }
     }
-    free(p);
+    WG14_SIGNALS_FREE(p);
     return ret;
   }
 
