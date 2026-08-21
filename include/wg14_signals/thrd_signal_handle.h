@@ -394,11 +394,12 @@ extern "C"
   macro expanding to a compound literal.
   */
 #if defined(__cplusplus)
-  constexpr WG14_SIGNALS_PREFIX(stdc_siginfo_value) SIGGUARDED_FAILURE_VALUE{
-  -99};
+  constexpr WG14_SIGNALS_PREFIX(stdc_siginfo_value)
+  WG14_SIGNALS_PREFIX(SIGGUARDED_FAILURE_VALUE){-99};
 #else
 static WG14_SIGNALS_C23_CONSTEXPR_OR_CONST union WG14_SIGNALS_PREFIX(
-stdc_siginfo_value) SIGGUARDED_FAILURE_VALUE = {.int_value = -99};
+stdc_siginfo_value)
+WG14_SIGNALS_PREFIX(SIGGUARDED_FAILURE_VALUE) = {.int_value = -99};
 #endif
   //! \brief Typedef to a system specific error code type
 #ifdef _WIN32
