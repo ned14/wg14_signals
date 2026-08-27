@@ -15,6 +15,9 @@
 // through to a previously installed SIG_DFL handler, and resetting to NULL
 // restores the built-in behaviour. POSIX-only (the Windows backend takes
 // default actions via the SEH machinery, so the API returns ENOTSUP there).
+// The callback and its statics are used only by the POSIX branch, so they
+// must not be compiled on Windows.
+#ifndef _WIN32
 static int callback_calls = 0;
 static int callback_signo = 0;
 static intptr_t callback_info_addr = 0;
@@ -28,6 +31,7 @@ default_action_cb(int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * info,
   callback_signo = signo;
   callback_info_addr = (intptr_t) info;
 }
+#endif
 
 int main(void)
 {

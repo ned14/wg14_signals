@@ -41,3 +41,15 @@ is a severe defect and must be reported as such.
 source code for Windows, consider examining the source code for Reactos
 (https://github.com/reactos/reactos) which is a binary compatible
 reproduction of Windows.
+13. NEVER use POSIX-only identifiers (e.g. `SIGUSR1`/`SIGUSR2`, `SIGCONT`,
+`struct sigaction`, `sigaction()`, `SA_SIGINFO`/`SA_NODEFER`/`SA_ONSTACK`,
+`siginfo_t`, `SI_USER`) in any source or test file that is compiled on
+Windows. MSVC does not define these. Guard every POSIX-only definition or
+block with `#ifndef _WIN32`, keep every POSIX-only identifier strictly
+inside the `#else` branch of `main`, and NEVER reference a POSIX-only
+identifier from the `_WIN32` branch. After adding or editing any test,
+verify it compiles for a Windows target (e.g.
+`clang --target=x86_64-w64-windows-gnu -fsyntax-only` against the mingw
+sysroot) AND runs on the current platform. This is a recurring bug: new
+tests keep introducing unguarded POSIX identifiers and failing the Windows
+CI legs at compile time.

@@ -21,6 +21,9 @@
 // every platform (macOS only reports it for SIGCHLD), so the checks below
 // cover SA_SIGINFO and SA_NODEFER -- the flags every platform round-trips --
 // while the caller still requests the full default including SA_NOCLDWAIT.
+// The helper is POSIX-only (sigaction, SIGUSR2, struct sigaction, SA_*) and
+// must not be compiled on Windows.
+#ifndef _WIN32
 static int check_installed_flags(const int expected_present,
                                  const int expected_absent)
 {
@@ -46,15 +49,16 @@ static int check_installed_flags(const int expected_present,
   CHECK(0 == WG14_SIGNALS_PREFIX(siguninstall)(handlers));
   return ret;
 }
+#endif
 
 int main(void)
 {
   int ret = 0;
 #ifdef _WIN32
   // The API is POSIX-only: on Windows the raw handler is not installed via
-  // sigaction, so the call must fail with ENOTSUP.
+  // sigaction, so the call must fail with ENOTSUP regardless of the value.
   errno = 0;
-  CHECK(-1 == WG14_SIGNALS_PREFIX(siginstall_set_sa_flags_np)(SA_SIGINFO));
+  CHECK(-1 == WG14_SIGNALS_PREFIX(siginstall_set_sa_flags_np)(0));
   CHECK(ENOTSUP == errno);
   return ret;
 #else
