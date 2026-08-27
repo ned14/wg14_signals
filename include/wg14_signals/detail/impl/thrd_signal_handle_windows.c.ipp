@@ -584,6 +584,29 @@ extern "C"
       // Caller is doing the non-async safe setup
       return false;
     }
+    // A raise of a signal with no installed handler must return false
+    // immediately, without raising an exception: the exception resolution
+    // machinery (the vectored continue handler and unhandled exception
+    // filter) exists only while a handler is installed (analysis.md 2.16/W5),
+    // and a non-continuable raise (SIGABRT) cannot be resolved at all, so
+    // without this pre-check the raise would reach Windows Error Reporting
+    // and never return. This is POSIX parity: the map miss is the documented
+    // "no decider installed for that signal" return.
+    {
+      struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+      WG14_SIGNALS_PREFIX(sig_global_state)();
+      LOCK(state->lock);
+      WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_itr)
+      it = WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_get)(
+      &state->signo_to_sighandler_map, signo);
+      const bool installed =
+      !WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t_is_end)(it);
+      UNLOCK(state->lock);
+      if(!installed)
+      {
+        return false;
+      }
+    }
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
     WG14_SIGNALS_PREFIX(sig_global_tss_state)();
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *old =
@@ -997,6 +1020,26 @@ extern "C"
   running under a debugger, as the UnhandledExceptionFilter() function never
   calls the installed unhandled exception filter function if under a debugger.
   */
+
+  int WG14_SIGNALS_PREFIX(siginstall_set_sa_flags_np)(int sa_flags)
+  {
+    (void) sa_flags;
+    // The Windows raw handler is a vectored exception handler, not a
+    // sigaction-based one, so there are no sa_flags to set.
+    errno = ENOTSUP;
+    return -1;
+  }
+
+  int WG14_SIGNALS_PREFIX(siginstall_set_default_action_np)(
+  WG14_SIGNALS_PREFIX(sig_default_action_np_t) fn)
+  {
+    (void) fn;
+    // The Windows backend takes a signal's default action via the SEH
+    // machinery, not by resetting a sigaction disposition and re-raising, so
+    // there is no default-action callback to install.
+    errno = ENOTSUP;
+    return -1;
+  }
 
   static bool WG14_SIGNALS_PREFIX(install_sighandler_impl)(
   struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo)

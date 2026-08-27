@@ -532,6 +532,31 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   typedef enum WG14_SIGNALS_PREFIX(sig_decision)(WG14_SIGNALS_PREFIX(
   sig_decide_t))(struct WG14_SIGNALS_PREFIX(stdc_siginfo) *);
 
+  //! \brief The type of the function called by the library to take a signal's
+  //! default action, from within its signal machinery, when the previously
+  //! installed disposition for that signal was `SIG_DFL`.
+  //!
+  //! The caller (`invoke_sigaction()`'s `SIG_DFL` branch) has already queried
+  //! and saved the current (library) disposition, and restores it after the
+  //! callback returns, so the callback itself only needs to (1) reset the
+  //! kernel disposition to `SIG_DFL` and (2) re-deliver the signal to the
+  //! calling thread. For a terminating default the process dies inside the
+  //! delivery and the restore never runs; for a stop/continue default the
+  //! process survives the stop and the restore runs after resumption, so the
+  //! library's handler is still in place for later deliveries.
+  //!
+  //! `signo` is the signal whose default action is being taken, `raw_info`
+  //! the raw OS `siginfo_t *` of the original delivery, and `raw_context` the
+  //! raw `ucontext_t *`; either may be NULL when the raise carried no OS info
+  //! (e.g. `stdc_raise(signo, NULL, NULL)`). An embedder that wants core-dump
+  //! fidelity (the faulting address etc.) may set a callback that re-delivers
+  //! with the original `raw_info` preserved (e.g. Linux
+  //! `SYS_rt_tgsigqueueinfo`), falling back to a plain self-delivery if that
+  //! fails or the info is NULL. The callback must be async-signal-safe.
+  typedef void(WG14_SIGNALS_PREFIX(sig_default_action_np_t))(
+  int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * raw_info,
+  void *raw_context);
+
   /*! \brief THREADSAFE ASYNC-SIGNAL-SAFE Fills the set of synchronous signals
   for this platform.
 
@@ -777,6 +802,48 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   */
   WG14_SIGNALS_EXTERN int
   WG14_SIGNALS_PREFIX(signal_decider_destroy)(void *decider);
+
+  /*! \brief THREADSAFE (POSIX only) Sets the `sa_flags` used when the library
+  installs its raw signal handler (the filtering handler installed by
+  `siginstall()`).
+
+  The default is `SA_SIGINFO | SA_NOCLDWAIT | SA_NODEFER`. An embedder whose
+  process installs an alternate signal stack (`sigaltstack`) and needs the raw
+  handler to run on it must add `SA_ONSTACK` (or any other flags its platform
+  supports). The value set here applies to every raw-handler installation
+  performed after this call; signals already installed keep the flags they
+  were installed with until they are uninstalled and re-installed.
+
+  \return 0 on success, or -1 with `errno` set to `EINVAL` if `sa_flags` does
+  not include `SA_SIGINFO` (the raw handler is installed with `sa_sigaction`
+  and receives a `siginfo_t *`, so a flag set without `SA_SIGINFO` would break
+  the handler signature). The call never changes the stored flags on failure.
+  On Windows the raw handler is not installed via `sigaction`, so this
+  function returns -1 with `errno` set to `ENOTSUP`.
+  */
+  WG14_SIGNALS_EXTERN int
+  WG14_SIGNALS_PREFIX(siginstall_set_sa_flags_np)(int sa_flags);
+
+  /*! \brief THREADSAFE (POSIX only) Sets the function the library calls to
+  take a signal's default action when the previously installed disposition for
+  that signal was `SIG_DFL`, from within its signal machinery.
+
+  The default (no call, or a `NULL` `fn`) is the library's built-in action:
+  reset the kernel disposition to `SIG_DFL` and re-deliver the signal to this
+  thread. An embedder that wants core-dump fidelity (the faulting address
+  etc.) sets a callback of type `sig_default_action_np_t` that re-delivers with
+  the original `siginfo` preserved (e.g. Linux `SYS_rt_tgsigqueueinfo`),
+  falling back to a plain self-delivery if that fails or the info is NULL. The
+  callback is invoked from signal-handling context and must be
+  async-signal-safe. Unlike a compile-time hook, the callback can be changed
+  at any time and applies to every later default-action hand-off.
+
+  \return 0 on success. On Windows the backend takes default actions via the
+  SEH machinery rather than a `sigaction` disposition reset, so this function
+  returns -1 with `errno` set to `ENOTSUP`.
+  */
+  WG14_SIGNALS_EXTERN int WG14_SIGNALS_PREFIX(siginstall_set_default_action_np)(
+  WG14_SIGNALS_PREFIX(sig_default_action_np_t) fn);
 
 
 #ifdef __cplusplus

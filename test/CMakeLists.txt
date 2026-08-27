@@ -65,6 +65,13 @@ add_code_test(out_of_range_signo_test SOURCES "out_of_range_signo_test.c" FEATUR
 # the transient "unknown signal" window.
 add_code_test(sig_unknown_handler_test SOURCES "sig_unknown_handler_test.c" FEATURES c_std_11)
 add_code_test(stdc_raise_uninstalled_test SOURCES "stdc_raise_uninstalled_test.c" FEATURES c_std_11)
+# Regression test for analysis.md W5's no-install-at-all arm: stdc_raise() of a
+# signal with NO siginstall() ever performed must return false immediately and
+# must not terminate the process (on Windows the raise used to reach Windows
+# Error Reporting because the exception resolution machinery exists only while
+# a handler is installed; the stdc_raise() pre-check now returns false before
+# raising anything).
+add_code_test(stdc_raise_noinstall_test SOURCES "stdc_raise_noinstall_test.c" FEATURES c_std_11)
 # Regression test for analysis.md TCOV: covers the previously untested failure
 # and edge APIs -- siguninstall_system, sigfillset_asynchronous_nondebug/_debug,
 # and the signal_decider_create error paths (NULL/empty guarded set, NULL
@@ -74,6 +81,20 @@ add_code_test(edge_api_coverage_test SOURCES "edge_api_coverage_test.c" FEATURES
 # covering the standard signals but excluding libc-internal signals
 # (SIGCANCEL/SIGSETXID) and the realtime range.
 add_code_test(siginstall_null_set_test SOURCES "siginstall_null_set_test.c" FEATURES c_std_11)
+# Test for siginstall_set_sa_flags_np(): the raw handler's sa_flags must be
+# exactly what the API requested (default SA_SIGINFO|SA_NOCLDWAIT|SA_NODEFER),
+# a flag set without SA_SIGINFO must be rejected with EINVAL without changing
+# the stored flags, and the setting applies to every siginstall() after the
+# call. POSIX-only (the Windows backend installs no sigaction handler), no-op
+# on Windows.
+add_code_test(siginstall_sa_flags_test SOURCES "siginstall_sa_flags_test.c" FEATURES c_std_11)
+# Test for siginstall_set_default_action_np(): a callback installed with the
+# API is invoked (with the original siginfo) instead of the library's built-in
+# reset-and-re-raise when stdc_raise() falls through to a previously installed
+# SIG_DFL handler, and resetting to NULL restores the built-in behaviour.
+# POSIX-only (the Windows backend takes default actions via the SEH machinery
+# and returns ENOTSUP), no-op on Windows.
+add_code_test(siginstall_default_action_test SOURCES "siginstall_default_action_test.c" FEATURES c_std_11)
 add_code_test(sigguarded_tss_init_test SOURCES "sigguarded_tss_init_test.c" FEATURES c_std_11)
 # Regression test for analysis.md SIGM: the Windows sigguarded() frame filter
 # must not treat sigismember()'s -1 (signo outside 1..32) as membership, so a

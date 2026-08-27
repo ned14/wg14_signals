@@ -229,6 +229,26 @@ extern "C"
 #ifdef _WIN32
     PVOID vectored_continue_handler;
     LPTOP_LEVEL_EXCEPTION_FILTER old_unhandled_exception_filter;
+#else
+  //! \brief The `sa_flags` the raw signal handler is installed with
+  //! (POSIX only), set by `siginstall_set_sa_flags_np()`. Zero means "not
+  //! set": the library's default flags are used. A value of zero is never a
+  //! legitimate setting (the setter rejects a flag set without `SA_SIGINFO`,
+  //! which the raw handler requires), so it doubles as the unset marker.
+  //! Read and written under `lock`.
+  int raw_handler_sa_flags;
+
+//! \brief The default-action callback installed by
+//! `siginstall_set_default_action_np()`, stored as an integer so the field
+//! can be an atomic type: it is read from async-signal-safe context
+//! (`invoke_sigaction()`'s `SIG_DFL` branch, which runs in the raw signal
+//! handler) where the spinlock must not be taken, so the read is a lock-free
+//! atomic load. Zero (NULL) means the library's built-in default action.
+#ifdef __cplusplus
+  std::atomic<WG14_SIGNALS_PREFIX(sig_default_action_np_t) *> default_action;
+#else
+  WG14_SIGNALS_PREFIX(sig_default_action_np_t) * _Atomic default_action;
+#endif
 #endif
     WG14_SIGNALS_PREFIX(signo_to_sighandler_map_t) signo_to_sighandler_map;
   };

@@ -158,6 +158,24 @@ empirical testing showed the bit cannot be relied on or forced:
    tests pass under wine (bit absent) and all 37 tests pass on real Windows
    (bit present).
 
+On 2026-08-21 the **no-install-at-all arm of W5 was closed**: `stdc_raise()`
+of a signal with *no* `siginstall()` ever performed previously terminated the
+process on Windows -- the exception resolution machinery (vectored continue
+handler + unhandled exception filter) is registered only by
+`install_sighandler_impl()`, so an uninstalled raise reached Windows Error
+Reporting and `stdc_raise()` never returned (POSIX returned false via the map
+miss). `stdc_raise()` now pre-checks the signo-to-sighandler map under the
+state lock and returns false before raising anything when no handler is
+installed, so the raise cannot happen without the machinery present and the
+non-continuable SIGABRT case (whose exception cannot be resolved even by the
+machinery) also returns false. This is exact POSIX parity: the map miss is the
+documented "no decider installed for that signal" return, and the concurrency
+properties are unchanged (the pre-check and the raise are the same
+check-then-act window a concurrent `siguninstall()` already races with,
+analysis.md 2.2/W4). The new `stdc_raise_noinstall_test` covers the
+no-install raise as the very first library call, inside a `sigguarded()`
+frame, and on Windows.
+
 ---
 
 ## 1. Findings, in priority order

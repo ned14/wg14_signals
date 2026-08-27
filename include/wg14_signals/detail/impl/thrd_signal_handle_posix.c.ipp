@@ -170,6 +170,24 @@ static void __attribute__((noreturn)) default_abort(void)
 #endif
 
 
+  // The library's built-in default action for a signal whose previously
+  // installed disposition was SIG_DFL: reset the kernel disposition to SIG_DFL
+  // and re-deliver the signal to this thread. This is the fallback used when
+  // no callback is installed with siginstall_set_default_action_np() (the
+  // former WG14_SIGNALS_DEFAULT_ACTION macro expansion).
+  static void WG14_SIGNALS_PREFIX(default_action_impl)(const int signo,
+                                                       siginfo_t *siginfo,
+                                                       void *context)
+  {
+    (void) siginfo;
+    (void) context;
+    struct sigaction dfl;
+    WG14_SIGNALS_MEMSET(&dfl, 0, sizeof(dfl));
+    dfl.sa_handler = SIG_DFL;
+    (void) WG14_SIGNALS_SIGACTION(signo, &dfl, WG14_SIGNALS_NULLPTR);
+    (void) WG14_SIGNALS_KILL_SELF(signo);
+  }
+
   // Invoke a sigaction as if it were the first signal handler
   static bool WG14_SIGNALS_PREFIX(invoke_sigaction)(const struct sigaction *sa,
                                                     const int signo,
@@ -220,15 +238,30 @@ static void __attribute__((noreturn)) default_abort(void)
         // would make later deliveries of that signal bypass the library until
         // a re-install (analysis DFLT). The stop happens during the signal
         // delivery that completes this thread's re-raise, so the restore below
-        // runs only after the process has been resumed.
+        // runs only after the process has been resumed. The default action is
+        // taken by the callback installed with
+        // siginstall_set_default_action_np() when one is set, else by the
+        // library's built-in reset-and-re-raise above (an embedder sets the
+        // callback to re-deliver with the original `siginfo` preserved, for
+        // core-dump fidelity). The callback is read with an atomic load
+        // because this function runs in async-signal-safe context (the raw
+        // signal handler) where the global spinlock must not be taken.
         struct sigaction current;
         WG14_SIGNALS_MEMSET(&current, 0, sizeof(current));
         (void) WG14_SIGNALS_SIGACTION(signo, WG14_SIGNALS_NULLPTR, &current);
-        struct sigaction dfl;
-        WG14_SIGNALS_MEMSET(&dfl, 0, sizeof(dfl));
-        dfl.sa_handler = SIG_DFL;
-        (void) WG14_SIGNALS_SIGACTION(signo, &dfl, WG14_SIGNALS_NULLPTR);
-        (void) WG14_SIGNALS_KILL_SELF(signo);
+        struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+        WG14_SIGNALS_PREFIX(sig_global_state)();
+        WG14_SIGNALS_PREFIX(sig_default_action_np_t) *default_action =
+        atomic_load_explicit(&state->default_action,
+                             WG14_SIGNALS_ATOMIC_PREFIX memory_order_acquire);
+        if(default_action != WG14_SIGNALS_NULLPTR)
+        {
+          default_action(signo, siginfo, context);
+        }
+        else
+        {
+          WG14_SIGNALS_PREFIX(default_action_impl)(signo, siginfo, context);
+        }
         (void) WG14_SIGNALS_SIGACTION(signo, &current, WG14_SIGNALS_NULLPTR);
         return true;
       }
@@ -578,13 +611,51 @@ static void __attribute__((noreturn)) default_abort(void)
     }
   }
 
+  int WG14_SIGNALS_PREFIX(siginstall_set_sa_flags_np)(int sa_flags)
+  {
+    if(0 == (sa_flags & SA_SIGINFO))
+    {
+      // The raw handler is installed with sa_sigaction and receives a
+      // siginfo_t *, so a flag set without SA_SIGINFO would break the handler
+      // signature. Refuse it without touching the stored flags.
+      errno = EINVAL;
+      return -1;
+    }
+    struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+    WG14_SIGNALS_PREFIX(sig_global_state)();
+    LOCK(state->lock);
+    state->raw_handler_sa_flags = sa_flags;
+    UNLOCK(state->lock);
+    return 0;
+  }
+
+  int WG14_SIGNALS_PREFIX(siginstall_set_default_action_np)(
+  WG14_SIGNALS_PREFIX(sig_default_action_np_t) fn)
+  {
+    struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+    WG14_SIGNALS_PREFIX(sig_global_state)();
+    atomic_store_explicit(&state->default_action, fn,
+                          WG14_SIGNALS_ATOMIC_PREFIX memory_order_release);
+    return 0;
+  }
+
   static bool WG14_SIGNALS_PREFIX(install_sighandler_impl)(
   struct WG14_SIGNALS_PREFIX(sighandler_info) * item, const int signo)
   {
+    struct WG14_SIGNALS_PREFIX(sig_global_state_t) *state =
+    WG14_SIGNALS_PREFIX(sig_global_state)();
+    int sa_flags = state->raw_handler_sa_flags;
+    if(sa_flags == 0)
+    {
+      // No siginstall_set_sa_flags_np() call: the library default. Zero is
+      // never a legitimate stored value (the setter rejects a flag set
+      // without SA_SIGINFO), so it doubles as the unset marker.
+      sa_flags = SA_SIGINFO | SA_NOCLDWAIT | SA_NODEFER;
+    }
     struct sigaction sa;
     WG14_SIGNALS_MEMSET(&sa, 0, sizeof(sa));
     sa.sa_sigaction = WG14_SIGNALS_PREFIX(raw_signal_handler);
-    sa.sa_flags = SA_SIGINFO | SA_NOCLDWAIT | SA_NODEFER;
+    sa.sa_flags = sa_flags;
     if(-1 == WG14_SIGNALS_SIGACTION(signo, &sa, &item->old_handler))
     {
       return false;
