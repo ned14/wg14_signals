@@ -36,7 +36,7 @@ struct shared_t
 /* The inner decider asks to invoke recovery, but the inner sigguarded has no
    recovery function. Before the analysis.md 1.7 fix both backends sent the
    exception back to the faulting instruction, which re-faulted forever
-   (POSIX: stdc_raise returns true; Windows: EXCEPTION_CONTINUE_EXECUTION).
+   (POSIX: sighandle returns true; Windows: EXCEPTION_CONTINUE_EXECUTION).
    Detect that infinite loop and terminate the test fast instead of hanging. */
 static enum WG14_SIGNALS_PREFIX(sig_decision)
 inner_decider_func(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)

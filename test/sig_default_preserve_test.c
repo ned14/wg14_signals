@@ -8,7 +8,7 @@
 #include <signal.h>
 #include <string.h>
 
-// Regression test for plans/analysis.md DFLT: when stdc_raise() falls through
+// Regression test for plans/analysis.md DFLT: when sighandle() falls through
 // to a SIG_DFL previously-installed handler for a signal whose default action
 // does not terminate the process, invoke_sigaction in the POSIX backend used to
 // reset the kernel handler to SIG_DFL and re-raise, permanently discarding the
@@ -41,11 +41,11 @@ int main(void)
   // The library's handler must be installed for SIGCONT before the raise.
   CHECK(before.sa_handler != SIG_DFL);
   CHECK(before.sa_handler != SIG_IGN);
-  // No decider claims the raise, so stdc_raise() falls through to the
+  // No decider claims the raise, so sighandle() falls through to the
   // previously installed (SIG_DFL) handler. Taking that default action must
   // not permanently discard the library's installed handler (analysis DFLT).
-  CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGCONT, WG14_SIGNALS_NULLPTR,
-                                        WG14_SIGNALS_NULLPTR));
+  CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGCONT, WG14_SIGNALS_NULLPTR,
+                                       WG14_SIGNALS_NULLPTR));
   memset(&after, 0, sizeof(after));
   CHECK(0 == sigaction(SIGCONT, WG14_SIGNALS_NULLPTR, &after));
   CHECK(after.sa_handler != SIG_DFL);

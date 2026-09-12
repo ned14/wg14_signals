@@ -53,10 +53,10 @@ guarded_func(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
   siginfo_t fake_info;
   memset(&fake_info, 0, sizeof(fake_info));
   fake_info.si_addr = (void *) (intptr_t) 0x1234;
-  (void) WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, &fake_info,
-                                         WG14_SIGNALS_NULLPTR);
-  (void) WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                         WG14_SIGNALS_NULLPTR);
+  (void) WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, &fake_info,
+                                        WG14_SIGNALS_NULLPTR);
+  (void) WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                        WG14_SIGNALS_NULLPTR);
   return value;
 }
 #endif
@@ -65,15 +65,15 @@ int main(void)
 {
   int ret = 0;
 
-  (void) WG14_SIGNALS_PREFIX(stdc_raise)(0, WG14_SIGNALS_NULLPTR,
-                                         WG14_SIGNALS_NULLPTR);
+  (void) WG14_SIGNALS_PREFIX(sighandle)(0, WG14_SIGNALS_NULLPTR,
+                                        WG14_SIGNALS_NULLPTR);
 
   void *handlers = WG14_SIGNALS_PREFIX(siginstall)(WG14_SIGNALS_NULLPTR);
   CHECK(handlers != WG14_SIGNALS_NULLPTR);
 
-  // Global decider path: stdc_raise(signo, NULL, NULL) must hand the decider
+  // Global decider path: sighandle(signo, NULL, NULL) must hand the decider
   // deterministic zero/NULL fields (analysis.md 2.14/W2). Before the fix the
-  // fresh stack `rsi` in stdc_raise was uninitialised garbage, so error_code
+  // fresh stack `rsi` in sighandle was uninitialised garbage, so error_code
   // and addr were indeterminate and raw_info a garbage pointer.
   {
     memset(&observed, 0, sizeof(observed));
@@ -84,8 +84,8 @@ int main(void)
     void *decider = WG14_SIGNALS_PREFIX(signal_decider_create)(
     &guarded, false, capture_decider, value);
     CHECK(decider != WG14_SIGNALS_NULLPTR);
-    CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                          WG14_SIGNALS_NULLPTR));
+    CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                         WG14_SIGNALS_NULLPTR));
     CHECK(observed.decider_calls == 1);
     CHECK(observed.signo == SIGNAL_TO_USE);
     CHECK(observed.error_code == 0);

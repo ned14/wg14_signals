@@ -58,8 +58,8 @@ int main(void)
   // The documented one-line per-thread setup call; it returns false for
   // signo == 0 by design (the header documents it as "return immediately
   // doing nothing else").
-  (void) WG14_SIGNALS_PREFIX(stdc_raise)(0, WG14_SIGNALS_NULLPTR,
-                                         WG14_SIGNALS_NULLPTR);
+  (void) WG14_SIGNALS_PREFIX(sighandle)(0, WG14_SIGNALS_NULLPTR,
+                                        WG14_SIGNALS_NULLPTR);
 
   // sigfillset_synchronous: must succeed and contain the synchronous-fault
   // signals (SIGILL is in the set on both backends).
@@ -72,7 +72,7 @@ int main(void)
   void *handlers = WG14_SIGNALS_PREFIX(siginstall)(WG14_SIGNALS_NULLPTR);
   CHECK(handlers != WG14_SIGNALS_NULLPTR);
 
-  // A global decider claiming the test signal; stdc_raise must report the
+  // A global decider claiming the test signal; sighandle must report the
   // claim and the decider must have run exactly once.
   union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value = {.int_value = 7};
   sigset_t guarded;
@@ -81,8 +81,8 @@ int main(void)
   void *decider = WG14_SIGNALS_PREFIX(signal_decider_create)(
   &guarded, false, decider_func, value);
   CHECK(decider != WG14_SIGNALS_NULLPTR);
-  CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                        WG14_SIGNALS_NULLPTR));
+  CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                       WG14_SIGNALS_NULLPTR));
   CHECK(decider_calls == 1);
   CHECK(WG14_SIGNALS_PREFIX(signal_decider_destroy)(decider) == 0);
 

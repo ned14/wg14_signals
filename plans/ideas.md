@@ -168,7 +168,7 @@ Add to `test/` (all `add_code_test`, C11):
 | `lock_whitebox_test.c` | `#include "detail/impl/lock_unlock.h"`, lock/unlock under TSan | `SPIN` discipline |
 | `decider_destroy_leak_test.c` | loop 10,000 x {create, destroy} on an installed signal; assert no node allocation growth (malloc/calloc interposition — permanent regression guard for the decider-destroy node leak fixed 2026-08-14) | `LEAK` |
 | `thread_atexit_failure_test.c` | stub `__cxa_thread_atexit` via a linker/interposer shim returning -1 and assert `thread_atexit`/`thread_init` propagate the failure on platforms where the return is trustworthy | `CXAT` |
-| `leak_detection_test.c` | loop 20,000 x {create decider, destroy decider} on SIGUSR1, then assert `siguninstall(handlers)` and one final `stdc_raise(SIGUSR1) == false` under ASan/LSan — API-observable variant of `decider_destroy_leak_test`: a leaked/kept node surfaces as an ASan report or as a raise that "finds" a handler | `SPIN` guard |
+| `leak_detection_test.c` | loop 20,000 x {create decider, destroy decider} on SIGUSR1, then assert `siguninstall(handlers)` and one final `sighandle(SIGUSR1) == false` under ASan/LSan — API-observable variant of `decider_destroy_leak_test`: a leaked/kept node surfaces as an ASan report or as a raise that "finds" a handler | `SPIN` guard |
 
 (`TSSD` is wontfix, 2026-08-16: double-destroy is documented undefined behaviour per the
 C11/POSIX/N3924 contract, so no regression guard is written for it — see

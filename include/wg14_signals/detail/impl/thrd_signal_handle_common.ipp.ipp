@@ -346,7 +346,7 @@ extern "C"
     if(mem == WG14_SIGNALS_NULLPTR)
     {
       // WG14_SIGNALS_CALLOC() usually sets ENOMEM itself, but set it explicitly
-      // so the failure is always observable via errno by stdc_raise()'s callers
+      // so the failure is always observable via errno by sighandle()'s callers
       // (plans/analysis.md 3.7).
       errno = ENOMEM;
       return -1;
@@ -387,7 +387,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_create)(void)
   if(*WG14_SIGNALS_PREFIX(sig_tss_state_raw)() != WG14_SIGNALS_NULLPTR)
   {
     // A TSS already exists -- e.g. recreated by the documented post-uninstall
-    // setup call stdc_raise(0, ...), or by an earlier siginstall whose full
+    // setup call sighandle(0, ...), or by an earlier siginstall whose full
     // siguninstall has not yet run. Reuse it rather than overwrite the slot
     // and leak the old TSS together with every thread registration in it. The
     // async-safe TLS path's create is a no-op and initialises lazily, so this
@@ -426,7 +426,7 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
 {
   // The reset of the static TSS slot was previously dead code after a return,
   // leaving *sig_tss_state_raw() dangling at the freed tss_async_signal_safe_t;
-  // any later sigguarded()/stdc_raise() then thread_init'd the freed handle
+  // any later sigguarded()/sighandle() then thread_init'd the freed handle
   // (analysis.md 2.4/Z3). Reset the slot so the next entry recreates the TSS.
   const int ret = WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(
   *WG14_SIGNALS_PREFIX(sig_tss_state_raw)());

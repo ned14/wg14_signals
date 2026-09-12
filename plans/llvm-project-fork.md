@@ -14,7 +14,7 @@ replacement must:
    behaviour — a user of LLVM-libc must observe no regression in the existing
    API surface.
 2. Expose the full N3924 API as new LLVM-libc public entrypoints:
-   `sigguarded`, `stdc_raise`, `siginstall`, `siguninstall`,
+   `sigguarded`, `sighandle`, `siginstall`, `siguninstall`,
    `siguninstall_system`, `signal_decider_create`, `signal_decider_destroy`,
    `sigfillset_synchronous`, `sigfillset_asynchronous_nondebug`,
    `sigfillset_asynchronous_debug`, the `sigfence` macro, `stdc_siginfo` and
@@ -90,7 +90,7 @@ Paths are line-referenced against the current trees.
    linked against the built `libc.a` + `crt1.o` + compiler-rt builtins)
    passes 100% on Linux aarch64: sigaction/signal/raise/SA_SIGINFO/SIG_IGN/
    sigprocmask (untouched direct-kernel entrypoints),
-   siginstall/siguninstall/signal_decider_create/destroy, stdc_raise,
+   siginstall/siguninstall/signal_decider_create/destroy, sighandle,
    sigguarded SIGSEGV recovery, sigfillset_*, current_thread_id,
    tss_async_signal_safe_*, default-action delivery, and abort() semantics
    (through libc's own C11 abort). Gated to Linux only until the darwin/
@@ -131,8 +131,8 @@ Paths are line-referenced against the current trees.
     prototype that routed them through wg14 deciders was reverted). Under
     the 2026-08-22 policy libc's own code does NOT call the wg14 API
     surface at all (internal libc never calls
-    `siginstall`/`siguninstall`/`signal_decider_*`/`stdc_raise` —
-    §"Internal consumers"; the one attempt to prepend `stdc_raise()` to
+    `siginstall`/`siguninstall`/`signal_decider_*`/`sighandle` —
+    §"Internal consumers"; the one attempt to prepend `sighandle()` to
     `abort()` was reverted as redundant/harmful, item 7); the POSIX
     entrypoints remain available for
     user code that wants them, coexisting per-signal (the last writer of a
@@ -151,14 +151,14 @@ Paths are line-referenced against the current trees.
    `siguninstall` (nor `signal_decider_create`/`signal_decider_destroy`) —
    ONLY code outside libc does. libc merely works correctly when external
    code does so.** **RULE (2026-08-22, learned the hard way): NEVER call
-   `stdc_raise()` from internal libc for a signal that is (or will be)
+   `sighandle()` from internal libc for a signal that is (or will be)
    delivered via the OS raise path either — if `siginstall()` was performed,
    the raise enters the wg14 filtering handler BY DEFINITION (it IS the
-   kernel disposition), so a manual `stdc_raise()` is redundant, and it is
+   kernel disposition), so a manual `sighandle()` is redundant, and it is
    harmful: a pre-existing handler that returns runs twice (once via
-   `stdc_raise()`'s `invoke_sigaction` handoff, once via the kernel
+   `sighandle()`'s `invoke_sigaction` handoff, once via the kernel
    delivery's handoff). `abort()` was first "improved" to prepend
-   `stdc_raise(SIGABRT, &info, NULL)` with a synthesized SI_TKILL siginfo
+   `sighandle(SIGABRT, &info, NULL)` with a synthesized SI_TKILL siginfo
    (2026-08-22), then REVERTED the same day: with `siginstall`'ed SIGABRT,
    `abort()`'s tgkill raise delivers into the raw handler, so the decider
    chain, longjmp recovery and the pre-existing-handler handoff all run
@@ -166,7 +166,7 @@ Paths are line-referenced against the current trees.
    by the smoke test's recovery-fn siginfo check, which passes against the
    reverted code); without `siginstall`, the raise hits the default
    disposition and terminates, byte-identical to upstream. `abort_utils.h`
-   is now exactly upstream again (no `stdc_raise` call, no synthesized
+   is now exactly upstream again (no `sighandle` call, no synthesized
    siginfo, no added CMake deps).
    `posix_spawn()` (**NOTHING-TO-DO, with evidence**): the current
    implementation has no SIGCHLD/SIGINT/SIGQUIT disposition code at all —
@@ -190,7 +190,7 @@ Paths are line-referenced against the current trees.
    exit statuses, signal-killed-child reporting, and SIGINT/SIGQUIT sent to
    the `system()`'ing process being consumed) passes 100%;
    standalone suite 38/38 on macOS arm64 (37 + the new
-   `stdc_raise_noinstall_test`) and 27/27 Windows subset under wine
+   `sighandle_noinstall_test`) and 27/27 Windows subset under wine
    (mingw+UCRT, TLS-disabled fallback, `__cxa_thread_atexit` stubbed — the
    mingw-w64 winpthreads `tls_atexit` assert on the library's private DSO
    symbol is a pre-existing MinGW-only limitation, real Windows CI uses
@@ -245,7 +245,7 @@ Paths are line-referenced against the current trees.
      llvm-exegesis, the interpreter), then the compiler-rt sanitizer
      runtimes (sigaction/signal interceptors and internal handlers), then
      the Windows SEH paths — each swapped to `siginstall()` +
-     `signal_decider_create()` + `sigguarded()`/`stdc_raise()`.
+     `signal_decider_create()` + `sigguarded()`/`sighandle()`.
      **Phase 9a (llvm/lib/Support) DONE 2026-08-22** behind
      `LLVM_ENABLE_THREADSAFE_SIGNALS` (default ON on Linux); 9b is
      nothing-to-do (raise() calls kept per the 2026-08-22 amendment); 9c
@@ -423,7 +423,7 @@ toolchain at once.
    re-assert a child's signal exit (`:487`) and `raise(SIGABRT)` when a
    `-cc1` invocation failed (`:491-496`). **KEEP the `raise()` calls
    (amended 2026-08-22)**: with the wg14 machinery installed the raise
-   enters the filtering handler by definition, and `stdc_raise()` would
+   enters the filtering handler by definition, and `sighandle()` would
    lose the no-siginstall termination fallback (it returns false and does
    NOT terminate — a behaviour change on clang's crash path). See the
    Phase 9b note.
@@ -514,7 +514,7 @@ libc-embedded one).
    — `raise(SIGABRT)` for the interpreter's abort.
 7. **llvm/unittests/Support/CrashRecoveryTest.cpp:143-166** — tests that
    `raise()` through the recovery context; becomes a
-   `stdc_raise()`/`sigguarded` test.
+   `sighandle()`/`sigguarded` test.
 
 ### Review conclusions (drives Phase 9)
 
@@ -523,7 +523,7 @@ libc-embedded one).
   `siginstall()` + `signal_decider_create()` decider chains; (2)
   *recover-and-resume* (CrashRecoveryContext) → replace with
   `sigguarded()`; (3) *raise-to-default* (`raise(SIGABRT)` etc.) →
-  replace with `stdc_raise()`. `sigprocmask`/`sigaltstack`/`kill` remain
+  replace with `sighandle()`. `sigprocmask`/`sigaltstack`/`kill` remain
   as-is (not part of the N3924 replacement surface), except where the
   threadsafe implementation's own raw handler obsoletes the altstack
   bookkeeping.
@@ -565,7 +565,7 @@ Commands (per `.github/workflows/ci.yml`): `cmake --build build
 
 | Platform / config | Result (2026-08-20) |
 |---|---|
-| macOS arm64, clang, Debug C11 (local, no sanitizer toolchain) | **37/37 passed**, benchmarks 2/2 passed (5.34 s suite, 13.44 s benchmarks). **38/38 since 2026-08-21** (the new `stdc_raise_noinstall_test` — analysis.md W5 no-install-at-all arm). **40/40 since 2026-08-27** (the new `siginstall_sa_flags_test` and `siginstall_default_action_test` — the `siginstall_set_sa_flags_np()` / `siginstall_set_default_action_np()` APIs) |
+| macOS arm64, clang, Debug C11 (local, no sanitizer toolchain) | **37/37 passed**, benchmarks 2/2 passed (5.34 s suite, 13.44 s benchmarks). **38/38 since 2026-08-21** (the new `sighandle_noinstall_test` — analysis.md W5 no-install-at-all arm). **40/40 since 2026-08-27** (the new `siginstall_sa_flags_test` and `siginstall_default_action_test` — the `siginstall_set_sa_flags_np()` / `siginstall_set_default_action_np()` APIs) |
 | Linux glibc aarch64 (docker, `ghcr.io/llvm/arm64v8/libc-ubuntu-24.04@sha256:9ca390ed…`, clang-23 + gcc 13.3, ASan/UBSan toolchain) — **all 16 CI configs** clang-23/gcc × Debug/Release × C11/C23 × shared OFF/ON × fallback OFF/ON | **38/38 passed, 0 failed in every config** (recorded 2026-08-20 via docker; commands: the repo's ci.yml Linux job configure lines run inside the container, script `.kilo/tmp/wg14-glibc-matrix.sh`) |
 | Linux musl (Alpine, C11/C23 × shared OFF/ON) | **38/38 passed, 0 failed in all 4 configs** (docker `alpine:3.20`, gcc, Release; script `.kilo/tmp/wg14-musl-matrix.sh`) — note: 38 tests discovered on Linux vs 37 on macOS (platform-gated tests) |
 | Linux glibc **x86_64** | TBD — the upstream wg14_signals CI's `ubuntu-latest` legs are x86_64; record from the next green `main` CI run or an x86_64 docker run |
@@ -583,7 +583,7 @@ that configuration must also pass 37/37. **DONE 2026-08-21**: the
 arm64, clang); the `LinuxOverrideProbe` CI leg will re-verify on
 ubuntu-latest. Windows-side verification (2026-08-21, mingw+UCRT under
 wine, TLS-disabled fallback, `__cxa_thread_atexit` stubbed): 27/27 of the
-suite's runtime tests pass, including `stdc_raise_noinstall_test` —
+suite's runtime tests pass, including `sighandle_noinstall_test` —
 note the wine leg uses the mingw-w64 toolchain whose winpthreads
 `tls_atexit` asserts on the library's private DSO symbol (pre-existing
 MinGW-only limitation, `thread_atexit.c.ipp`); real Windows CI uses MSVC.
@@ -933,7 +933,7 @@ member at `:265`), plus the `thread_atexit` chain (`__cxa_thread_atexit` at
 `current_thread_id()`'s per-OS calls.
 
 If these resolve to the public entrypoints, `sigaction()` calls
-`sigaction()` → infinite recursion, and `raise()` calls `stdc_raise()` →
+`sigaction()` → infinite recursion, and `raise()` calls `sighandle()` →
 recursion. The upstream override layer gives each host call a
 function-like macro in `config.h` that defaults to the standard name and
 that an embedding libc can redefine to its own internal function:
@@ -954,7 +954,7 @@ recursion (full call-site inventory in Appendix B):
 |---|---|---|
 | `sigaction` | the submodule's raw-handler install/uninstall must go to the kernel directly (SA_NOCLDWAIT stripped, no dependence on libc's entrypoint C symbols in hermetic test builds) | `wg14_embedder_sigaction` in the shim (`SYS_rt_sigaction` + `__restore_rt`); darwin/freebsd wrappers to be added |
 | `abort` | libc `abort` raises SIGABRT through the same machinery → recursion | `abort_utils::abort()` after the rework in §"Internal consumers" |
-| `pthread_kill(pthread_self(), ...)` | libc has no `pthread_kill` entrypoint; used by `stdc_raise`'s last-resort delivery | `SYS_tgkill`/`SYS_gettid` syscall wrappers (to be added) |
+| `pthread_kill(pthread_self(), ...)` | libc has no `pthread_kill` entrypoint; used by `sighandle`'s last-resort delivery | `SYS_tgkill`/`SYS_gettid` syscall wrappers (to be added) |
 
 | Resolves naturally | Why it cannot recurse |
 |---|---|
@@ -990,8 +990,8 @@ source patch is involved — only include paths supplied by the fork's CMake.
 LLVM-libc public headers are generated from YAML by `libc/utils/hdrgen/`. The
 N3924 API needs:
 
-- **`libc/include/signal.yaml` additions**: `sigguarded`, `stdc_raise`,
-  `siginstall`, `siguninstall`, `siguninstall_system`,
+- **`libc/include/signal.yaml` additions**: `sigguarded`, `sighandle`,
+  `stdc_raise`, `siginstall`, `siguninstall`, `siguninstall_system`,
   `signal_decider_create`, `signal_decider_destroy`,
   `sigfillset_synchronous`, `sigfillset_asynchronous_nondebug`,
   `sigfillset_asynchronous_debug`; types `stdc_siginfo`, `stdc_siginfo_value`,
@@ -1041,7 +1041,7 @@ Rationale:
   `siginstall()`; the POSIX entrypoints' kernel dispositions coexist
   per-signal (the last writer of a signal's kernel disposition wins).
 - libc's own code never calls the wg14 APIs at all (2026-08-22 policy,
-  §"Internal consumers"; the one `stdc_raise()`-in-`abort()` attempt was
+  §"Internal consumers"; the one `sighandle()`-in-`abort()` attempt was
   reverted as redundant/harmful — an OS raise enters the wg14 raw handler
   by definition when external code `siginstall`'ed), so the entrypoints
   need no shim layer.
@@ -1054,7 +1054,7 @@ ONLY code outside libc does. libc merely works correctly when external
 code does so: the untouched POSIX entrypoints coexist per-signal with the
 wg14 raw handler (the last writer of a signal's kernel disposition wins,
 and save/restore round-trips through the wg14 handler unchanged). **Rule
-(2026-08-22)**: internal libc also never calls `stdc_raise()` for a signal
+(2026-08-22)**: internal libc also never calls `sighandle()` for a signal
 it raises via the OS — the raise enters the wg14 machinery by definition;
 `abort()` is upstream-identical and honours externally installed deciders
 through its normal kernel raise (§"Internal consumers").
@@ -1073,12 +1073,12 @@ routed to libc's entrypoints via the embedder hooks).
  signal-disposition needs stay on the existing direct-kernel entrypoints
  (`raise()`/`sigaction()`/`rt_sigaction`, all untouched, §"Replacing the
  existing entrypoints"). **RULE (2026-08-22): internal libc also NEVER
- calls `stdc_raise()` for a signal it raises via the OS raise path — the
+ calls `sighandle()` for a signal it raises via the OS raise path — the
  wg14 filtering handler installed by an external `siginstall()` IS the
  kernel disposition, so the raise enters the wg14 machinery by definition;
- a manual `stdc_raise()` is redundant and harmful (double handoff when a
+ a manual `sighandle()` is redundant and harmful (double handoff when a
  pre-existing handler returns; see executive item 7).** The earlier
- "`stdc_raise()` is the sole sanctioned wg14 call inside libc (abort)"
+ "`sighandle()` is the sole sanctioned wg14 call inside libc (abort)"
  wording is REVOKED — `abort()` was reverted to upstream (item 7). Work
  items, in priority order:
 
@@ -1091,9 +1091,9 @@ routed to libc's entrypoints via the embedder hooks).
   handler returns and the hard-abort sequence continues, same C11
   semantics), with the REAL kernel siginfo (`SI_TKILL`, pid, uid). Without
   `siginstall`, the raise hits the default disposition and terminates,
-  byte-identical to upstream. No `stdc_raise()` call, no synthesized
+  byte-identical to upstream. No `sighandle()` call, no synthesized
   siginfo, no added CMake deps. (An initial version DID prepend
-  `stdc_raise(SIGABRT, &info, NULL)` with a synthesized siginfo — the
+  `sighandle(SIGABRT, &info, NULL)` with a synthesized siginfo — the
   double-handoff and redundancy defect described above — and was reverted
   the same day; the smoke test's recovery-fn siginfo check passes against
   the reverted code because the kernel delivery supplies the real info.)
@@ -1198,7 +1198,7 @@ routed to libc's entrypoints via the embedder hooks).
    `crt1.o` + compiler-rt builtins) passes 100% on Linux aarch64:
    sigaction/signal/raise/SA_SIGINFO/SIG_IGN/sigprocmask (untouched
    direct-kernel entrypoints), siginstall/siguninstall/
-   signal_decider_create/destroy, stdc_raise, sigguarded SIGSEGV recovery,
+   signal_decider_create/destroy, sighandle, sigguarded SIGSEGV recovery,
    sigfillset_*, current_thread_id, tss_async_signal_safe_*,
    default-action delivery and abort() semantics (through libc's own C11
    abort). 2026-08-22 the smoke link was brought back up after the full
@@ -1224,7 +1224,7 @@ routed to libc's entrypoints via the embedder hooks).
    existing entrypoints"); the Phase 2 work is the N3924 entrypoints +
    headers + config (items 1-4), plus §"Internal consumers" rewrites.
 6. ~~Rework `abort_utils.h`~~ **REVERTED 2026-08-22**: `abort_utils.h` is
-   exactly upstream again — the `stdc_raise` prepend was redundant (the
+   exactly upstream again — the `sighandle` prepend was redundant (the
    kernel raise enters the wg14 raw handler by definition when external
    code `siginstall`'ed) and harmful (double handoff), §"Internal
    consumers" item "abort()" and executive item 7; `system.cpp` and
@@ -1249,8 +1249,8 @@ build):
 1. **Hermetic ports** (`libc/test/src/signal/wg14/`, 7 tests, all C++
    `add_libc_test` with a `libc_signal_wg14_unittests` suite; they auto-skip
    on non-Linux because the wg14 entrypoint DEPENDS have no targets there):
-   - `wg14_raise_semantics_test` — ports of stdc_raise_zero (1.4),
-     stdc_raise_uninstalled (2.16/W5), stdc_raise_null_info (2.14/W2),
+   - `wg14_raise_semantics_test` — ports of sighandle_zero (1.4),
+     sighandle_uninstalled (2.16/W5), sighandle_null_info (2.14/W2),
      out_of_range_signo (NEGS).
    - `wg14_install_semantics_test` — ports of siginstall_null_set (RTIM),
      edge_api_coverage (TCOV), sig_default_preserve (DFLT).
@@ -1563,7 +1563,7 @@ branch. `HandleExit()` (**REVISED 2026-08-26**): with no outer buffer to
 jump to, an exit request from inside the guarded function becomes a raise
 through the guard — `HandleExit` records the requested exit code on the
 context (`PendingExit`/`PendingExitRetCode` on `CrashRecoveryContextImpl`)
-and calls `stdc_raise(SIGABRT, NULL, NULL)`, whose frame walk runs the
+and calls `sighandle(SIGABRT, NULL, NULL)`, whose frame walk runs the
 decider → `sig_decision_call_recovery` → the recovery function records the
 code verbatim instead of `128 + signo` (the `SIGPIPE`→`EX_IOERR` special
 case stays on the real-signal path). A `SIGGUARDED_FAILURE_VALUE` return
@@ -1641,10 +1641,10 @@ macOS-only (`HAVE_MACH_MACH_H`), i.e. Phase 5/9a-darwin territory.
    `sigguarded()`, and RunSafely() reports the crash via the `CrashHandled`
    flag — no longjmp chained after the wg14 one. `HandleExit` (revised
    2026-08-26) raises through the active guard with the exit code carried
-   on the context (`PendingExit`/`PendingExitRetCode` + `stdc_raise(SIGABRT)`
+   on the context (`PendingExit`/`PendingExitRetCode` + `sighandle(SIGABRT)`
    → recovery records the code verbatim). The `raise(RetCode - 128)` re-raise
    (`:488`) is unchanged (the raise enters the wg14 machinery by
-   definition when the raw handler is installed — no `stdc_raise()` swap,
+   definition when the raw handler is installed — no `sighandle()` swap,
    per the 2026-08-22 rule). The
    Windows `__try`/`__except` + `AddVectoredExceptionHandler` path
    (`:239-241, 323`) maps onto the SEH backend's `sigguarded()` when
@@ -1684,10 +1684,10 @@ macOS-only (`HAVE_MACH_MACH_H`), i.e. Phase 5/9a-darwin territory.
    2026-08-22)**: an external `raise()` delivers into the wg14 filtering
    handler BY DEFINITION when `siginstall()` was performed, so the decider
    chain and default termination already run; replacing `raise()` with
-   `stdc_raise()` would lose the no-siginstall fallback (`stdc_raise()`
+   `sighandle()` would lose the no-siginstall fallback (`sighandle()`
    returns false and does NOT terminate — a behaviour change on clang's
    error path). Same rule as the internal-consumer rework: never replace an
-   OS raise with `stdc_raise()` for the same signal.
+   OS raise with `sighandle()` for the same signal.
 2. **llvm/lib/ExecutionEngine/Interpreter/ExternalFunctions.cpp**:
    `raise(SIGABRT)` (`:341-342`) — **KEEP (amended 2026-08-22)**, for the
    same reason as item 1.
@@ -1939,3 +1939,15 @@ upstream file exists.
 | `errno` | all backends | natural → libc generated `<errno.h>` (TLS) |
 | `NSIG` | `thrd_signal_handle_posix.c.ipp:370` | natural → platform `signal-macros.h` (linux: `NSIG 64`) |
 | `<stdfil.h>` | common `.ipp:43` | `#ifdef __FILC__`-guarded; inert in libc builds |
+
+## See also
+
+The second-generation integration of this template — extending the
+`ned14/glibc` fork's libc with the same N3924 API, consuming the same
+pinned `d25ccd22a6ea86a1e1c54ddbfe9988b1103e9db9` submodule — is
+`plans/glibc-fork.md` (its commit record above is the ground truth the
+glibc plan inherits; the glibc integration in turn proved the template's
+"duplicate identical definitions are valid C" assumption wrong for
+struct/union/enum tags, which is why the glibc mirror has an embedder
+gate, and dispensed with `WG14_SIGNALS_PREFIX`, which is why the glibc
+entrypoints are unprefixed libc symbols).

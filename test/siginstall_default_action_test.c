@@ -11,7 +11,7 @@
 // Test for the siginstall_set_default_action_np() public API (the replacement
 // for the former WG14_SIGNALS_DEFAULT_ACTION compile-time embedder macro): a
 // callback installed with the API is invoked with the original siginfo (in
-// place of the library's built-in reset-and-re-raise) when stdc_raise() falls
+// place of the library's built-in reset-and-re-raise) when sighandle() falls
 // through to a previously installed SIG_DFL handler, and resetting to NULL
 // restores the built-in behaviour. POSIX-only (the Windows backend takes
 // default actions via the SEH machinery, so the API returns ENOTSUP there).
@@ -68,10 +68,10 @@ int main(void)
   memset(&info, 0, sizeof(info));
   info.si_signo = SIGUSR2;
   info.si_code = SI_USER;
-  // No decider claims the raise, so stdc_raise() falls through to the
+  // No decider claims the raise, so sighandle() falls through to the
   // previously installed (SIG_DFL) handler and the default-action callback
   // runs with the original siginfo.
-  CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGUSR2, &info, WG14_SIGNALS_NULLPTR));
+  CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGUSR2, &info, WG14_SIGNALS_NULLPTR));
   CHECK(1 == callback_calls);
   CHECK(SIGUSR2 == callback_signo);
   CHECK((intptr_t) &info == callback_info_addr);
@@ -101,8 +101,8 @@ int main(void)
     fprintf(stderr, "siginstall() failed: %s\n", strerror(errno));
     return ret;
   }
-  CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGCONT, WG14_SIGNALS_NULLPTR,
-                                        WG14_SIGNALS_NULLPTR));
+  CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGCONT, WG14_SIGNALS_NULLPTR,
+                                       WG14_SIGNALS_NULLPTR));
   // The custom callback must not have been invoked again.
   CHECK(1 == callback_calls);
   struct sigaction after;

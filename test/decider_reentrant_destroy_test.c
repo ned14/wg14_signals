@@ -105,8 +105,8 @@ int main(void)
     self_destroy_calls = 0;
     self_destroy_result = -99;
     survivor_calls = 0;
-    CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                          WG14_SIGNALS_NULLPTR));
+    CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                         WG14_SIGNALS_NULLPTR));
     CHECK(self_destroy_calls == 1);
     CHECK(self_destroy_result == 0);
     CHECK(errno == 0);
@@ -115,8 +115,8 @@ int main(void)
     CHECK(survivor_calls == 0);
     // The destroyed decider's node was retired when the first raise completed:
     // a second raise must not invoke it, and the surviving handle still works.
-    CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                          WG14_SIGNALS_NULLPTR));
+    CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                         WG14_SIGNALS_NULLPTR));
     CHECK(self_destroy_calls == 1);
     CHECK(survivor_calls == 1);
     CHECK(0 == WG14_SIGNALS_PREFIX(signal_decider_destroy)(survivor));
@@ -143,14 +143,14 @@ int main(void)
     sibling_a_calls = 0;
     sibling_b_calls = 0;
     sibling_destroy_result = -99;
-    CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                          WG14_SIGNALS_NULLPTR));
+    CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                         WG14_SIGNALS_NULLPTR));
     CHECK(sibling_a_calls == 1);
     CHECK(sibling_b_calls == 0);
     CHECK(sibling_destroy_result == 0);
     CHECK(errno == 0);
-    CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                          WG14_SIGNALS_NULLPTR));
+    CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                         WG14_SIGNALS_NULLPTR));
     CHECK(sibling_a_calls == 2);
     CHECK(sibling_b_calls == 0);
     CHECK(0 == WG14_SIGNALS_PREFIX(signal_decider_destroy)(a));

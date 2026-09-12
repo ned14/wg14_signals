@@ -11,7 +11,7 @@
 // Fil-C's runtime forbids user handlers for SIGSEGV (sigaction returns ENOSYS),
 // so the in-tree tests raise SIGUSR2 there; SIGSEGV is fine everywhere else
 // (SEH-mapped to EXCEPTION_ACCESS_VIOLATION on Windows). Deliberately do NOT
-// call stdc_raise(0, ...) anywhere in this test: that setup call initialises
+// call sighandle(0, ...) anywhere in this test: that setup call initialises
 // the calling thread's per-thread TSS, which is exactly the state this test
 // must leave uninitialised until the sigguarded() under test (analysis.md
 // 2.19/X3).
@@ -59,8 +59,8 @@ guarded_func(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
   // inside the exception handler.
   RaiseException(EXCEPTION_ACCESS_VIOLATION, 0, 0, WG14_SIGNALS_NULLPTR);
 #else
-  (void) WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                         WG14_SIGNALS_NULLPTR);
+  (void) WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                        WG14_SIGNALS_NULLPTR);
 #endif
   return value;
 }

@@ -20,7 +20,7 @@ permissively. Features:
   which may request recovery, in which case execution resumes as-if a
   `longjmp()` to just before the guarded function ran, with a recovery
   function then invoked. Guards can be stacked.
-- `stdc_raise()` which raises a signal into the library's own handler chain,
+- `sighandle()` which raises a signal into the library's own handler chain,
   so the library's thread-local and global deciders run for a user raise
   exactly as they would for a real hardware fault. On Windows this raises a
   Win32 structured exception; on POSIX it runs the decider chain in-process
@@ -84,6 +84,15 @@ Current CI test matrix (see `.github/workflows/ci.yml`):
 | TSan | gcc, clang | C11, C23 | Ubuntu and macOS; ThreadSanitizer |
 | FreeBSD | clang | C11, C23 | Real FreeBSD 15 kernel under a VM |
 | Fil-C | Fil-C | C11 | The Fil-C memory-safe C compiler, Linux x64 |
+
+Embedding libcs (the reference implementation is consumed *unmodified* as
+a git submodule, see `plans/llvm-project-fork.md` and
+`plans/glibc-fork.md`):
+
+| Embedding | Integration point | Consumed surface |
+|-----------|-------------------|------------------|
+| LLVM libc fork (`llvm-project/`, remote `git@github.com:ned14/llvm-project.git`) | `libc/src/signal/wg14` submodule + `libc/src/signal/wg14-build/` (entrypoints, `embedder_shim.{h,cpp}`, `wg14_hostcalls.cpp`) | the four POSIX `.c` sources; LLVM's `lib/Support` runs on the N3924 API (`LLVM_ENABLE_THREADSAFE_SIGNALS`) |
+| glibc fork (`glibc/`, remote `git@github.com:ned14/glibc.git`) | `wg14_signals` submodule + `glibc/wg14/` build subdir (routines into libc, `embedder_shim.h`, mirror declarations in `<signal.h>`/`<threads.h>`, `GLIBC_2.44` ABI) | the four POSIX `.c` sources compiled into libc.so.6/libc.a; N3924 entrypoints exported from libc |
 
 Current compilers:
 

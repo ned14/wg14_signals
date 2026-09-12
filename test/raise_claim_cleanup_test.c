@@ -20,12 +20,12 @@
 #include <string.h>
 
 // Regression test for analysis.md RFLK: a sigguarded() frame decider claiming a
-// stdc_raise()-initiated raise with sig_decision_call_recovery must leave the
-// per-thread raise-frame chain empty. On Windows stdc_raise() pushes its raise
-// frame and Win-state marker onto tss->front / stdc_raise_initiated_exception
+// sighandle()-initiated raise with sig_decision_call_recovery must leave the
+// per-thread raise-frame chain empty. On Windows sighandle() pushes its raise
+// frame and Win-state marker onto tss->front / sighandle_initiated_exception
 // before RaiseException() and pops them only on the unclaimed-return and
 // longjmp-back paths; the frame filter's EXECUTE_HANDLER path makes SEH unwind
-// stdc_raise()'s stack frame, so those pop paths never run and both chain
+// sighandle()'s stack frame, so those pop paths never run and both chain
 // heads dangle at the dead frame -- a later raise re-links onto the dead
 // pointers, a genuine fault claimed by a global decider longjmps into the dead
 // environment, and sigdecider_abandon() dereferences the dead frame. The
@@ -63,10 +63,10 @@ static union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
 raise_signal(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 {
   // The software raise that the frame decider below claims with call_recovery.
-  // On Windows this is the stdc_raise()-initiated SEH exception; on POSIX it
+  // On Windows this is the sighandle()-initiated SEH exception; on POSIX it
   // walks the frame chain directly.
-  (void) WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                         WG14_SIGNALS_NULLPTR);
+  (void) WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                        WG14_SIGNALS_NULLPTR);
   return value;
 }
 
@@ -96,21 +96,21 @@ int main(void)
   CHECK(result.int_value == 7);
 
   // White-box: the per-thread raise chain must be empty after the claim. On
-  // Windows before the fix tss->front still pointed at the unwound stdc_raise()
+  // Windows before the fix tss->front still pointed at the unwound sighandle()
   // stack frame (analysis.md RFLK).
   struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
   WG14_SIGNALS_PREFIX(sig_global_tss_state)();
   CHECK(tss->front == WG14_SIGNALS_NULLPTR);
 #ifdef _WIN32
-  CHECK(tss->stdc_raise_initiated_exception == WG14_SIGNALS_NULLPTR);
+  CHECK(tss->sighandle_initiated_exception == WG14_SIGNALS_NULLPTR);
 #endif
 
   CHECK(WG14_SIGNALS_PREFIX(siguninstall)(handlers) == 0);
   // POSIX-only: a later raise on the thread, with no decider or handler left,
   // must return false without re-linking onto a dead frame (analysis.md RFLK).
 #if !defined(_WIN32)
-  CHECK(!WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                         WG14_SIGNALS_NULLPTR));
+  CHECK(!WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                        WG14_SIGNALS_NULLPTR));
   tss = WG14_SIGNALS_PREFIX(sig_global_tss_state)();
   CHECK(tss->front == WG14_SIGNALS_NULLPTR);
 #endif

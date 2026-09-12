@@ -37,8 +37,8 @@ guarded_func(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
   // uninstalled signal must return false too, not terminate the process
   // (analysis.md 2.16/W5).
   guarded_raise_returned_false =
-  (WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                   WG14_SIGNALS_NULLPTR) == false);
+  (WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                  WG14_SIGNALS_NULLPTR) == false);
   return value;
 }
 
@@ -46,8 +46,8 @@ int main(void)
 {
   int ret = 0;
 
-  (void) WG14_SIGNALS_PREFIX(stdc_raise)(0, WG14_SIGNALS_NULLPTR,
-                                         WG14_SIGNALS_NULLPTR);
+  (void) WG14_SIGNALS_PREFIX(sighandle)(0, WG14_SIGNALS_NULLPTR,
+                                        WG14_SIGNALS_NULLPTR);
 
   // Register the library's exception machinery before raising anything: on
   // Windows the vectored continue handler + unhandled exception filter exist
@@ -61,13 +61,13 @@ int main(void)
   void *handlers = WG14_SIGNALS_PREFIX(siginstall)(&base);
   CHECK(handlers != WG14_SIGNALS_NULLPTR);
 
-  // A supported signo with NO handler installed: stdc_raise must return false
+  // A supported signo with NO handler installed: sighandle must return false
   // (documented contract "returning false if we have no decider installed for
   // that signal"). Before analysis.md 2.16/W5 was fixed, Windows raised the
   // SEH exception, no handler/decider claimed it, and Windows Error Reporting
   // terminated the process.
-  CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                        WG14_SIGNALS_NULLPTR) == false);
+  CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                       WG14_SIGNALS_NULLPTR) == false);
 
   // Same raise inside a sigguarded() frame guarding a different signal.
   sigset_t guarded;
@@ -78,7 +78,7 @@ int main(void)
                                          claiming_decider, value);
   CHECK(guarded_raise_returned_false);
 
-  // Sanity: once SIGNAL_TO_USE is installed and claimed, stdc_raise must still
+  // Sanity: once SIGNAL_TO_USE is installed and claimed, sighandle must still
   // return true.
   sigset_t sanity;
   sigemptyset(&sanity);
@@ -92,8 +92,8 @@ int main(void)
     void *decider = WG14_SIGNALS_PREFIX(signal_decider_create)(
     &guarded2, false, claiming_decider, value);
     CHECK(decider != WG14_SIGNALS_NULLPTR);
-    CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                          WG14_SIGNALS_NULLPTR));
+    CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                         WG14_SIGNALS_NULLPTR));
     WG14_SIGNALS_PREFIX(signal_decider_destroy(decider));
   }
   CHECK(WG14_SIGNALS_PREFIX(siguninstall)(handlers2) == 0);

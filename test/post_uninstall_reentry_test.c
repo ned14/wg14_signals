@@ -11,7 +11,7 @@
 // Regression test for plans/analysis.md 2.4/Z3: on the fallback-TLS path
 // sig_global_tss_state_destroy's reset of the static TSS slot was dead code
 // after a return, so a full siguninstall left *sig_tss_state_raw() dangling at
-// a freed tss_async_signal_safe. Any later re-entry (stdc_raise(0, ...) or
+// a freed tss_async_signal_safe. Any later re-entry (sighandle(0, ...) or
 // sigguarded) then thread_init'd the freed handle -> ASan heap-use-after-free.
 // The slot must be reset to NULL so the next entry recreates the TSS.
 
@@ -19,7 +19,7 @@
 // standard POSIX signal, so the raise is seen by the library on both platforms.
 // Fil-C's runtime forbids user handlers for SIGILL
 // (zis_unsafe_signal_for_handlers, analysis.md 5.10), so use SIGUSR2 there --
-// stdc_raise() invokes the decider in-process, so the same Windows-visible
+// sighandle() invokes the decider in-process, so the same Windows-visible
 // raise path is exercised elsewhere. SIGUSR2 is used rather than SIGUSR1 to
 // keep this test distinct from the SIGUSR1-based Fil-C tests
 // (thrd_signal_handle_test, benchmark_thrd_signal_handle_test), and matches
@@ -48,7 +48,7 @@ reentry_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 }
 
 // The raise-while-installed step is claimed by a global decider: on Windows an
-// unclaimed stdc_raise terminates the process (analysis.md W5), so a bare raise
+// unclaimed sighandle terminates the process (analysis.md W5), so a bare raise
 // with no frame or decider cannot be used (cf. thrd_sigfpe_test.c test 2).
 static enum WG14_SIGNALS_PREFIX(sig_decision)
 raise_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
@@ -80,17 +80,17 @@ int main(void)
     CHECK(decider != WG14_SIGNALS_NULLPTR);
     if(decider != WG14_SIGNALS_NULLPTR)
     {
-      CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(
+      CHECK(WG14_SIGNALS_PREFIX(sighandle)(
       INSTALLED_SIGNAL, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR));
       CHECK(0 == WG14_SIGNALS_PREFIX(signal_decider_destroy)(decider));
     }
     // Full uninstall destroys the TSS on the fallback path.
     CHECK(0 == WG14_SIGNALS_PREFIX(siguninstall)(handlers));
     // Re-entry after a full uninstall must recreate the TSS, not dereference
-    // the freed one. stdc_raise(0, ...) performs the non-async-safe setup then
+    // the freed one. sighandle(0, ...) performs the non-async-safe setup then
     // returns false.
-    CHECK(!WG14_SIGNALS_PREFIX(stdc_raise)(0, WG14_SIGNALS_NULLPTR,
-                                           WG14_SIGNALS_NULLPTR));
+    CHECK(!WG14_SIGNALS_PREFIX(sighandle)(0, WG14_SIGNALS_NULLPTR,
+                                          WG14_SIGNALS_NULLPTR));
     // sigguarded() also re-enters via sig_global_tss_state_init().
     sigset_t guarded;
     sigemptyset(&guarded);

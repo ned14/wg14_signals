@@ -10,12 +10,12 @@ int main(void)
 
   // The documented one-line library setup call
   // (thrd_signal_handle.h:341-346). Before analysis.md 1.4 was fixed, on
-  // Windows this aborted the process: the Windows stdc_raise had no
+  // Windows this aborted the process: the Windows sighandle had no
   // signo == 0 short-circuit, so win32_exception_code_from_signal(0) executed
   // default: abort(). It must set up the calling thread's TLS state and return
   // false doing nothing else.
-  CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(0, WG14_SIGNALS_NULLPTR,
-                                        WG14_SIGNALS_NULLPTR) == false);
+  CHECK(WG14_SIGNALS_PREFIX(sighandle)(0, WG14_SIGNALS_NULLPTR,
+                                       WG14_SIGNALS_NULLPTR) == false);
 
   return ret;
 }

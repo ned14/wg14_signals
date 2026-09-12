@@ -10,7 +10,7 @@
 #include <string.h>
 
 // Regression test for plans/analysis.md 2.2/W4: while a thread is unlocked
-// inside a global decider's stdc_raise, another thread runs
+// inside a global decider's sighandle, another thread runs
 // signal_decider_destroy() (bringing the decider node's refcount to 1) and then
 // siguninstall() (which in the unfixed code frees the sighandler_info container
 // outright). When the decider returns without claiming the signal, the raise
@@ -63,8 +63,8 @@ static int raiser_thread(void *unused)
   (void) unused;
   atomic_store_explicit(
   &raise_result,
-  (int) WG14_SIGNALS_PREFIX(stdc_raise)(INSTALLED_SIGNAL, WG14_SIGNALS_NULLPTR,
-                                        WG14_SIGNALS_NULLPTR),
+  (int) WG14_SIGNALS_PREFIX(sighandle)(INSTALLED_SIGNAL, WG14_SIGNALS_NULLPTR,
+                                       WG14_SIGNALS_NULLPTR),
   memory_order_release);
   return 0;
 }

@@ -100,7 +100,7 @@ int main(void)
       for(size_t n = 0; n < 65536; n++)
       {
         cpu_ticks_count s = get_ticks_count(memory_order_relaxed);
-        CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(
+        CHECK(WG14_SIGNALS_PREFIX(sighandle)(
         SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR));
         cpu_ticks_count e = get_ticks_count(memory_order_relaxed);
         ticks += e - s;

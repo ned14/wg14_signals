@@ -77,7 +77,7 @@ struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t)
   // software raise via sig_decision_resume_execution. On real Windows the
   // vectored continue handler runs after that frame CONTINUE_EXECUTION and
   // re-runs the global pass; without this marker the pass would report the
-  // frame-claimed raise unclaimed, making stdc_raise() return false even
+  // frame-claimed raise unclaimed, making sighandle() return false even
   // though a frame claimed it (analysis.md 3.15/V5 interaction, exposed by
   // out_of_range_signo_test).
   bool exception_was_claimed;
@@ -402,7 +402,7 @@ extern "C"
                                              record->ExceptionInformation[0]);
   }
 
-  // Returns the in-flight stdc_raise() frame whose snapshot matches the given
+  // Returns the in-flight sighandle() frame whose snapshot matches the given
   // exception record, or NULL when the current exception is not one of our
   // software raises. Both the frame filter (which marks a frame-claimed raise)
   // and the global pass (which reports an unclaimed one) need exactly this
@@ -414,11 +414,11 @@ extern "C"
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
     WG14_SIGNALS_PREFIX(sig_global_tss_state)();
     if(tss != WG14_SIGNALS_NULLPTR &&
-       tss->stdc_raise_initiated_exception != WG14_SIGNALS_NULLPTR &&
+       tss->sighandle_initiated_exception != WG14_SIGNALS_NULLPTR &&
        WG14_SIGNALS_PREFIX(win32_exception_record_matches)(
-       tss->stdc_raise_initiated_exception, record))
+       tss->sighandle_initiated_exception, record))
     {
-      return tss->stdc_raise_initiated_exception;
+      return tss->sighandle_initiated_exception;
     }
     return WG14_SIGNALS_NULLPTR;
   }
@@ -454,7 +454,7 @@ extern "C"
         // invocation reuses it instead of re-running the global-decider pass:
         // the pass re-run would see the in-flight software raise, and without
         // the exception_was_claimed marker below report it unclaimed --
-        // stdc_raise() returning false for a raise a frame decider just
+        // sighandle() returning false for a raise a frame decider just
         // claimed (analysis.md 3.15/V5 interaction, exposed by
         // out_of_range_signo_test). Also mark the in-flight raise frame
         // claimed (full-record match, so a genuine fault of the same code
@@ -486,7 +486,7 @@ extern "C"
           return EXCEPTION_CONTINUE_SEARCH;
         }
         // Returning EXECUTE_HANDLER makes SEH unwind the stack below this
-        // __except, discarding every frame stdc_raise() pushed onto the
+        // __except, discarding every frame sighandle() pushed onto the
         // per-thread chain for a raise initiated inside this guard (its own
         // pop paths never run because RaiseException() does not return).
         // Frames pushed after sigguarded() entry are all below this __except
@@ -496,7 +496,7 @@ extern "C"
         // later global decider longjmping into a NULL frame (analysis.md
         // RFLK).
         state->tss->front = state->tss_front_at_entry;
-        state->tss->stdc_raise_initiated_exception = state->win_at_entry;
+        state->tss->sighandle_initiated_exception = state->win_at_entry;
         return EXCEPTION_EXECUTE_HANDLER;
       }
     }
@@ -537,7 +537,7 @@ extern "C"
     WG14_SIGNALS_PREFIX(sig_global_tss_state)();
     struct WG14_SIGNALS_PREFIX(win32_exception_filter_state) state = {
     {0},     tss,   signals,    recovery,
-    decider, value, tss->front, tss->stdc_raise_initiated_exception,
+    decider, value, tss->front, tss->sighandle_initiated_exception,
     };
 #if defined(__MINGW32__) && !defined(__clang__)
 #error                                                                         \
@@ -556,7 +556,7 @@ extern "C"
   }
 
   // You must NOT do anything async signal unsafe in here!
-  bool WG14_SIGNALS_PREFIX(stdc_raise)(
+  bool WG14_SIGNALS_PREFIX(sighandle)(
   int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * info,
   WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * raw_context)
   {
@@ -571,7 +571,7 @@ extern "C"
       // already sets errno on its own failure paths (calloc -> ENOMEM,
       // tss_async_signal_safe_thread_init -> ENOMEM/EINVAL), and we guarantee
       // a diagnostic even if a lower layer forgot (plans/analysis.md 3.7).
-      // In particular the documented setup call stdc_raise(0, NULL, NULL)
+      // In particular the documented setup call sighandle(0, NULL, NULL)
       // then lets the caller detect that setup actually failed.
       if(errno == 0)
       {
@@ -616,16 +616,16 @@ extern "C"
     current.prev = old;
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) current2;
     memset(&current2, 0, sizeof(current2));
-    current2.prev = tss->stdc_raise_initiated_exception;
+    current2.prev = tss->sighandle_initiated_exception;
     if(setjmp(current.buf) != 0)
     {
       // A global decider claimed the raise and longjmp'd back to us.
       tss->front = old;
-      tss->stdc_raise_initiated_exception = current2.prev;
+      tss->sighandle_initiated_exception = current2.prev;
       return true;
     }
     tss->front = &current;
-    tss->stdc_raise_initiated_exception = &current2;
+    tss->sighandle_initiated_exception = &current2;
     const DWORD win32sehcode =
     WG14_SIGNALS_PREFIX(win32_exception_code_from_signal)(signo);
     // info->ExceptionInformation[0] = 0=read 1=write 8=DEP
@@ -674,7 +674,7 @@ extern "C"
     // claimed it). Pop the frame pushed above so tss->front never points at
     // this dead stack frame (analysis.md 1.6).
     tss->front = old;
-    tss->stdc_raise_initiated_exception = current2.prev;
+    tss->sighandle_initiated_exception = current2.prev;
     // An unclaimed software raise of a signal with no installed handler or
     // decider returns false instead of letting Windows Error Reporting
     // terminate the process (analysis.md 2.16/W5).
@@ -700,11 +700,11 @@ extern "C"
         // Pop the top most sigguarded()
         tss->front = tss->front->prev;
       }
-      if(tss->stdc_raise_initiated_exception != WG14_SIGNALS_NULLPTR)
+      if(tss->sighandle_initiated_exception != WG14_SIGNALS_NULLPTR)
       {
-        rsi->internal_win_state = tss->stdc_raise_initiated_exception;
-        tss->stdc_raise_initiated_exception =
-        tss->stdc_raise_initiated_exception->prev;
+        rsi->internal_win_state = tss->sighandle_initiated_exception;
+        tss->sighandle_initiated_exception =
+        tss->sighandle_initiated_exception->prev;
       }
       if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR ||
          rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)
@@ -745,13 +745,13 @@ extern "C"
         struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) *newstate =
         (struct WG14_SIGNALS_PREFIX(
         sig_global_state_tss_state_win_t) *) rsi->internal_win_state;
-        if(newstate->prev != tss->stdc_raise_initiated_exception)
+        if(newstate->prev != tss->sighandle_initiated_exception)
         {
           // sigdecider_abandon not called on topmost sigguarded()
-          assert(newstate->prev == tss->stdc_raise_initiated_exception);
+          assert(newstate->prev == tss->sighandle_initiated_exception);
           abort();
         }
-        tss->stdc_raise_initiated_exception = newstate;
+        tss->sighandle_initiated_exception = newstate;
       }
       if(rsi->internal_local_decider != WG14_SIGNALS_NULLPTR)
       {
@@ -784,19 +784,19 @@ extern "C"
   }
 
 
-  // Detects whether the current exception is a software raise -- a stdc_raise()
+  // Detects whether the current exception is a software raise -- a sighandle()
   // with no map entry, or with a map entry that no decider claimed. Returns
   // EXCEPTION_CONTINUE_EXECUTION when it is (marking the in-flight raise frame
-  // unclaimed -- stdc_raise() then returns false instead of the exception
+  // unclaimed -- sighandle() then returns false instead of the exception
   // reaching Windows Error Reporting, analysis.md 2.16/W5 -- unless a frame
-  // decider already claimed it, in which case stdc_raise() returns true), and
+  // decider already claimed it, in which case sighandle() returns true), and
   // EXCEPTION_CONTINUE_SEARCH for a genuine fault.
   //
   // win32_matching_raise_frame compares the raise frame's pre-delivery snapshot
   // field-for-field against the delivered record
   // (win32_exception_record_matches, masking EXCEPTION_SOFTWARE_ORIGINATE), so
   // a genuine fault of the same code raised during an in-flight raise (e.g.
-  // stdc_raise(SIGSEGV, NULL, NULL) whose decider faults with a real 0xC0000005
+  // sighandle(SIGSEGV, NULL, NULL) whose decider faults with a real 0xC0000005
   // access violation carrying NumberParameters == 2) is not mistaken for the
   // software raise and re-executed forever -- real Windows sets the bit only on
   // RaiseException- delivered records, but wine sets it on none, so the bit
@@ -841,9 +841,9 @@ extern "C"
     {
       UNLOCK(state->lock);
       // We don't have a handler installed for that signal. If this exception
-      // is one of OUR software raises (stdc_raise() of a signal with no
+      // is one of OUR software raises (sighandle() of a signal with no
       // installed handler/decider), continue execution so RaiseException()
-      // returns and stdc_raise() reports false, instead of the default
+      // returns and sighandle() reports false, instead of the default
       // unhandled behaviour which invokes Windows Error Reporting and
       // terminates the process (analysis.md 2.16/W5). Genuine faults keep
       // EXCEPTION_CONTINUE_SEARCH. Record the decision either way so the
@@ -900,7 +900,7 @@ extern "C"
           WG14_SIGNALS_PREFIX(sig_global_tss_state)();
           // If there is a most recent thread local handler, resume there
           // instead. tss may be NULL: the per-thread state is created only by
-          // sig_global_tss_state_init() (a prior sigguarded()/stdc_raise() on
+          // sig_global_tss_state_init() (a prior sigguarded()/sighandle() on
           // this thread), and the vectored handler never initialises it, so a
           // genuine fault on a thread that has only ever called siginstall()
           // (or nothing) would otherwise NULL-deref tss->front inside the

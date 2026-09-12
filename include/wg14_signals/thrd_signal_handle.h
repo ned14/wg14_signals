@@ -687,23 +687,40 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
 #pragma warning(pop)
 #endif
 
-  /*! \brief THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Call OUR currently installed
-  signal decider for a signal (POSIX), or raise a Win32 structured exception
-  (Windows), returning false if we have no decider installed for that signal.
+  /*! \brief THREADSAFE USUALLY ASYNC-SIGNAL-SAFE Raise a signal into this
+  library's own signal handling chain: the calling thread's currently active
+  `sigguarded()` guard frames are walked directly, then the global deciders
+  installed for the signal are called, and if none of them handles the signal
+  (returns a decision other than `sig_decision_next_decider`) the disposition
+  captured when this library first installed the signal is handed the signal.
+  On Windows a Win32 structured exception is raised instead.
 
-  Note that on POSIX, we fetch OUR currently installed signal decider and call
-  it directly. This allows us to supply custom `raw_info` and `raw_context`.
-  Each decider in our chain will be invoked in turn until we reach whatever the
-  signal handler was when this library was first initialised, and we hand off
-  to that handler. If that handler was defaulted and the default handling is not
-  to ignore, we reset the handler installation and execute
-  `pthread_kill(pthread_self(), signo)` in order to invoke the default handling.
-  If that hand-off reaches a previously installed `SA_SIGINFO` handler while
-  `raw_info` is NULL (e.g. `stdc_raise(signo, NULL, NULL)`), a minimal
-  zeroed `siginfo_t` with `si_signo` set to `signo` and `si_code` set to
-  `SI_USER` is synthesised and passed instead of NULL, so a handler that reads
-  `si->si_signo`/`si->si_code` without a NULL check does not crash;
-  `raw_context` is passed through unchanged and may be NULL.
+  On POSIX, this function does NOT call `raise()`, and it does not require the
+  raw signal handler to be installed: the guard-frame walk works with no
+  `siginstall()` at all. On Windows the raise goes through the library's
+  installed exception machinery, so a signal number with no `siginstall()`
+  returns `false` before any exception is raised. It returns `false` when no
+  decider handles the signal and there is no installed handler for `signo`
+  (i.e. no `siginstall()` ever installed that signal number), when `signo` is
+  zero, when `signo` is not a valid signal number, or when the per-thread setup
+  fails; it returns `true` when a decider handles the signal or the previously
+  installed handler is handed the signal.
+
+  On POSIX, we fetch OUR currently installed signal decider and call it
+  directly, rather than delivering through the kernel. This allows us to supply
+  custom `raw_info` and `raw_context`. Each decider in our chain will be invoked
+  in turn until we reach whatever the signal handler was when this library was
+  first initialised, and we hand off to that handler. If that handler was
+  defaulted and the default handling is not to ignore, we reset the handler
+  installation and execute `pthread_kill(pthread_self(), signo)` in order to
+  invoke the default handling (or the callback set with
+  `siginstall_set_default_action_np()`). If that hand-off reaches a previously
+  installed `SA_SIGINFO` handler while `raw_info` is NULL (e.g.
+  `sighandle(signo, NULL, NULL)`), a minimal zeroed `siginfo_t` with `si_signo`
+  set to `signo` and `si_code` set to `SI_USER` is synthesised and passed
+  instead of NULL, so a handler that reads `si->si_signo`/`si->si_code` without
+  a NULL check does not crash; `raw_context` is passed through unchanged and may
+  be NULL.
 
   It is important to note that this call does not raise signals itself except in
   that final handling step as just described. Therefore, if your code overwrites
@@ -715,16 +732,46 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   so we do on that platform always call `RaiseException()`.
 
   By "usually async signal safe" we mean that if any function from this library
-  has been called from the called from the calling thread, this is async signal
-  safe. If you need to set up this library for a calling thread without doing
-  anything else, specify zero for `signo`, this will ensure the calling thread's
-  thread local state is set up and return immediately doing nothing else. The
-  call returns `false` both when no decider claims the signal and when the
-  per-thread setup fails; on setup failure `errno` is set (e.g. `ENOMEM`) so a
-  caller of the setup form (`signo == 0`) can detect that setup actually failed
-  (plans/analysis.md 3.7).
+  has been called from the calling thread, this is async signal safe. If you
+  need to set up this library for a calling thread without doing anything else,
+  specify zero for `signo`, this will ensure the calling thread's thread local
+  state is set up and return immediately doing nothing else. On setup failure
+  `errno` is set (e.g. `ENOMEM`) so a caller of the setup form (`signo == 0`)
+  can detect that setup actually failed (plans/analysis.md 3.7).
   */
-  WG14_SIGNALS_EXTERN bool WG14_SIGNALS_PREFIX(stdc_raise)(
+  WG14_SIGNALS_EXTERN bool WG14_SIGNALS_PREFIX(sighandle)(
+  int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * raw_info,
+  WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * raw_context);
+
+  /*! \brief THREADSAFE ASYNC-SIGNAL-SAFE Behaves as if it called the `raise`
+  function (7.14.2.4) with the argument `signo`, except that the additional
+  information `raw_info` and `raw_context` is made available to the signal
+  deciders.
+
+  Where `sighandle()` invokes this library's decider chain directly and does not
+  generate a signal, `stdc_raise()` raises the signal for real: on POSIX it
+  carries out the actions described in 7.14.1 for `signo`, and on Windows it
+  raises the corresponding Win32 structured exception. Because it behaves as if
+  it called `raise()`, signal deciders are invoked for `signo` only if `signo`
+  is activated, and if a signal handler is called this function does not return
+  until after the signal handler (and any signal deciders) have completed.
+
+  `raw_info` and `raw_context` are the OS specific `siginfo_t *` (POSIX) or
+  `EXCEPTION_RECORD *` (Windows) and `ucontext_t *` (POSIX) or `PCONTEXT`
+  (Windows) to surface to deciders; either may be NULL. When
+  `raw_info` is NULL the corresponding `struct stdc_siginfo` member is a null
+  pointer, the `error_code` member is zero, and the `addr` member is a null
+  pointer; otherwise the values of `error_code` and `addr` are
+  implementation-defined.
+
+  \return Zero if successful and nonzero if unsuccessful. If `signo` is not a
+  valid signal number, this function is unsuccessful and no signal is raised.
+
+  \warning This function is declared here to reserve the API, its name and its
+  ABI, but the reference implementation does not define it yet. Calling it
+  currently fails to link.
+  */
+  WG14_SIGNALS_EXTERN int WG14_SIGNALS_PREFIX(stdc_raise)(
   int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * raw_info,
   WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * raw_context);
 

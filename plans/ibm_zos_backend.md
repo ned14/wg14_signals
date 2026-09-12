@@ -5,7 +5,7 @@
 Add a new platform backend, `include/wg14_signals/detail/impl/thrd_signal_handle_zos.c.ipp`
 (+ `src/wg14_signals/thrd_signal_handle_zos.c`), implementing the full public API
 (`sigfillset_synchronous`, `sigfillset_asynchronous_nondebug`,
-`sigfillset_asynchronous_debug`, `sigguarded`, `stdc_raise`, `siginstall`,
+`sigfillset_asynchronous_debug`, `sigguarded`, `sighandle`, `siginstall`,
 `siguninstall`, `siguninstall_system`, `signal_decider_create`,
 `signal_decider_destroy`) on IBM z/OS, in AMODE 64, running under z/OS UNIX
 System Services with the `POSIX(ON)` Language Environment runtime option.
@@ -151,7 +151,7 @@ All URLs are the IBM Docs topic ids (`?topic=`), retrievable at
    process/thread-wide, unbounded-lifetime exception-handler registration in
    AMODE 64. This rules out an exception-handler-only backend for the global
    `siginstall()` machinery: the "previously installed handler" chain, global
-   deciders, and `stdc_raise()` all require process-lifetime coverage. It
+   deciders, and `sighandle()` all require process-lifetime coverage. It
    *does* fit the `sigguarded()` per-frame model perfectly (see Phase 2).
 7. **LE exception handlers cannot return, cannot resume, cannot percolate,
    and cannot un-register themselves.** Even where a frame-scoped handler is
@@ -209,7 +209,7 @@ the catcher* to enrich the `stdc_siginfo`. Rationale:
   to the incurring thread, ignoring the signal mask for program checks
   (fact 3) — matching the library's "synchronous signals are delivered to
   the thread that caused them" model.
-- `sigguarded()`/`stdc_raise()` frame chains, global deciders, and the
+- `sigguarded()`/`sighandle()` frame chains, global deciders, and the
   reference-counting in `thrd_signal_handle_common.ipp.ipp` are reused
   unchanged; only the platform leaves (`prepare_rsi`, `invoke_sigaction`,
   `install_sighandler_impl`, `uninstall_sighandler_impl`, the sigfillset_*
@@ -252,7 +252,7 @@ the catcher* to enrich the `stdc_siginfo`. Rationale:
 software-signal bridge".** It does *not* dispatch deciders itself. It maps
 the CIB to a signo and re-raises that signo as a *software* signal via
 `pthread_kill()`; the normal sigaction catcher then runs the standard
-`stdc_raise()` dispatch (frame walk, global deciders, previously-installed
+`sighandle()` dispatch (frame walk, global deciders, previously-installed
 handler) with true POSIX, returnable semantics. Rationale:
 
 - A software signal is not a program check, so it can never re-enter the
@@ -300,7 +300,7 @@ static WG14_SIGNALS_THREAD_LOCAL void *WG14_SIGNALS_PREFIX(zos_bridge_addr);
 // registering sigguarded() frame, INSTEAD of generating the mapped signal
 // (a6eh). It must never return. It is a bridge: convert the CIB to a signo
 // and re-raise it as a software signal so the normal sigaction catcher runs
-// the full stdc_raise() dispatch. If control ever returns here (the re-raise
+// the full sighandle() dispatch. If control ever returns here (the re-raise
 // was discarded/unhandled), abnormal termination is the documented "did not
 // handle" outcome.
   static void WG14_SIGNALS_PREFIX(zos_exception_handler)(struct __cib *cib,
@@ -752,7 +752,7 @@ sigset ops) exactly as on POSIX.
     }
     else
     {
-      // stdc_raise(signo, NULL, NULL) must hand deciders deterministic
+      // sighandle(signo, NULL, NULL) must hand deciders deterministic
       // "no OS info" values (analysis.md 2.14/W2); do NOT memset the whole
       // struct, `value` is pre-set on the frame path.
       rsi->raw_info = WG14_SIGNALS_NULLPTR;
@@ -781,7 +781,7 @@ confirm against `<__le_cib.h>`/`<__le_mch.h>` on the machine (Appendix A.4).
                                                       siginfo_t *siginfo,
                                                       void *context)
   {
-    if(!WG14_SIGNALS_PREFIX(stdc_raise)(
+    if(!WG14_SIGNALS_PREFIX(sighandle)(
        signo, siginfo, (WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) *) context))
     {
       // No guard and no decider claimed the signal: hand off to the
@@ -807,7 +807,7 @@ confirm against `<__le_cib.h>`/`<__le_mch.h>` on the machine (Appendix A.4).
       // if it returns while our catcher is still on the stack and this was a
       // program-check/ABEND-driven SIGABND/SIGFPE/SIGILL/SIGSEGV, z/OS
       // terminates the process — exactly what the old handler would have
-      // experienced itself, so behaviour is preserved. A stdc_raise(signo,
+      // experienced itself, so behaviour is preserved. A sighandle(signo,
       // NULL, NULL) hand-off (analysis.md NSIH) synthesises a minimal zeroed
       // siginfo_t with si_signo/si_code set instead of passing NULL, exactly
       // as the POSIX backend does.
@@ -899,14 +899,14 @@ Notes:
   default/ignore emulation; pthread_kill keeps the POSIX-backend form and is
   documented to deliver to the calling thread.
 
-### `stdc_raise` and `sigguarded`
+### `sighandle` and `sigguarded`
 
-`sigguarded()` and `stdc_raise()` are *not* in the common include: each
+`sigguarded()` and `sighandle()` are *not* in the common include: each
 backend re-states them (the Windows backend has its own SEH-based
-`sigguarded()` and RaiseException-based `stdc_raise()` at
+`sigguarded()` and RaiseException-based `sighandle()` at
 `thrd_signal_handle_windows.c.ipp:285-410`). The z/OS file therefore copies
 `thrd_signal_handle_posix.c.ipp:242-410` **verbatim** — the whole
-`sigguarded()` frame-chain setup and the whole `stdc_raise()` frame-walk →
+`sigguarded()` frame-chain setup and the whole `sighandle()` frame-walk →
 global-decider chain → `invoke_sigaction` fallback are byte-identical (they
 only use common structures: the per-thread TSS, `struct
 sig_global_state_tss_state_per_frame_t`, `prepare_rsi`, `invoke_sigaction`,
@@ -1008,14 +1008,14 @@ should stay (see HOOK comment). Explicit resets would either be redundant
 recovery-time program checks terminate with no dispatch under
 `TRAP(ON,NOSPIE)`).
 
-`stdc_raise` needs no z/OS changes beyond `prepare_rsi`/`invoke_sigaction`
+`sighandle` needs no z/OS changes beyond `prepare_rsi`/`invoke_sigaction`
 and the setjmp defines: the frame walk (`sigismember(frame->guarded, signo)`,
 decider switch, `WG14_SIGNALS_LONGJMP(frame->buf, 1)`) and the global-decider
 chain are copied verbatim.
 
 To avoid the POSIX/zOS copies drifting, leave a comment in both files
 pointing at each other (the Windows backend already establishes this
-convention). A future refactor could move `sigguarded`/`stdc_raise` into the
+convention). A future refactor could move `sigguarded`/`sighandle` into the
 common include guarded by a `WG14_SIGNALS_HAVE_POSIX_STYLE_RAISE`
 macro; do that only if a fifth backend appears.
 
@@ -1160,12 +1160,12 @@ this repo, and (b) the machine-side validation program in Appendix A.
 2. **Behavioural equivalence**: because the z/OS backend is the POSIX
    backend with a thin adaptation layer, the entire existing test suite
    (`thrd_signal_handle_test`, `decider_*_test`, `sigguarded_tss_init_test`,
-   `stdc_raise_*_test`, `post_uninstall_reentry_test`, header-only C/C++
+   `sighandle_*_test`, `post_uninstall_reentry_test`, header-only C/C++
    consumers, install consumer) is the regression suite for the shared
    logic; on z/OS the following tests are expected to pass with no changes:
    `thrd_signal_handle_test` (SIGUSR1), `decider_mixed_set_test`,
-   `siguninstall_raise_test`, `stdc_raise_zero_test`,
-   `stdc_raise_null_info_test`, `stdc_raise_uninstalled_test`,
+   `siguninstall_raise_test`, `sighandle_zero_test`,
+   `sighandle_null_info_test`, `sighandle_uninstalled_test`,
    `sigguarded_tss_init_test`, `install_sighandler_lock_test`,
    `signo_map_verstable_init_test`, `decider_orphan_reinstall_test`,
    `post_uninstall_reentry_test`, `standalone_setup_test`,
@@ -1185,7 +1185,7 @@ this repo, and (b) the machine-side validation program in Appendix A.
    - `benchmark_*`: same as other platforms (CI `-E benchmark`).
 4. **New z/OS-specific tests** (to be written for the machine-side probe,
    not for CI): signal-set contents; `siginstall(NULL)` over the full
-   NSIG=42 range (exercises the uncatchable-skip hook); stdc_raise of a
+   NSIG=42 range (exercises the uncatchable-skip hook); sighandle of a
    software signal with/without guards; a program-check SIGSEGV/SIGFPE
    guarded recovery; decider resume_execution on a software raise; the
    previously-installed-handler chain for SIG_DFL/SIG_IGN/handler cases,
@@ -1234,7 +1234,7 @@ Per AGENTS.md rule 6 and the repo's plan convention:
   matrix with the two documented deviations (resume_execution for program
   checks; no si_addr).
 - `include/wg14_signals/thrd_signal_handle.h`: document the z/OS
-  deviations on `stdc_raise`/`sigguarded`/`sigfillset_*` doc comments.
+  deviations on `sighandle`/`sigguarded`/`sigfillset_*` doc comments.
 - `docs/proposed-wording.md` is vendored WG14 wording — no changes unless
   the deviations need a footnote (record as a recommendation, not a
   change).

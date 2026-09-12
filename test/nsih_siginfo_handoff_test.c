@@ -8,7 +8,7 @@
 #include <signal.h>
 #include <string.h>
 
-// Regression test for analysis.md NSIH: stdc_raise(signo, NULL, NULL) hands
+// Regression test for analysis.md NSIH: sighandle(signo, NULL, NULL) hands
 // off to the previously installed handler. If that handler was installed with
 // SA_SIGINFO, it must receive a synthesised minimal siginfo_t (non-NULL, with
 // si_signo set) rather than NULL, which would crash any handler that reads
@@ -46,8 +46,8 @@ int main(void)
 {
   int ret = 0;
 
-  (void) WG14_SIGNALS_PREFIX(stdc_raise)(0, WG14_SIGNALS_NULLPTR,
-                                         WG14_SIGNALS_NULLPTR);
+  (void) WG14_SIGNALS_PREFIX(sighandle)(0, WG14_SIGNALS_NULLPTR,
+                                        WG14_SIGNALS_NULLPTR);
 
   // Install a pre-existing SA_SIGINFO handler, then let the library wrap it.
   struct sigaction sa;
@@ -71,11 +71,11 @@ int main(void)
     return ret;
   }
 
-  // No deciders claim the raise, so stdc_raise hands off to the pre-existing
+  // No deciders claim the raise, so sighandle hands off to the pre-existing
   // SA_SIGINFO handler. Before the NSIH fix it received si == NULL and crashed
   // on si->si_signo; it must now receive a synthesised siginfo_t.
-  CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                        WG14_SIGNALS_NULLPTR));
+  CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                       WG14_SIGNALS_NULLPTR));
   CHECK(handler_calls == 1);
   CHECK(saw_valid_si != 0);
   CHECK(saw_signo != 0);

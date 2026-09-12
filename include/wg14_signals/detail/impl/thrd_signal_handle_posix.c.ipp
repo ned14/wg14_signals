@@ -312,10 +312,10 @@ static void __attribute__((noreturn)) default_abort(void)
                                                       siginfo_t *siginfo,
                                                       void *context)
   {
-    if(!WG14_SIGNALS_PREFIX(stdc_raise)(
+    if(!WG14_SIGNALS_PREFIX(sighandle)(
        signo, siginfo, (WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) *) context))
     {
-      // stdc_raise() returned false: the map has no entry covering this signal
+      // sighandle() returned false: the map has no entry covering this signal
       // (or the entry is transiently absent under a concurrent
       // install/uninstall, or the per-thread state setup failed). This
       // shouldn't happen — raw_signal_handler is only installed for signals the
@@ -381,7 +381,7 @@ static void __attribute__((noreturn)) default_abort(void)
   }
 
   // You must NOT do anything async signal unsafe in here!
-  bool WG14_SIGNALS_PREFIX(stdc_raise)(
+  bool WG14_SIGNALS_PREFIX(sighandle)(
   int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * info,
   WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * raw_context)
   {
@@ -396,7 +396,7 @@ static void __attribute__((noreturn)) default_abort(void)
       // already sets errno on its own failure paths (calloc -> ENOMEM,
       // tss_async_signal_safe_thread_init -> ENOMEM/EINVAL), and we guarantee
       // a diagnostic even if a lower layer forgot (plans/analysis.md 3.7).
-      // In particular the documented setup call stdc_raise(0, NULL, NULL)
+      // In particular the documented setup call sighandle(0, NULL, NULL)
       // then lets the caller detect that setup actually failed.
       if(errno == 0)
       {

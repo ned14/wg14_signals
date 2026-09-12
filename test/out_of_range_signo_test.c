@@ -5,7 +5,7 @@
 #include "wg14_signals/thrd_signal_handle.h"
 
 // The regression must guard the signal a negative signo aliases to on the
-// shift-count sigset platforms: stdc_raise(-1)'s sigismember shift wraps to
+// shift-count sigset platforms: sighandle(-1)'s sigismember shift wraps to
 // bit 30, i.e. signal 31 = SIGUSR2 on macOS/FreeBSD (plans/analysis.md NEGS,
 // probe-verified). SIGUSR2 is not defined on MSVC; there -- and on glibc, whose
 // sigismember returns 0 out of range -- the bug was invisible anyway, so any
@@ -43,20 +43,20 @@ static union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
 guarded_func(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 {
   // Sanity: a real raise of the guarded signal is claimed by the frame decider.
-  sanity_claimed = WG14_SIGNALS_PREFIX(stdc_raise)(
+  sanity_claimed = WG14_SIGNALS_PREFIX(sighandle)(
   GUARDED_SIGNAL, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
   frame_decider_calls = 0;
   // NEGS: out-of-range and negative signos must be rejected before the POSIX
   // frame walk. Pre-fix on macOS/BSD, sigismember()'s shift-count wrap made
-  // stdc_raise(-1) invoke this frame's decider with rsi->signo == -1 (aliasing
+  // sighandle(-1) invoke this frame's decider with rsi->signo == -1 (aliasing
   // signal 31 = SIGUSR2), so all three raises must return false -- the
   // documented "no decider installed for that signal" -- WITHOUT calling the
   // frame decider.
-  neg_returned_false = !WG14_SIGNALS_PREFIX(stdc_raise)(
-  -1, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
-  pos_returned_false = !WG14_SIGNALS_PREFIX(stdc_raise)(
+  neg_returned_false = !WG14_SIGNALS_PREFIX(sighandle)(-1, WG14_SIGNALS_NULLPTR,
+                                                       WG14_SIGNALS_NULLPTR);
+  pos_returned_false = !WG14_SIGNALS_PREFIX(sighandle)(
   NSIG, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
-  far_returned_false = !WG14_SIGNALS_PREFIX(stdc_raise)(
+  far_returned_false = !WG14_SIGNALS_PREFIX(sighandle)(
   NSIG + 10, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
   return value;
 }
@@ -66,14 +66,14 @@ int main(void)
   int ret = 0;
 
   // The documented one-line library setup call.
-  CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(0, WG14_SIGNALS_NULLPTR,
-                                        WG14_SIGNALS_NULLPTR) == false);
+  CHECK(WG14_SIGNALS_PREFIX(sighandle)(0, WG14_SIGNALS_NULLPTR,
+                                       WG14_SIGNALS_NULLPTR) == false);
 
   sigset_t guarded;
   sigemptyset(&guarded);
   sigaddset(&guarded, GUARDED_SIGNAL);
   // On Windows the unclaimed-raise machinery (the unhandled exception filter
-  // and vectored continue handler that let an unclaimed stdc_raise() return
+  // and vectored continue handler that let an unclaimed sighandle() return
   // false instead of reaching Windows Error Reporting) exists only after
   // siginstall() (plans/analysis.md 2.16/W5). The sanity raise below is
   // claimed by the frame decider, so it works without it, but the

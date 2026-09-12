@@ -89,8 +89,8 @@ int main(void)
     const volatile sig_atomic_t old_handler_calls_before = old_handler_calls;
     for(int n = 0; n < 100; n++)
     {
-      WG14_SIGNALS_PREFIX(stdc_raise)(INSTALLED_SIGNAL, WG14_SIGNALS_NULLPTR,
-                                      WG14_SIGNALS_NULLPTR);
+      WG14_SIGNALS_PREFIX(sighandle)(INSTALLED_SIGNAL, WG14_SIGNALS_NULLPTR,
+                                     WG14_SIGNALS_NULLPTR);
     }
     CHECK(old_handler_calls == old_handler_calls_before + 100);
 #endif

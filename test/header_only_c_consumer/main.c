@@ -27,8 +27,7 @@ int main(void)
   WG14_SIGNALS_PREFIX(tss_async_signal_safe_t) tls = WG14_SIGNALS_NULLPTR;
   struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)
   attr = {tls_create, tls_destroy};
-  WG14_SIGNALS_PREFIX(stdc_raise)(0, WG14_SIGNALS_NULLPTR,
-                                  WG14_SIGNALS_NULLPTR);
+  WG14_SIGNALS_PREFIX(sighandle)(0, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
   if(0 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(&tls, &attr))
   {
     fprintf(stderr, "header_only_c_consumer: tss_async_signal_safe_create "

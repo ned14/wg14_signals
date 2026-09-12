@@ -20,7 +20,7 @@
 #include <string.h>
 
 // White-box regression test for plans/analysis.md UNKN: raw_signal_handler's
-// fallback for a signal the library has no map entry for (stdc_raise() returns
+// fallback for a signal the library has no map entry for (sighandle() returns
 // false) used to reset the kernel handler to SIG_DFL *before* taking the
 // default action, silently discarding the library's installed handler — even
 // for a default-ignore signal (SIGCHLD) where nothing is then re-raised. The

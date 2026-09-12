@@ -45,7 +45,7 @@ sigill_decider_func(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 static union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
 sigill_func(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 {
-  WG14_SIGNALS_PREFIX(stdc_raise)
+  WG14_SIGNALS_PREFIX(sighandle)
   (SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
   return value;
 }
@@ -53,7 +53,7 @@ sigill_func(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 static int sigill_thread(void *arg)
 {
   (void) arg;
-  const int ret = WG14_SIGNALS_PREFIX(stdc_raise)(
+  const int ret = WG14_SIGNALS_PREFIX(sighandle)(
   SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
   return ret;
 }
@@ -94,8 +94,8 @@ int main(void)
     sigaddset(&guarded, SIGNAL_TO_USE);
     void *sigill_decider = WG14_SIGNALS_PREFIX(signal_decider_create)(
     &guarded, false, sigill_decider_func, value);
-    CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                          WG14_SIGNALS_NULLPTR));
+    CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                         WG14_SIGNALS_NULLPTR));
     CHECK(shared.count_decider == 1);
     CHECK(shared.count_recovery == 0);
     WG14_SIGNALS_PREFIX(signal_decider_destroy(sigill_decider));

@@ -81,9 +81,9 @@ static int raise_result2 = 0;
 static union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
 guarded_calls_raise(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 {
-  raise_result1 = WG14_SIGNALS_PREFIX(stdc_raise)(
+  raise_result1 = WG14_SIGNALS_PREFIX(sighandle)(
   SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
-  raise_result2 = WG14_SIGNALS_PREFIX(stdc_raise)(
+  raise_result2 = WG14_SIGNALS_PREFIX(sighandle)(
   SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
   return value;
 }
@@ -98,8 +98,8 @@ static union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
 single_raise(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 {
   // The raise never returns when the decider abandons or recovers.
-  (void) WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                         WG14_SIGNALS_NULLPTR);
+  (void) WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                        WG14_SIGNALS_NULLPTR);
   return value;
 }
 
@@ -110,10 +110,10 @@ double_raise(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 {
   // Only the first raise returns (resume_execution); the second raise's decider
   // invokes recovery and never returns here.
-  raise_result5 = WG14_SIGNALS_PREFIX(stdc_raise)(
+  raise_result5 = WG14_SIGNALS_PREFIX(sighandle)(
   SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
-  (void) WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                         WG14_SIGNALS_NULLPTR);
+  (void) WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                        WG14_SIGNALS_NULLPTR);
   return value;
 }
 
@@ -230,8 +230,8 @@ outer_guarded_body(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
   }
   // The outer decider recovers, so this invokes the outer recovery and does not
   // return here.
-  (void) WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                         WG14_SIGNALS_NULLPTR);
+  (void) WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                        WG14_SIGNALS_NULLPTR);
   return value;
 }
 
@@ -255,13 +255,13 @@ int main(void)
     void *decider1 = WG14_SIGNALS_PREFIX(signal_decider_create)(
     &guarded, false, global_abandon_resume_decider, value);
     CHECK(decider1 != WG14_SIGNALS_NULLPTR);
-    CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                          WG14_SIGNALS_NULLPTR));
+    CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                         WG14_SIGNALS_NULLPTR));
     CHECK(global_decider_calls == 1);
     // No contamination from the first raise: the second raise runs the decider
     // again with a fresh in-flight record.
-    CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                          WG14_SIGNALS_NULLPTR));
+    CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                         WG14_SIGNALS_NULLPTR));
     CHECK(global_decider_calls == 2);
     CHECK(WG14_SIGNALS_PREFIX(signal_decider_destroy)(decider1) == 0);
     CHECK(WG14_SIGNALS_PREFIX(siguninstall)(handlers) == 0);
@@ -282,11 +282,11 @@ int main(void)
     if(setjmp(global_abandon_env) == 0)
     {
       // Only the failure path continues past the raise: a successful abandon
-      // longjmps back before stdc_raise returns, so the marker below runs only
+      // longjmps back before sighandle returns, so the marker below runs only
       // when the decider failed to abandon (it then claims the raise by
       // resume_execution instead of longjmping back).
-      CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                            WG14_SIGNALS_NULLPTR));
+      CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                           WG14_SIGNALS_NULLPTR));
       CHECK(0 && "global decider failed to abandon");
     }
     CHECK(global_abandon_calls == 1);
@@ -294,8 +294,8 @@ int main(void)
     // again: nothing from the abandoned raise stuck.
     if(setjmp(global_abandon_env) == 0)
     {
-      CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                            WG14_SIGNALS_NULLPTR));
+      CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                           WG14_SIGNALS_NULLPTR));
       CHECK(0 && "global decider failed to abandon");
     }
     CHECK(global_abandon_calls == 2);
@@ -337,8 +337,8 @@ int main(void)
     CHECK(frame_decider_calls == before + 2);
     // The retracted frame was popped by the normal return path: nothing is
     // consulted anymore.
-    CHECK(!WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                           WG14_SIGNALS_NULLPTR));
+    CHECK(!WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                          WG14_SIGNALS_NULLPTR));
     CHECK(frame_decider_calls == before + 2);
   }
 
@@ -354,7 +354,7 @@ int main(void)
     if(setjmp(frame_abandon_env) == 0)
     {
       // Only the failure path continues past the raise: a successful abandon
-      // longjmps back before stdc_raise returns, so the marker below runs only
+      // longjmps back before sighandle returns, so the marker below runs only
       // when the decider failed to abandon (it then claims the raise by
       // resume_execution instead of longjmping back).
       union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value = {.int_value = 7};
@@ -367,8 +367,8 @@ int main(void)
     // The abandoning decider popped the frame before longjmping, so nothing is
     // consulted anymore; the signal is never installed in this arm, so the
     // unclaimed raise returns false.
-    CHECK(!WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                           WG14_SIGNALS_NULLPTR));
+    CHECK(!WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                          WG14_SIGNALS_NULLPTR));
     CHECK(frame_abandon_calls == 1);
     // A fresh guard on the same thread works normally: its decider claims the
     // raise exactly once, the recovery runs, and the guarded value round-trips
@@ -403,8 +403,8 @@ int main(void)
     CHECK(flicker_recover_calls == 2);
     CHECK(ret_value.int_value == 7);
     // The recovery path popped the frame: nothing is consulted anymore.
-    CHECK(!WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                           WG14_SIGNALS_NULLPTR));
+    CHECK(!WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                          WG14_SIGNALS_NULLPTR));
     CHECK(flicker_recover_calls == 2);
   }
 
@@ -431,8 +431,8 @@ int main(void)
     CHECK(outer_recovery_calls == 1);
     CHECK(ret_value.int_value == 7);
     // The outer recovery path popped the frame: nothing is consulted anymore.
-    CHECK(!WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                           WG14_SIGNALS_NULLPTR));
+    CHECK(!WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                          WG14_SIGNALS_NULLPTR));
     CHECK(outer_decider_calls == 1);
   }
 #endif

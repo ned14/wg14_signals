@@ -63,7 +63,7 @@ raise_cpp_exception(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
   return value;
 }
 
-// An application user-range raise (the same range stdc_raise() uses for
+// An application user-range raise (the same range sighandle() uses for
 // signals with no native Win32 code): 0x40000000 | 100 maps to signo 100,
 // outside the 1..32 Windows sigset range.
 static union WG14_SIGNALS_PREFIX(stdc_siginfo_value)

@@ -21,7 +21,7 @@
 // mask) is never restored, so on x86_64 a subsequent hardware SIGFPE can be
 // mishandled and terminate the process with an unhandled SIGFPE (analysis.md
 // 5.4 TSan finding). Under TSan, skip the hardware divide-by-zero and drive
-// SIGFPE through stdc_raise() instead -- the same decider/recovery path, but
+// SIGFPE through sighandle() instead -- the same decider/recovery path, but
 // with no kernel-delivered fault (the no-trap architectures already do this).
 // The hardware-fault path stays covered by the ASan/UBSan and unsanitised CI
 // legs.
@@ -85,7 +85,7 @@ sigfpe_func(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 {
 #ifdef WG14_SIGFPE_TEST_TSAN
   /* TSan cannot recover a hardware SIGFPE (see the TSan probe above), so use a
-     non-faulting divide and let the stdc_raise() below drive the
+     non-faulting divide and let the sighandle() below drive the
      decider/recovery path. */
   volatile int result = 42 / 1;
 #else
@@ -98,8 +98,8 @@ sigfpe_func(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
   sigfence(result);
 #endif
   /* If we get here, this architecture doesn't trap integer divide by zero */
-  WG14_SIGNALS_PREFIX(stdc_raise)(SIGFPE, WG14_SIGNALS_NULLPTR,
-                                  WG14_SIGNALS_NULLPTR);
+  WG14_SIGNALS_PREFIX(sighandle)(SIGFPE, WG14_SIGNALS_NULLPTR,
+                                 WG14_SIGNALS_NULLPTR);
   (void) result;
   return value;
 }
@@ -136,8 +136,8 @@ static int test_global_sigfpe(void)
   sigaddset(&guarded, SIGFPE);
   void *sigfpe_decider = WG14_SIGNALS_PREFIX(signal_decider_create)(
   &guarded, false, sigfpe_decider_func, value);
-  /* Trigger SIGFPE via stdc_raise */
-  WG14_SIGNALS_PREFIX(stdc_raise)
+  /* Trigger SIGFPE via sighandle */
+  WG14_SIGNALS_PREFIX(sighandle)
   (SIGFPE, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
   CHECK(shared.count_decider == 1);
   /* Recovery is not called for global handlers */

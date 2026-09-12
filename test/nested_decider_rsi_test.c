@@ -11,7 +11,7 @@
 #include <stdatomic.h>
 
 // Regression test for analysis NSTR: with SA_NODEFER a second delivery of a
-// guarded signal during a decider call re-enters stdc_raise on the same frame.
+// guarded signal during a decider call re-enters sighandle on the same frame.
 // Each raise must get its own rsi; a shared `frame->rsi` would be overwritten
 // mid-decider by the nested raise's prepare_rsi, so the outer decider would
 // read the nested raise's raw_info/signo (torn fields). Fil-C's runtime
@@ -76,8 +76,8 @@ static union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
 raise_inside_guard(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 {
   // Software raise with NULL info: the outer decider must see raw_info == NULL.
-  (void) WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                         WG14_SIGNALS_NULLPTR);
+  (void) WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                        WG14_SIGNALS_NULLPTR);
   return value;
 }
 
@@ -120,8 +120,8 @@ int main(void)
     CHECK(WG14_SIGNALS_PREFIX(siguninstall)(handlers) == 0);
     // After uninstall the frame is popped and the map entry gone: an unclaimed
     // raise returns false instead of re-raising SIGILL at the default action.
-    CHECK(!WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                           WG14_SIGNALS_NULLPTR));
+    CHECK(!WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                          WG14_SIGNALS_NULLPTR));
     CHECK(atomic_load(&outer_decider_calls) == 2);
   }
 #endif

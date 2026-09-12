@@ -6,7 +6,7 @@
 
 // Fil-C's runtime reserves SIGILL/SIGTRAP/SIGBUS/SIGSEGV/SIGFPE for its own
 // memory-safety mechanism, so the in-tree tests use SIGUSR2 there (like
-// stdc_raise_uninstalled_test); SIGABRT is defined and installable everywhere
+// sighandle_uninstalled_test); SIGABRT is defined and installable everywhere
 // else, including Windows/MSVC.
 #ifdef __FILC__
 #define SIGNAL_TO_USE SIGUSR2
@@ -136,8 +136,8 @@ int main(void)
     CHECK(d2 != WG14_SIGNALS_NULLPTR);
     first_decider_calls = 0;
     second_decider_calls = 0;
-    CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                          WG14_SIGNALS_NULLPTR));
+    CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                         WG14_SIGNALS_NULLPTR));
     CHECK(first_decider_calls == 1);
     CHECK(second_decider_calls == 1);
     CHECK(WG14_SIGNALS_PREFIX(signal_decider_destroy)(d1) == 0);

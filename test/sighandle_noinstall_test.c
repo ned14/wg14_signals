@@ -43,8 +43,8 @@ static union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
 guarded_func(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 {
   value.int_value =
-  (WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                   WG14_SIGNALS_NULLPTR) == false);
+  (WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                  WG14_SIGNALS_NULLPTR) == false);
   return value;
 }
 
@@ -52,7 +52,7 @@ int main(void)
 {
   int ret = 0;
 
-  // stdc_raise() of a signal with NO siginstall() ever performed must return
+  // sighandle() of a signal with NO siginstall() ever performed must return
   // false immediately -- the documented "no decider installed for that
   // signal" return -- and must not terminate the process. This is the very
   // first library call in the process. On POSIX the map lookup miss returns
@@ -62,13 +62,13 @@ int main(void)
   // and a raise without it would reach Windows Error Reporting and never
   // return. Before the Windows pre-check, this test died on the Windows CI
   // legs; it now passes everywhere.
-  CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
-                                        WG14_SIGNALS_NULLPTR) == false);
+  CHECK(WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
+                                       WG14_SIGNALS_NULLPTR) == false);
 
   // The documented one-line library setup call must still work and return
   // false.
-  CHECK(WG14_SIGNALS_PREFIX(stdc_raise)(0, WG14_SIGNALS_NULLPTR,
-                                        WG14_SIGNALS_NULLPTR) == false);
+  CHECK(WG14_SIGNALS_PREFIX(sighandle)(0, WG14_SIGNALS_NULLPTR,
+                                       WG14_SIGNALS_NULLPTR) == false);
 
   // Same raise inside a sigguarded() frame guarding a different signal, with
   // no siginstall() anywhere in the process (analysis.md 2.16/W5 covers the
@@ -79,11 +79,11 @@ int main(void)
   union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value = {.int_value = 7};
   union WG14_SIGNALS_PREFIX(stdc_siginfo_value) result = WG14_SIGNALS_PREFIX(
   sigguarded)(&guarded, guarded_func, noop_recovery, claiming_decider, value);
-  // guarded_func overwrites the value with "the no-install stdc_raise()
+  // guarded_func overwrites the value with "the no-install sighandle()
   // returned false", and sigguarded() passes that back out; the -99 failure
   // sentinel can never be confused with it.
   CHECK(result.int_value == 1);
 
-  printf("no-install stdc_raise rejection checks passed\n");
+  printf("no-install sighandle rejection checks passed\n");
   return ret;
 }

@@ -37,14 +37,14 @@ endif()
 add_code_test(post_uninstall_reentry_test SOURCES "post_uninstall_reentry_test.c" FEATURES c_std_11)
 set_tests_properties(post_uninstall_reentry_test PROPERTIES TIMEOUT 300)
 add_code_test(standalone_setup_test SOURCES "standalone_setup_test.c" FEATURES c_std_11)
-add_code_test(stdc_raise_zero_test SOURCES "stdc_raise_zero_test.c" FEATURES c_std_11)
+add_code_test(sighandle_zero_test SOURCES "sighandle_zero_test.c" FEATURES c_std_11)
 # Regression test for analysis.md VSDT: the N3924 7.14.2.1/7.14.2.2 sigset
 # helpers return int ("always returns zero"), so the documented
 # `if(sigemptyset(&ss) != 0)` idiom must compile on Windows too (pre-fix the
 # Windows helpers returned void and this failed to compile there).
 add_code_test(sigset_helpers_contract_test SOURCES "sigset_helpers_contract_test.c" FEATURES c_std_11)
-add_code_test(stdc_raise_null_info_test SOURCES "stdc_raise_null_info_test.c" FEATURES c_std_11)
-# Regression test for analysis.md NSIH: stdc_raise(signo, NULL, NULL) handed off
+add_code_test(sighandle_null_info_test SOURCES "sighandle_null_info_test.c" FEATURES c_std_11)
+# Regression test for analysis.md NSIH: sighandle(signo, NULL, NULL) handed off
 # to a pre-existing SA_SIGINFO handler with a NULL siginfo_t *; the POSIX
 # invoke_sigaction must synthesise a minimal siginfo_t (si_signo/si_code set)
 # instead. POSIX-only, no-op on Windows.
@@ -54,7 +54,7 @@ add_code_test(nsih_siginfo_handoff_test SOURCES "nsih_siginfo_handoff_test.c" FE
 # leave the kernel handler reset to SIG_DFL (stop/continue default signals).
 add_code_test(sig_default_preserve_test SOURCES "sig_default_preserve_test.c" FEATURES c_std_11)
 # Regression test for analysis.md NEGS: out-of-range/negative signo must be
-# rejected before the POSIX frame walk, so stdc_raise(-1) / stdc_raise(NSIG)
+# rejected before the POSIX frame walk, so sighandle(-1) / sighandle(NSIG)
 # return false without invoking any frame decider (on macOS/BSD sigismember's
 # shift-count wrap pre-fix aliased another signal's frame decider).
 add_code_test(out_of_range_signo_test SOURCES "out_of_range_signo_test.c" FEATURES c_std_11)
@@ -64,14 +64,14 @@ add_code_test(out_of_range_signo_test SOURCES "out_of_range_signo_test.c" FEATUR
 # header-only mode so the internal map/state statics are reachable to manufacture
 # the transient "unknown signal" window.
 add_code_test(sig_unknown_handler_test SOURCES "sig_unknown_handler_test.c" FEATURES c_std_11)
-add_code_test(stdc_raise_uninstalled_test SOURCES "stdc_raise_uninstalled_test.c" FEATURES c_std_11)
-# Regression test for analysis.md W5's no-install-at-all arm: stdc_raise() of a
+add_code_test(sighandle_uninstalled_test SOURCES "sighandle_uninstalled_test.c" FEATURES c_std_11)
+# Regression test for analysis.md W5's no-install-at-all arm: sighandle() of a
 # signal with NO siginstall() ever performed must return false immediately and
 # must not terminate the process (on Windows the raise used to reach Windows
 # Error Reporting because the exception resolution machinery exists only while
-# a handler is installed; the stdc_raise() pre-check now returns false before
+# a handler is installed; the sighandle() pre-check now returns false before
 # raising anything).
-add_code_test(stdc_raise_noinstall_test SOURCES "stdc_raise_noinstall_test.c" FEATURES c_std_11)
+add_code_test(sighandle_noinstall_test SOURCES "sighandle_noinstall_test.c" FEATURES c_std_11)
 # Regression test for analysis.md TCOV: covers the previously untested failure
 # and edge APIs -- siguninstall_system, sigfillset_asynchronous_nondebug/_debug,
 # and the signal_decider_create error paths (NULL/empty guarded set, NULL
@@ -90,7 +90,7 @@ add_code_test(siginstall_null_set_test SOURCES "siginstall_null_set_test.c" FEAT
 add_code_test(siginstall_sa_flags_test SOURCES "siginstall_sa_flags_test.c" FEATURES c_std_11)
 # Test for siginstall_set_default_action_np(): a callback installed with the
 # API is invoked (with the original siginfo) instead of the library's built-in
-# reset-and-re-raise when stdc_raise() falls through to a previously installed
+# reset-and-re-raise when sighandle() falls through to a previously installed
 # SIG_DFL handler, and resetting to NULL restores the built-in behaviour.
 # POSIX-only (the Windows backend takes default actions via the SEH machinery
 # and returns ENOTSUP), no-op on Windows.
@@ -105,10 +105,10 @@ add_code_test(sigguarded_tss_init_test SOURCES "sigguarded_tss_init_test.c" FEAT
 add_code_test(sigguarded_nonsignal_exception_test SOURCES "sigguarded_nonsignal_exception_test.c" FEATURES c_std_11)
 set_tests_properties(sigguarded_nonsignal_exception_test PROPERTIES TIMEOUT 60)
 # White-box regression test for analysis.md RFLK: a sigguarded() frame decider
-# claiming a stdc_raise()-initiated raise with call_recovery must pop the
+# claiming a sighandle()-initiated raise with call_recovery must pop the
 # per-thread raise-frame chain (the Windows EXECUTE_HANDLER path otherwise
-# leaves tss->front/stdc_raise_initiated_exception dangling at the unwound
-# stdc_raise() frame). Header-only mode exposes sig_global_tss_state() so the
+# leaves tss->front/sighandle_initiated_exception dangling at the unwound
+# sighandle() frame). Header-only mode exposes sig_global_tss_state() so the
 # test can assert the chain is empty after the claim.
 add_code_test(raise_claim_cleanup_test SOURCES "raise_claim_cleanup_test.c" FEATURES c_std_11)
 set_tests_properties(raise_claim_cleanup_test PROPERTIES TIMEOUT 60)
