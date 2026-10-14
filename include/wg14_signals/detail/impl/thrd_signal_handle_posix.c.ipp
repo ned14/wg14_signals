@@ -33,9 +33,11 @@ limitations under the License.
 
 #if !defined(__APPLE__)
 // getcontext(), for capturing the calling context as the implementation-defined
-// default raw_context (N3924 7.14.2.9 p8). Not on macOS: its <ucontext.h>
-// hard-errors without _XOPEN_SOURCE and its getcontext() is deprecated and
-// broken on arm64, so the calling frame is captured directly there instead.
+// default raw_context (N3924 7.14.2.9 p8). It is reached through the
+// WG14_SIGNALS_GETCONTEXT() embedder hook (config.h), whose default it is. Not
+// on macOS: its <ucontext.h> hard-errors without _XOPEN_SOURCE and its
+// getcontext() is deprecated and broken on arm64, so the calling frame is
+// captured directly there instead (that macOS path does not use the hook).
 #include <ucontext.h>
 #endif
 
@@ -66,7 +68,7 @@ WG14_SIGNALS_PREFIX(raise_with_token)(const int signo, const union sigval value)
   si.si_signo = signo;
   si.si_code = SI_QUEUE;
   si.si_value = value;
-  return (int) syscall(SYS_rt_tgsigqueueinfo, getpid(),
+  return (int) syscall(SYS_rt_tgsigqueueinfo, WG14_SIGNALS_GETPID(),
                        (pid_t) WG14_SIGNALS_GETTID(), signo, &si);
 #else
   (void) value;
@@ -525,15 +527,17 @@ static void __attribute__((noreturn)) default_abort(void)
 
   // Fills `tss->default_context` with a context object representing the
   // calling stack frame: the implementation-defined default raw_context for a
-  // NULL argument (N3924 7.14.2.9 p8, 7.14.2.10 p6). getcontext() captures the
-  // real machine state on the platforms where it is sound; macOS's is
-  // deprecated and broken on arm64 (it writes an mcontext_t past the caller's
-  // ucontext_t), so the calling frame is captured there directly from the frame
-  // pointer, stack pointer and return address into the per-thread mcontext
-  // storage. It is intentionally not marked async-signal-safe: getcontext() is
-  // not in POSIX's async-signal-safe set, but sighandle() is only "usually"
-  // async signal safe (see the header) and this runs only on the NULL-context
-  // path.
+  // NULL argument (N3924 7.14.2.9 p8, 7.14.2.10 p6). On non-Apple platforms
+  // this is the WG14_SIGNALS_GETCONTEXT() embedder hook (config.h), whose
+  // default (getcontext()) captures the real machine state; an embedding libc
+  // without getcontext() redefines the hook to its own capture. macOS is
+  // handled without the hook: its getcontext() is deprecated and broken on
+  // arm64 (it writes an mcontext_t past the caller's ucontext_t), so the
+  // calling frame is captured there directly from the frame pointer, stack
+  // pointer and return address into the per-thread mcontext storage. It is
+  // intentionally not marked async-signal-safe: getcontext() is not in
+  // POSIX's async-signal-safe set, but sighandle() is only "usually" async
+  // signal safe (see the header) and this runs only on the NULL-context path.
   static void WG14_SIGNALS_PREFIX(construct_default_context)(
   struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) * tss)
   {
@@ -565,7 +569,7 @@ static void __attribute__((noreturn)) default_abort(void)
 #error "Unsupported macOS architecture for the default raw_context"
 #endif
 #else
-  (void) getcontext(uc);
+  (void) WG14_SIGNALS_GETCONTEXT(uc);
 #endif
   }
 

@@ -221,6 +221,52 @@ which are async signal safe, and which are not.
 #endif
 #endif
 
+//! \brief `WG14_SIGNALS_RAISE_EXCEPTION(code, flags, nargs, args)` routes the
+//! Win32 structured-exception delivery used by the Windows backend: the
+//! Windows counterpart of `WG14_SIGNALS_RAISE_WITH_TOKEN()`. The default is
+//! `RaiseException(code, flags, nargs, args)` (kernel32). Unlike the other
+//! hooks this routes a Win32 API rather than a C-library function, because a
+//! standard C library embedded on Windows may not be the UCRT (legacy
+//! `msvcrt.dll`, ReactOS, Cygwin/MSYS, a from-scratch libc) and may itself
+//! implement or need to redirect SEH delivery. The replacement must deliver a
+//! non-continuable exception when `EXCEPTION_NONCONTINUABLE` is set in `flags`
+//! and must not return in that case; it runs while a WG14 raise frame is
+//! pushed, so it must deliver a record of the shape `win32_raise_impl` builds
+//! (the appended raw_context parameter and the raise-initiated snapshot).
+#ifndef WG14_SIGNALS_RAISE_EXCEPTION
+#define WG14_SIGNALS_RAISE_EXCEPTION(code, flags, nargs, args)                 \
+  RaiseException((code), (flags), (nargs), (args))
+#endif
+
+//! \brief `WG14_SIGNALS_GETPID()` routes the calling-process-id query used by
+//! the default Linux body of `WG14_SIGNALS_RAISE_WITH_TOKEN()` (its
+//! thread-directed `rt_tgsigqueueinfo` self-delivery needs the caller's pid).
+//! It is only reached when that hook is left at its default, so an embedding
+//! libc that replaces `WG14_SIGNALS_RAISE_WITH_TOKEN()` wholesale never needs
+//! it; an embedding libc that keeps the default but has no `getpid()`
+//! entrypoint (or must bind it internally) points this at its own query. The
+//! replacement must be async-signal-safe and thread-safe (it runs inside
+//! signal handlers).
+#ifndef WG14_SIGNALS_GETPID
+#define WG14_SIGNALS_GETPID() getpid()
+#endif
+
+//! \brief `WG14_SIGNALS_GETCONTEXT(uc)` routes the calling-frame capture used
+//! to construct the implementation-defined default `raw_context` for a NULL
+//! argument to `sighandle()`/`stdc_raise()` (N3924 7.14.2.9 p8,
+//! 7.14.2.10 p6). The default is POSIX `getcontext()`, which is not in the
+//! async-signal-safe set but is only reached on the NULL-context path (that
+//! path is "usually" async-signal-safe at best). An embedding standard C
+//! library that does not provide `getcontext()` on some target (e.g.
+//! LLVM-libc, whose `getcontext()` exists only on x86_64) must point this at
+//! its own capture, writing a context object representing the calling stack
+//! frame into `uc`. This hook is not used on macOS: there the backend captures
+//! the frame from compiler builtins instead, because `getcontext()` is
+//! deprecated and broken on arm64.
+#ifndef WG14_SIGNALS_GETCONTEXT
+#define WG14_SIGNALS_GETCONTEXT(uc) getcontext(uc)
+#endif
+
 //! \brief `WG14_SIGNALS_GETTID()` routes the thread-id query used by
 //! `current_thread_id()` on Linux. An embedding standard C library that does
 //! not expose `syscall()` under that name (e.g. LLVM-libc, whose generated

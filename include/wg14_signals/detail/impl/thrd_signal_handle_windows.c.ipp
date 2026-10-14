@@ -123,22 +123,23 @@ extern "C"
   {
     static sigset_t v;
     static const int signos[] = {SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGSEGV};
-    if(sigismember(&v, signos[0]))
+    if(WG14_SIGNALS_SIGISMEMBER(&v, signos[0]))
     {
       return &v;
     }
     sigset_t x;
-    sigemptyset(&x);
+    WG14_SIGNALS_SIGEMPTYSET(&x);
     for(size_t n = 0; n < sizeof(signos) / sizeof(signos[0]); n++)
     {
-      sigaddset(&x, signos[n]);
+      WG14_SIGNALS_SIGADDSET(&x, signos[n]);
     }
     v = x;
     return &v;
   }
   int WG14_SIGNALS_PREFIX(sigfillset_synchronous)(sigset_t *set)
   {
-    memcpy(set, WG14_SIGNALS_PREFIX(synchronous_sigset)(), sizeof(*set));
+    WG14_SIGNALS_MEMCPY(set, WG14_SIGNALS_PREFIX(synchronous_sigset)(),
+                        sizeof(*set));
     return 0;
   }
 
@@ -146,23 +147,23 @@ extern "C"
   {
     static sigset_t v;
     static const int signos[] = {SIGINT, SIGKILL, SIGSTOP, SIGTERM};
-    if(sigismember(&v, signos[0]))
+    if(WG14_SIGNALS_SIGISMEMBER(&v, signos[0]))
     {
       return &v;
     }
     sigset_t x;
-    sigemptyset(&x);
+    WG14_SIGNALS_SIGEMPTYSET(&x);
     for(size_t n = 0; n < sizeof(signos) / sizeof(signos[0]); n++)
     {
-      sigaddset(&x, signos[n]);
+      WG14_SIGNALS_SIGADDSET(&x, signos[n]);
     }
     v = x;
     return &v;
   }
   int WG14_SIGNALS_PREFIX(sigfillset_asynchronous_nondebug)(sigset_t *set)
   {
-    memcpy(set, WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(),
-           sizeof(*set));
+    WG14_SIGNALS_MEMCPY(
+    set, WG14_SIGNALS_PREFIX(asynchronous_nondebug_sigset)(), sizeof(*set));
     return 0;
   }
 
@@ -170,13 +171,14 @@ extern "C"
   {
     static sigset_t v;
     sigset_t x;
-    sigemptyset(&x);
+    WG14_SIGNALS_SIGEMPTYSET(&x);
     v = x;
     return &v;
   }
   int WG14_SIGNALS_PREFIX(sigfillset_asynchronous_debug)(sigset_t *set)
   {
-    memcpy(set, WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(), sizeof(*set));
+    WG14_SIGNALS_MEMCPY(set, WG14_SIGNALS_PREFIX(asynchronous_debug_sigset)(),
+                        sizeof(*set));
     return 0;
   }
 
@@ -277,7 +279,7 @@ extern "C"
   struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi, const int signo,
   EXCEPTION_POINTERS *ptrs)
   {
-    memset(rsi, 0, sizeof(*rsi));
+    WG14_SIGNALS_MEMSET(rsi, 0, sizeof(*rsi));
     rsi->signo = signo;
     const DWORD nparams = ptrs->ExceptionRecord->NumberParameters;
     // A raw_context supplied to stdc_raise()/sighandle() is appended as the
@@ -443,7 +445,7 @@ extern "C"
     // (C++ /EHa, unmapped fault codes, user-range raises) skip the frame
     // decider instead of running it with signo == 0 or a bogus signo
     // (analysis.md SIGM).
-    if(sigismember(state->guarded, signo) == 1)
+    if(WG14_SIGNALS_SIGISMEMBER(state->guarded, signo) == 1)
     {
       WG14_SIGNALS_PREFIX(prepare_rsi)(&state->rsi, signo, ptrs);
       state->rsi.value = state->value;
@@ -523,7 +525,7 @@ extern "C"
     if(signals == WG14_SIGNALS_NULLPTR || guarded == WG14_SIGNALS_NULLPTR ||
        decider == WG14_SIGNALS_NULLPTR)
     {
-      abort();
+      WG14_SIGNALS_ABORT();
     }
     // sigguarded() must set up the calling thread's per-thread TSS, exactly as
     // the POSIX backend does. A Windows thread whose only library interaction
@@ -584,7 +586,7 @@ extern "C"
     EXCEPTION_RECORD *rec = info;
     if(rec == WG14_SIGNALS_NULLPTR)
     {
-      memset(synthesized, 0, sizeof(*synthesized));
+      WG14_SIGNALS_MEMSET(synthesized, 0, sizeof(*synthesized));
       synthesized->NumberParameters = 3;
       rec = synthesized;
     }
@@ -619,12 +621,12 @@ extern "C"
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *old =
     tss->front,
                                                                        current;
-    memset(&current, 0, sizeof(current));
+    WG14_SIGNALS_MEMSET(&current, 0, sizeof(current));
     current.prev = old;
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) current2;
-    memset(&current2, 0, sizeof(current2));
+    WG14_SIGNALS_MEMSET(&current2, 0, sizeof(current2));
     current2.prev = tss->sighandle_initiated_exception;
-    if(setjmp(current.buf) != 0)
+    if(WG14_SIGNALS_SETJMP(current.buf) != 0)
     {
       // A global decider claimed the raise and longjmp'd back to us.
       tss->front = old;
@@ -662,8 +664,9 @@ extern "C"
     current2.NumberParameters = rec->NumberParameters;
     current2.ExceptionInformationFirst =
     (rec->NumberParameters > 0) ? rec->ExceptionInformation[0] : 0;
-    RaiseException(win32sehcode, rec->ExceptionFlags & EXCEPTION_NONCONTINUABLE,
-                   rec->NumberParameters, rec->ExceptionInformation);
+    WG14_SIGNALS_RAISE_EXCEPTION(
+    win32sehcode, rec->ExceptionFlags & EXCEPTION_NONCONTINUABLE,
+    rec->NumberParameters, rec->ExceptionInformation);
     // RaiseException() returns when the exception was continued (no handler
     // claimed it). Pop the frame pushed above so tss->front never points at
     // this dead stack frame (analysis.md 1.6).
@@ -772,7 +775,7 @@ extern "C"
         {
           // sigdecider_abandon not called on topmost sigguarded()
           assert(tss->front == rsi->internal_local_decider);
-          abort();
+          WG14_SIGNALS_ABORT();
         }
         // Pop the top most sigguarded()
         tss->front = tss->front->prev;
@@ -826,7 +829,7 @@ extern "C"
         {
           // sigdecider_abandon not called on topmost sigguarded()
           assert(newstate->prev == tss->sighandle_initiated_exception);
-          abort();
+          WG14_SIGNALS_ABORT();
         }
         tss->sighandle_initiated_exception = newstate;
       }
@@ -836,7 +839,7 @@ extern "C"
         {
           // sigdecider_abandon not called on topmost sigguarded()
           assert(tss->front == rsi->internal_local_decider->prev);
-          abort();
+          WG14_SIGNALS_ABORT();
         }
         tss->front = rsi->internal_local_decider;
       }
@@ -985,7 +988,7 @@ extern "C"
           // fall through to the "generally end the process" path below.
           if(tss != WG14_SIGNALS_NULLPTR && tss->front != WG14_SIGNALS_NULLPTR)
           {
-            longjmp(tss->front->buf, 1);
+            WG14_SIGNALS_LONGJMP(tss->front->buf, 1);
           }
           // This will generally end the process. Record the decision so the
           // vectored continue handler's follow-up invocation for the same
@@ -1037,8 +1040,8 @@ extern "C"
   static long __stdcall WG14_SIGNALS_PREFIX(win32_unhandled_exception_filter)(
   EXCEPTION_POINTERS *ptrs)
   {
-    memset(&wg14_last_global_decider_record, 0,
-           sizeof(wg14_last_global_decider_record));
+    WG14_SIGNALS_MEMSET(&wg14_last_global_decider_record, 0,
+                        sizeof(wg14_last_global_decider_record));
     return WG14_SIGNALS_PREFIX(win32_global_decider_pass)(ptrs);
   }
 
@@ -1056,13 +1059,13 @@ extern "C"
     if(WG14_SIGNALS_PREFIX(win32_exception_record_matches)(
        &wg14_last_global_decider_record, record))
     {
-      memset(&wg14_last_global_decider_record, 0,
-             sizeof(wg14_last_global_decider_record));
+      WG14_SIGNALS_MEMSET(&wg14_last_global_decider_record, 0,
+                          sizeof(wg14_last_global_decider_record));
       return wg14_last_global_decider_result;
     }
     const long result = WG14_SIGNALS_PREFIX(win32_global_decider_pass)(ptrs);
-    memset(&wg14_last_global_decider_record, 0,
-           sizeof(wg14_last_global_decider_record));
+    WG14_SIGNALS_MEMSET(&wg14_last_global_decider_record, 0,
+                        sizeof(wg14_last_global_decider_record));
     return result;
   }
 

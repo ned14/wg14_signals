@@ -14,7 +14,7 @@ replacement must:
    behaviour — a user of LLVM-libc must observe no regression in the existing
    API surface.
 2. Expose the full N3924 API as new LLVM-libc public entrypoints:
-   `sigguarded`, `sighandle`, `siginstall`, `siguninstall`,
+   `sigguarded`, `sighandle`, `stdc_raise`, `siginstall`, `siguninstall`,
    `siguninstall_system`, `signal_decider_create`, `signal_decider_destroy`,
    `sigfillset_synchronous`, `sigfillset_asynchronous_nondebug`,
    `sigfillset_asynchronous_debug`, the `sigfence` macro, `stdc_siginfo` and
@@ -1886,7 +1886,15 @@ Submodule (added 2026-08-20; staged in the fork, not yet committed):
 
 - Path: `libc/src/signal/wg14`
 - URL: `https://github.com/ned14/wg14_signals.git`
-- Pinned commit: `50042dad4eb376bc88f6d21568007e72c615f3a8` (heads/main)
+- Pinned commit: `2217d72eb0d1266eb8e97f2b5df0e83792b73867` ("Implement
+  stdc_raise() with the raw_info/raw_context contract"; heads/main). Pin
+  history: `50042da` (2026-08-20, initial) -> `b2059fb` (2026-08-21,
+  embedder override hooks + `WG14_SIGNALS_DISABLE_*` guards) -> `d25ccd2`
+  (2026-08-26, second integration round) -> `77f4fbd` (split the old
+  `stdc_raise()` into `sighandle()` plus a reserved `stdc_raise()`) ->
+  `2217d72` (implemented `stdc_raise()` and added the
+  `WG14_SIGNALS_RAISE_WITH_TOKEN` hook plus the constructed
+  default-context path).
 - `.gitmodules` entry:
   ```
   [submodule "libc/src/signal/wg14"]
@@ -1917,9 +1925,11 @@ src/wg14_signals/tss_async_signal_safe.c
 ```
 
 Fork-owned files (tracked by the fork, outside the submodule):
-`libc/src/signal/wg14/CMakeLists.txt` (object library + missing-submodule
-guard), `libc/src/signal/wg14/entrypoints/*`. No fork-owned copy of any
-upstream file exists.
+`libc/src/signal/wg14-build/CMakeLists.txt` (object library +
+missing-submodule guard), the force-included `embedder_shim.{h,cpp}`, the
+`wg14_hostcalls.cpp` bridge, and `libc/src/signal/wg14-build/entrypoints/*`
+(the `add_wg14_entrypoint` wrappers, including `stdc_raise.cpp` and
+`sighandle.cpp`). No fork-owned copy of any upstream file exists.
 
 ## Appendix B — Host calls in the POSIX backend: override vs natural
 
@@ -1934,6 +1944,8 @@ upstream file exists.
 | `__cxa_thread_atexit` | `thread_atexit.c.ipp:54-73` | absent in full build → pthread_key fallback used |
 | `pthread_key_create/setspecific/once` | `thread_atexit.c.ipp:169-224` (fallback) | natural → libc pthread entrypoints (futex-based, no signal calls) |
 | `syscall(SYS_gettid)` | `current_thread_id.c.ipp` (linux branch) | natural → `LIBC_NAMESPACE::syscall_impl` |
+| `getcontext` | posix `.ipp` `construct_default_context` (non-Apple) | **OVERRIDE** (`WG14_SIGNALS_GETCONTEXT`, added upstream) → `wg14_embedder_getcontext` frame capture; libc implements `getcontext` only on x86_64. The fork currently reaches this via a bare `#define getcontext` macro and can switch to the hook |
+| `getpid` | posix `.ipp` `raise_with_token` (linux) | natural → libc `getpid`; the `WG14_SIGNALS_GETPID` hook defaults to it and is unused once `WG14_SIGNALS_RAISE_WITH_TOKEN` is overridden |
 | `mach_thread_self` | `current_thread_id.c.ipp` (apple branch) | natural → mach kernel call |
 | `pthread_getthreadid_np` | `current_thread_id.c.ipp` (freebsd branch) | natural → libc `pthread_getthreadid_np.cpp` |
 | `errno` | all backends | natural → libc generated `<errno.h>` (TLS) |
@@ -1944,7 +1956,7 @@ upstream file exists.
 
 The second-generation integration of this template — extending the
 `ned14/glibc` fork's libc with the same N3924 API, consuming the same
-pinned `d25ccd22a6ea86a1e1c54ddbfe9988b1103e9db9` submodule — is
+pinned `2217d72eb0d1266eb8e97f2b5df0e83792b73867` submodule — is
 `plans/glibc-fork.md` (its commit record above is the ground truth the
 glibc plan inherits; the glibc integration in turn proved the template's
 "duplicate identical definitions are valid C" assumption wrong for
