@@ -37,17 +37,27 @@
 #define SIGNAL_TO_USE SIGILL
 #endif
 
-// TSan's runtime wraps signal handlers and defers a same-signal delivery made
-// from inside a handler until the outer handler returns. The two rethrow tests
-// assert synchronous nested delivery, so they are compiled out under TSan;
-// every other configuration runs them.
+// A runtime that instruments/wraps signal handlers limits the tricks a signal
+// handler may perform. TSan's runtime wraps handlers, defers a same-signal
+// delivery made from inside a handler until the outer handler returns (so the
+// rethrow tests would not see synchronous nested delivery), and leaves its
+// per-thread signal state unbalanced when a decider longjmps out of the
+// delivery (the stdc_raise()-driven recovery sections then hang
+// intermittently). Fil-C's runtime wraps handlers the same way: it delivers a
+// re-entrant same-signal raise non-synchronously (the rethrow test hangs), so
+// the rethrow and recovery sections are compiled out there too. Every other
+// configuration runs them.
 #if defined(__has_feature)
 #if __has_feature(thread_sanitizer)
-#define STDC_RAISE_TEST_TSAN 1
+#define STDC_RAISE_TEST_INSTRUMENTED_RUNTIME 1
 #endif
 #endif
-#if !defined(STDC_RAISE_TEST_TSAN) && defined(__SANITIZE_THREAD__)
-#define STDC_RAISE_TEST_TSAN 1
+#if !defined(STDC_RAISE_TEST_INSTRUMENTED_RUNTIME) &&                          \
+defined(__SANITIZE_THREAD__)
+#define STDC_RAISE_TEST_INSTRUMENTED_RUNTIME 1
+#endif
+#if !defined(STDC_RAISE_TEST_INSTRUMENTED_RUNTIME) && defined(__FILC__)
+#define STDC_RAISE_TEST_INSTRUMENTED_RUNTIME 1
 #endif
 
 #ifdef _WIN32
@@ -202,15 +212,18 @@ frame_guarded_func(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 }
 
 // The recovery and rethrow helpers below, and the corresponding sections in
-// main(), are excluded under TSan. The library's recovery longjmps out of the
-// signal handler, which leaves TSan's per-thread signal state unbalanced (its
-// handler wrapper is bypassed), and the stdc_raise()-driven recovery then hangs
-// intermittently; TSan also defers a same-signal delivery made from inside a
-// handler until the outer handler returns, so the rethrow tests would not see
-// synchronous nested delivery. Fault-driven recovery is still exercised under
-// TSan by recovery_null_loop_test; these stdc_raise()-driven paths are covered
-// by the default and ASan/UBSan builds.
-#ifndef STDC_RAISE_TEST_TSAN
+// main(), are excluded under an instrumented runtime (TSan, Fil-C; see the
+// STDC_RAISE_TEST_INSTRUMENTED_RUNTIME note above). TSan's recovery longjmps
+// out of the signal handler, which leaves TSan's per-thread signal state
+// unbalanced (its handler wrapper is bypassed), and the stdc_raise()-driven
+// recovery then hangs intermittently; TSan also defers a same-signal delivery
+// made from inside a handler until the outer handler returns, so the rethrow
+// tests would not see synchronous nested delivery. Fil-C's handler wrapper
+// likewise delivers a re-entrant same-signal raise non-synchronously, so the
+// rethrow test hangs there. Fault-driven recovery is still exercised under TSan
+// by recovery_null_loop_test; these stdc_raise()-driven paths are covered by
+// the default and ASan/UBSan builds.
+#ifndef STDC_RAISE_TEST_INSTRUMENTED_RUNTIME
 // Requests recovery, which longjmps out of the raise's delivery: nothing the
 // raise left behind (its per-thread record) may survive on the unwound stack,
 // and the constructed default must still be alive when the recovery reads it.
@@ -645,7 +658,7 @@ int main(void)
     CHECK(observed.addr == (void *) (intptr_t) 0x1234);
   }
 
-#ifndef STDC_RAISE_TEST_TSAN
+#ifndef STDC_RAISE_TEST_INSTRUMENTED_RUNTIME
   // A decider that cannot handle the signal re-raises it with the information
   // the delivery carried; the rethrow reaches the decider again with the same
   // information and neither record is left behind.
@@ -732,7 +745,7 @@ int main(void)
 
   CHECK(WG14_SIGNALS_PREFIX(siguninstall)(handlers) == 0);
 
-#ifndef STDC_RAISE_TEST_TSAN
+#ifndef STDC_RAISE_TEST_INSTRUMENTED_RUNTIME
   // A decider that requests recovery unwinds the raise's delivery: the record
   // is released by the handler before the decider walk (or purged by the
   // recovery path), so a later raise still substitutes its own information.
@@ -804,9 +817,9 @@ int main(void)
     CHECK(recovery_observed_addr_null != 0);
     CHECK(WG14_SIGNALS_PREFIX(siguninstall)(handlers3) == 0);
   }
-#endif  // STDC_RAISE_TEST_TSAN (recovery sections)
+#endif  // STDC_RAISE_TEST_INSTRUMENTED_RUNTIME (recovery sections)
 
-#ifndef STDC_RAISE_TEST_TSAN
+#ifndef STDC_RAISE_TEST_INSTRUMENTED_RUNTIME
   // The "can't handle it, rethrow it" idiom: an application handler installed
   // before siginstall() declines via the library's deciders first, then
   // re-raises the signal with the information it was handed. The rethrow must
