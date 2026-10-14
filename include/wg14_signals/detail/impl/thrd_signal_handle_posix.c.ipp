@@ -58,12 +58,19 @@ limitations under the License.
 //! `SI_QUEUE`; only `si_value` is ours. Returns 0 on success, -1 on failure
 //! (like `WG14_SIGNALS_KILL_SELF()`). `static inline` so that an embedding libc
 //! which overrides `WG14_SIGNALS_RAISE_WITH_TOKEN()` does not leave it unused;
-//! on a Linux target without `rt_tgsigqueueinfo` it degrades to a tokenless
-//! self-delivery.
+//! on a Linux target without `rt_tgsigqueueinfo` -- or on Fil-C, whose runtime
+//! rejects the syscall -- it degrades to a tokenless `KILL_SELF()`
+//! self-delivery (the token is only consumed by the `__GLIBC__` record match).
 static inline int
 WG14_SIGNALS_PREFIX(raise_with_token)(const int signo, const union sigval value)
 {
-#if defined(SYS_rt_tgsigqueueinfo)
+  // Fil-C's runtime does not implement rt_tgsigqueueinfo(2): it aborts the
+  // process ("unsupported syscall: 297"). The token it carries is only consumed
+  // by the __GLIBC__ match in find_stdc_raise_record(); Fil-C's musl-based libc
+  // takes that function's tokenless "newest record" branch, so a tokenless
+  // KILL_SELF() self-delivery is equivalent there. Everywhere else keeps the
+  // token-carrying delivery (needed for the glibc token match).
+#if defined(SYS_rt_tgsigqueueinfo) && !defined(__FILC__)
   siginfo_t si;
   WG14_SIGNALS_MEMSET(&si, 0, sizeof(si));
   si.si_signo = signo;
