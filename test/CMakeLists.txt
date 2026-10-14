@@ -219,6 +219,7 @@ add_test(NAME header_only_build_test
                  -DWG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT=${WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT}
                  -DWG14_SIGNALS_CXA_THREAD_ATEXIT_LIB=${WG14_SIGNALS_CXA_THREAD_ATEXIT_LIB}
                  -DWG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=${WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS}
+                 -DWG14_SIGNALS_HAVE_GETCONTEXT=${WG14_SIGNALS_HAVE_GETCONTEXT}
                  -P "${CMAKE_CURRENT_SOURCE_DIR}/header_only_build_test.cmake")
 set_tests_properties(header_only_build_test PROPERTIES TIMEOUT 600)
 

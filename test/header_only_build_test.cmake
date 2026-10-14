@@ -69,6 +69,13 @@ message(STATUS "OK (analysis.md 1.8): HEADER_ONLY_BUILD=ON builds the library")
 #    (analysis.md C3).
 set(_dir "${_work}/c_consumer")
 set(_consumer_args)
+if(DEFINED WG14_SIGNALS_HAVE_GETCONTEXT AND NOT WG14_SIGNALS_HAVE_GETCONTEXT STREQUAL "")
+  # The single-TU consumer compiles the .ipp inline, so it needs the same
+  # getcontext() probe result as the library (musl omits getcontext(); the
+  # backend then captures the frame from the compiler builtins).
+  list(APPEND _consumer_args
+       -DWG14_SIGNALS_HAVE_GETCONTEXT=${WG14_SIGNALS_HAVE_GETCONTEXT})
+endif()
 if(WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT)
   list(APPEND _consumer_args
        -DWG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT=${WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT})

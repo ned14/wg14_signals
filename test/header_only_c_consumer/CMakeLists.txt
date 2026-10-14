@@ -30,3 +30,10 @@ if(WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS)
   target_compile_definitions(header_only_c_consumer PUBLIC
     WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0)
 endif()
+if(DEFINED WG14_SIGNALS_HAVE_GETCONTEXT)
+  # The single-TU consumer compiles the .ipp inline, so it needs the same
+  # getcontext() probe result as the library (musl omits getcontext(); the
+  # backend then captures the frame from the compiler builtins).
+  target_compile_definitions(header_only_c_consumer PUBLIC
+    WG14_SIGNALS_HAVE_GETCONTEXT=${WG14_SIGNALS_HAVE_GETCONTEXT})
+endif()

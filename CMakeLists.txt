@@ -31,7 +31,35 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 enable_testing()
 include(CheckCSourceCompiles)
-check_c_source_compiles("#include <setjmp.h>\nint main(void) { jmp_buf buf; return _setjmp(buf); }" LIBC_HAS__SETJMP)
+# Probe the whole _setjmp()/_longjmp() pair, not just _setjmp(): the MSVC CRT
+# provides/link _setjmp but not _longjmp, so a _setjmp-only probe wrongly
+# reports the pair available and the library then fails to link (LNK2019
+# unresolved external symbol _longjmp). config.h additionally keeps Windows on
+# setjmp()/longjmp() regardless of WG14_SIGNALS_HAVE__SETJMP.
+check_c_source_compiles("#include <setjmp.h>\nint main(void) { jmp_buf buf; if(_setjmp(buf)) return 0; _longjmp(buf, 1); return 1; }" LIBC_HAS__SETJMP)
+
+# Discover getcontext() (the obsolete POSIX ucontext capture used to build the
+# implementation-defined default raw_context for a NULL argument to
+# sighandle()/stdc_raise(), N3924 7.14.2.9 p8). musl deliberately omits the
+# obsolete ucontext functions, so this is a compile+link probe: when it fails
+# the POSIX backend captures the calling frame from the compiler builtins
+# instead (WG14_SIGNALS_HAVE_GETCONTEXT=0). macOS is probed too but its
+# <ucontext.h> needs _XOPEN_SOURCE and its getcontext() is deprecated and broken
+# on arm64; the backend ignores this result there and captures the frame
+# directly in its own __APPLE__ branch.
+set(CMAKE_REQUIRED_LIBRARIES "")
+check_c_source_compiles("
+#define _GNU_SOURCE
+#include <ucontext.h>
+int main(void) { ucontext_t uc; return getcontext(&uc); }
+" WG14_SIGNALS_HAVE_GETCONTEXT)
+# Normalise the check result to the 0/1 spelling the compile definition and the
+# header-only consumer sub-builds use.
+if(WG14_SIGNALS_HAVE_GETCONTEXT)
+  set(WG14_SIGNALS_HAVE_GETCONTEXT 1)
+else()
+  set(WG14_SIGNALS_HAVE_GETCONTEXT 0)
+endif()
 
 # Discover __cxa_thread_atexit() (the Itanium ABI thread-local destructor
 # registration primitive) and which library supplies it, so thread_atexit() can
@@ -108,6 +136,12 @@ if(WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS)
   target_compile_definitions(${PROJECT_NAME}
                              PUBLIC WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL=0)
   message(STATUS "WG14_SIGNALS_ALWAYS_USE_FALLBACK_TLS=ON: forcing the tss_async_signal_safe hash-table TLS path")
+endif()
+if(WG14_SIGNALS_HAVE_GETCONTEXT)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC WG14_SIGNALS_HAVE_GETCONTEXT=1)
+else()
+  target_compile_definitions(${PROJECT_NAME} PUBLIC WG14_SIGNALS_HAVE_GETCONTEXT=0)
+  message(STATUS "getcontext() not found: the default raw_context uses the compiler-builtin frame capture")
 endif()
 if(WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT)
   target_compile_definitions(${PROJECT_NAME} PUBLIC WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT)

@@ -60,6 +60,23 @@ which are async signal safe, and which are not.
 #endif
 #endif
 
+#ifndef WG14_SIGNALS_HAVE_GETCONTEXT
+/* Whether the platform provides a usable getcontext() for the
+implementation-defined default raw_context (N3924 7.14.2.9 p8). The CMake
+build probes for it (a compile+link test) and defines this to 0 or 1; musl
+deliberately omits the obsolete ucontext functions, so the probe fails there
+and the POSIX backend captures the calling frame from the compiler builtins
+instead. An embedder building without the CMake probe (e.g. the glibc fork's
+own makefile) keeps the historical getcontext() behaviour by default; an
+embedding libc without getcontext() defines this to 0 or overrides the
+WG14_SIGNALS_GETCONTEXT() hook directly. */
+#if defined(__APPLE__)
+#define WG14_SIGNALS_HAVE_GETCONTEXT 0
+#else
+#define WG14_SIGNALS_HAVE_GETCONTEXT 1
+#endif
+#endif
+
 #ifndef WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL
 #if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
 #ifdef __GNUC__
@@ -336,14 +353,19 @@ which are async signal safe, and which are not.
 #define WG14_SIGNALS_PTHREAD_GETSPECIFIC(key) pthread_getspecific(key)
 #endif
 #ifndef WG14_SIGNALS_SETJMP
-#if WG14_SIGNALS_HAVE__SETJMP
+// The _setjmp()/_longjmp() pair skips the signal mask (and so is preferred on
+// the POSIX backends), but the MSVC CRT does not link _longjmp (the build's
+// _setjmp probe passes on _setjmp alone yet the pair fails at link time:
+// LNK2019 unresolved external symbol _longjmp), so Windows uses the portable
+// setjmp()/longjmp() pair.
+#if WG14_SIGNALS_HAVE__SETJMP && !defined(_WIN32)
 #define WG14_SIGNALS_SETJMP(buf) _setjmp(buf)
 #else
 #define WG14_SIGNALS_SETJMP(buf) setjmp(buf)
 #endif
 #endif
 #ifndef WG14_SIGNALS_LONGJMP
-#if WG14_SIGNALS_HAVE__SETJMP
+#if WG14_SIGNALS_HAVE__SETJMP && !defined(_WIN32)
 #define WG14_SIGNALS_LONGJMP(buf, val) _longjmp((buf), (val))
 #else
 #define WG14_SIGNALS_LONGJMP(buf, val) longjmp((buf), (val))
