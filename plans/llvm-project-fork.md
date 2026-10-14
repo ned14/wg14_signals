@@ -1944,7 +1944,7 @@ missing-submodule guard), the force-included `embedder_shim.{h,cpp}`, the
 | `__cxa_thread_atexit` | `thread_atexit.c.ipp:54-73` | absent in full build → pthread_key fallback used |
 | `pthread_key_create/setspecific/once` | `thread_atexit.c.ipp:169-224` (fallback) | natural → libc pthread entrypoints (futex-based, no signal calls) |
 | `syscall(SYS_gettid)` | `current_thread_id.c.ipp` (linux branch) | natural → `LIBC_NAMESPACE::syscall_impl` |
-| `getcontext` | posix `.ipp` `construct_default_context` (non-Apple) | **OVERRIDE** (`WG14_SIGNALS_GETCONTEXT`, added upstream) → `wg14_embedder_getcontext` frame capture; libc implements `getcontext` only on x86_64. The fork currently reaches this via a bare `#define getcontext` macro and can switch to the hook |
+| `getcontext` | posix `.ipp` `construct_default_context` (non-Apple) | **OVERRIDE** (`WG14_SIGNALS_GETCONTEXT`, added upstream) → `wg14_embedder_getcontext` frame capture; libc implements `getcontext` only on x86_64. The fork now reaches this through the hook (the earlier bare `#define getcontext` rewrite has been removed) |
 | `getpid` | posix `.ipp` `raise_with_token` (linux) | natural → libc `getpid`; the `WG14_SIGNALS_GETPID` hook defaults to it and is unused once `WG14_SIGNALS_RAISE_WITH_TOKEN` is overridden |
 | `mach_thread_self` | `current_thread_id.c.ipp` (apple branch) | natural → mach kernel call |
 | `pthread_getthreadid_np` | `current_thread_id.c.ipp` (freebsd branch) | natural → libc `pthread_getthreadid_np.cpp` |

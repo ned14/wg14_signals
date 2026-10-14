@@ -1166,7 +1166,7 @@ Follow-up work items (not yet fixed):
 | `pthread_kill(pthread_self(), ...)` | nptl tgkill entrypoint | **natural** (no override; contract met). Optional hardening (see below): override `WG14_SIGNALS_KILL_SELF` to `__pthread_raise_internal` |
 | `syscall(SYS_gettid)` | glibc `syscall()` | **natural** (Linux; Hurd has no `syscall()` — Phase 6) |
 | `getpid` | glibc `getpid()` | natural — glibc `libc_hidden_proto (getpid)` binds it hidden (no PLT); the new `WG14_SIGNALS_GETPID` hook defaults to it and is only reached from the default Linux `WG14_SIGNALS_RAISE_WITH_TOKEN` body |
-| `getcontext(ucontext_t *)` | glibc `getcontext()` — no `libc_hidden_proto` | **OVERRIDE (new hook)**: the NULL-`raw_context` default capture (`WG14_SIGNALS_GETCONTEXT`). glibc's public `getcontext` is a weak alias of `__getcontext` with no internal hidden prototype, so leaving the default binds via the PLT; the fork currently sanctions `libc.so: getcontext ?` in `localplt.data`, but the preferred action is to point `WG14_SIGNALS_GETCONTEXT` at a hidden `__getcontext`-style alias |
+| `getcontext(ucontext_t *)` | glibc `getcontext()` — no `libc_hidden_proto` | **natural**: the NULL-`raw_context` default capture, now reached via `WG14_SIGNALS_GETCONTEXT` (default `getcontext()`). glibc's public `getcontext` is a weak alias of `__getcontext` with no internal hidden prototype, so the call binds via the PLT and the fork sanctions `libc.so: getcontext ?` in `localplt.data`; overriding to `__getcontext` would not remove the PLT (there is no hidden alias) |
 | `memcpy`/`memset`/`malloc`/`calloc`/`free` | glibc's own; no signal calls | natural |
 | sigset ops (`sigemptyset`/`sigfillset`/`sigaddset`/`sigdelset`/`sigismember`) | glibc's public sigset entrypoints (already exported) | natural (contrast llvm-libc, which had to add `sigismember`) |
 | `setjmp`/`longjmp` (`_setjmp`) | glibc's per-arch real symbols | natural — no bridge, no musttail hazard |
@@ -1179,9 +1179,11 @@ Only ONE hook is functionally overridden (sigaction, for the SA_NOCLDWAIT
 strip); the rest are natural. This is the minimal-override proof: the
 unmodified reference implementation extends glibc. The new
 `WG14_SIGNALS_GETCONTEXT` hook (added upstream for the `stdc_raise()`
-NULL-context path) is the one exception worth taking: overriding it to a
-hidden `__getcontext` alias removes the `libc.so: getcontext ?` PLT
-whitelist the fork currently carries, without changing behaviour.
+NULL-context path) stays at its `getcontext()` default: glibc exposes no
+hidden alias for `getcontext` (it is `weak_alias (__getcontext, getcontext)`
+with no `libc_hidden_proto`), so the fork keeps the `libc.so: getcontext ?`
+PLT whitelist rather than an override that would merely move the PLT
+reference from `getcontext` to `__getcontext`.
 
 **KILL_SELF optional hardening** (do not adopt pre-emptively): the
 reference's KILL_SELF default `pthread_kill(pthread_self(), signo)` is
