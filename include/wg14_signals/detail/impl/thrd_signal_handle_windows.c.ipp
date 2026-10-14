@@ -279,14 +279,22 @@ extern "C"
   {
     memset(rsi, 0, sizeof(*rsi));
     rsi->signo = signo;
-    if(ptrs->ExceptionRecord->NumberParameters >= 2 &&
-       ptrs->ExceptionRecord
-       ->ExceptionInformation[ptrs->ExceptionRecord->NumberParameters - 2] ==
-       (ULONG_PTR) 0xdeadbeefdeadbeef)
+    const DWORD nparams = ptrs->ExceptionRecord->NumberParameters;
+    // A raw_context supplied to stdc_raise()/sighandle() is appended as the
+    // last parameter behind a distinguishing marker. Detect it from the end and
+    // exclude those two parameters from the count used for the signal-shaped
+    // fields below: otherwise a caller record with fewer than three parameters
+    // plus a raw_context would have the marker/context misread as
+    // `error_code`/`addr` (e.g. a 0-parameter record would report the context
+    // pointer as `addr`).
+    const bool has_context_marker =
+    nparams >= 2 && ptrs->ExceptionRecord->ExceptionInformation[nparams - 2] ==
+                    (ULONG_PTR) 0xdeadbeefdeadbeef;
+    if(has_context_marker)
     {
       rsi->raw_context =
-      (WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) *) ptrs->ExceptionRecord
-      ->ExceptionInformation[ptrs->ExceptionRecord->NumberParameters - 1];
+      (WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) *)
+      ptrs->ExceptionRecord->ExceptionInformation[nparams - 1];
     }
     else
     {
@@ -295,13 +303,14 @@ extern "C"
     }
     rsi->raw_info =
     (WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) *) ptrs->ExceptionRecord;
-    if(ptrs->ExceptionRecord->NumberParameters >= 3)
+    const DWORD effective = has_context_marker ? nparams - 2 : nparams;
+    if(effective >= 3)
     {
       rsi->error_code =
       (WG14_SIGNALS_PREFIX(stdc_siginfo_error_code_t))
       ptrs->ExceptionRecord->ExceptionInformation[2];  // NTSTATUS
     }
-    if(ptrs->ExceptionRecord->NumberParameters >= 2)
+    if(effective >= 2)
     {
       rsi->addr = (void *) ptrs->ExceptionRecord->ExceptionInformation[1];
     }
@@ -555,6 +564,117 @@ extern "C"
 #endif
   }
 
+  // Selects the EXCEPTION_RECORD to raise for `signo`: the caller's when one
+  // was supplied (its parameters carry the information the deciders read),
+  // else a synthesised signal-shaped record (three zeroed parameters, so
+  // prepare_rsi() reads addr and error_code as NULL/zero). Synthesising matters
+  // because raw_context is carried in the record's parameters (7.14.2.10 p6): a
+  // caller that passed raw_context but a NULL raw_info must still have its
+  // context surfaced, so there has to be a record to append it to. When no
+  // raw_context is supplied either, no marker is appended and prepare_rsi()
+  // falls back to the delivered ContextRecord: the machine context of the
+  // current call stack, exactly the implementation-defined default context the
+  // specification calls for. Returns `info`, or `synthesized` when `info` is
+  // NULL.
+  static EXCEPTION_RECORD *WG14_SIGNALS_PREFIX(win32_raise_record)(
+  WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * info,
+  WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * raw_context,
+  EXCEPTION_RECORD *synthesized)
+  {
+    EXCEPTION_RECORD *rec = info;
+    if(rec == WG14_SIGNALS_NULLPTR)
+    {
+      memset(synthesized, 0, sizeof(*synthesized));
+      synthesized->NumberParameters = 3;
+      rec = synthesized;
+    }
+    if(raw_context != WG14_SIGNALS_NULLPTR &&
+       rec->NumberParameters < EXCEPTION_MAXIMUM_PARAMETERS - 2)
+    {
+      rec->ExceptionInformation[rec->NumberParameters++] =
+      (ULONG_PTR) 0xdeadbeefdeadbeef;
+      rec->ExceptionInformation[rec->NumberParameters++] =
+      (ULONG_PTR) raw_context;
+    }
+    return rec;
+  }
+
+  // Performs a real Win32 structured-exception raise of `signo` on the calling
+  // thread, snapshotting the raise-initiated state so the frame filters and the
+  // global-decider pass can recognise it, and surfacing `info`/`raw_context` to
+  // the deciders (via the appended raw_context parameter and the record
+  // itself). The caller must have initialised the per-thread TSS; this pushes
+  // and pops the transient frame. Returns true when the raise was resolved
+  // without terminating the process, false when it was left unclaimed (so
+  // sighandle() can report "no decider installed" and stdc_raise() can take the
+  // default action). Shared by sighandle() and stdc_raise() so the record
+  // shape, the raise-initiated snapshot and the frame bookkeeping cannot drift
+  // between the two entry points.
+  static bool WG14_SIGNALS_PREFIX(win32_raise_impl)(
+  int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * info,
+  WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * raw_context)
+  {
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+    WG14_SIGNALS_PREFIX(sig_global_tss_state)();
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *old =
+    tss->front,
+                                                                       current;
+    memset(&current, 0, sizeof(current));
+    current.prev = old;
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) current2;
+    memset(&current2, 0, sizeof(current2));
+    current2.prev = tss->sighandle_initiated_exception;
+    if(setjmp(current.buf) != 0)
+    {
+      // A global decider claimed the raise and longjmp'd back to us.
+      tss->front = old;
+      tss->sighandle_initiated_exception = current2.prev;
+      return true;
+    }
+    tss->front = &current;
+    tss->sighandle_initiated_exception = &current2;
+    const DWORD win32sehcode =
+    WG14_SIGNALS_PREFIX(win32_exception_code_from_signal)(signo);
+    // The delivered exception code is always derived from `signo`
+    // (win32sehcode), never from the caller's record, matching the POSIX side
+    // where `signo` selects the signal. The record carries the caller's info
+    // (or the synthesised signal-shaped one) plus the raw_context marker.
+    //
+    // Put the vectored exception handler into "we raised this exception" mode.
+    // This means it kicks back to us instead of invoking the Windows handler if
+    // it was unhandled. Mask the flags exactly as kernel32!RaiseException does
+    // before delivering the record (ReactOS
+    // dll/win32/kernel32/client/except.c, ExceptionRecord.ExceptionFlags =
+    // dwExceptionFlags & EXCEPTION_NONCONTINUABLE): only
+    // EXCEPTION_NONCONTINUABLE is a valid input, and the delivered record
+    // carries only it. The snapshot below is compared field-for-field against
+    // the delivered record by win32_exception_record_matches (which masks the
+    // OS's EXCEPTION_SOFTWARE_ORIGINATE out of the delivered flags), so it must
+    // hold exactly what the OS will deliver -- an unmasked snapshot would never
+    // match a caller that passed stray flag bits, and the raise-initiated
+    // detection would miss, letting Windows Error Reporting terminate the
+    // process.
+    EXCEPTION_RECORD synthesized;
+    EXCEPTION_RECORD *rec =
+    WG14_SIGNALS_PREFIX(win32_raise_record)(info, raw_context, &synthesized);
+    current2.ExceptionCode = win32sehcode;
+    current2.ExceptionFlags = rec->ExceptionFlags & EXCEPTION_NONCONTINUABLE;
+    current2.NumberParameters = rec->NumberParameters;
+    current2.ExceptionInformationFirst =
+    (rec->NumberParameters > 0) ? rec->ExceptionInformation[0] : 0;
+    RaiseException(win32sehcode, rec->ExceptionFlags & EXCEPTION_NONCONTINUABLE,
+                   rec->NumberParameters, rec->ExceptionInformation);
+    // RaiseException() returns when the exception was continued (no handler
+    // claimed it). Pop the frame pushed above so tss->front never points at
+    // this dead stack frame (analysis.md 1.6).
+    tss->front = old;
+    tss->sighandle_initiated_exception = current2.prev;
+    // An unclaimed software raise of a signal with no installed handler or
+    // decider returns false instead of letting Windows Error Reporting
+    // terminate the process (analysis.md 2.16/W5).
+    return (current2.exception_was_unclaimed) ? false : true;
+  }
+
   // You must NOT do anything async signal unsafe in here!
   bool WG14_SIGNALS_PREFIX(sighandle)(
   int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * info,
@@ -607,78 +727,35 @@ extern "C"
         return false;
       }
     }
-    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
-    WG14_SIGNALS_PREFIX(sig_global_tss_state)();
-    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *old =
-    tss->front,
-                                                                       current;
-    memset(&current, 0, sizeof(current));
-    current.prev = old;
-    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_win_t) current2;
-    memset(&current2, 0, sizeof(current2));
-    current2.prev = tss->sighandle_initiated_exception;
-    if(setjmp(current.buf) != 0)
+    return WG14_SIGNALS_PREFIX(win32_raise_impl)(signo, info, raw_context);
+  }
+
+  // You must NOT do anything async signal unsafe in here!
+  int WG14_SIGNALS_PREFIX(stdc_raise)(
+  int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * raw_info,
+  WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * raw_context)
+  {
+    if(signo < 1 || signo >= NSIG)
     {
-      // A global decider claimed the raise and longjmp'd back to us.
-      tss->front = old;
-      tss->sighandle_initiated_exception = current2.prev;
-      return true;
+      errno = EINVAL;
+      return -1;
     }
-    tss->front = &current;
-    tss->sighandle_initiated_exception = &current2;
-    const DWORD win32sehcode =
-    WG14_SIGNALS_PREFIX(win32_exception_code_from_signal)(signo);
-    // info->ExceptionInformation[0] = 0=read 1=write 8=DEP
-    // info->ExceptionInformation[1] = causing address
-    // info->ExceptionInformatio n[2] = NTSTATUS causing exception
-    if(info != WG14_SIGNALS_NULLPTR)
+    if(0 != WG14_SIGNALS_PREFIX(sig_global_tss_state_init)())
     {
-      if(raw_context != WG14_SIGNALS_NULLPTR &&
-         info->NumberParameters < EXCEPTION_MAXIMUM_PARAMETERS - 2)
+      if(errno == 0)
       {
-        info->ExceptionInformation[info->NumberParameters++] =
-        (ULONG_PTR) 0xdeadbeefdeadbeef;
-        info->ExceptionInformation[info->NumberParameters++] =
-        (ULONG_PTR) raw_context;
+        errno = ENOMEM;
       }
-      // Put the vectored exception handler into "we raised this exception"
-      // mode. This means it kicks back to us instead of invoking the Windows
-      // handler if it was unhandled.
-      //
-      // Mask the flags exactly as kernel32!RaiseException does before
-      // delivering the record (ReactOS dll/win32/kernel32/client/except.c,
-      // ExceptionRecord.ExceptionFlags = dwExceptionFlags &
-      // EXCEPTION_NONCONTINUABLE): only EXCEPTION_NONCONTINUABLE is a valid
-      // input, and the delivered record carries only it. The snapshot below is
-      // compared field-for-field against the delivered record by
-      // win32_exception_record_matches (which masks the OS's
-      // EXCEPTION_SOFTWARE_ORIGINATE out of the delivered flags), so it must
-      // hold exactly what the OS will deliver -- an unmasked snapshot would
-      // never match a caller that passed stray flag bits, and the
-      // raise-initiated detection would miss, letting Windows Error Reporting
-      // terminate the process.
-      current2.ExceptionCode = win32sehcode;
-      current2.ExceptionFlags = info->ExceptionFlags & EXCEPTION_NONCONTINUABLE;
-      current2.NumberParameters = info->NumberParameters;
-      current2.ExceptionInformationFirst = info->ExceptionInformation[0];
-      RaiseException(win32sehcode,
-                     info->ExceptionFlags & EXCEPTION_NONCONTINUABLE,
-                     info->NumberParameters, info->ExceptionInformation);
+      return -1;
     }
-    else
-    {
-      current2.ExceptionCode = win32sehcode;
-      RaiseException(win32sehcode, 0, 0, WG14_SIGNALS_NULLPTR);
-    }
-    // RaiseException() returns when the exception was continued (no handler
-    // claimed it). Pop the frame pushed above so tss->front never points at
-    // this dead stack frame (analysis.md 1.6).
-    tss->front = old;
-    tss->sighandle_initiated_exception = current2.prev;
-    // An unclaimed software raise of a signal with no installed handler or
-    // decider returns false instead of letting Windows Error Reporting
-    // terminate the process (analysis.md 2.16/W5).
-    return (current2.exception_was_unclaimed) ? false : true;
+    // Behave as if raise(signo) was called, with the caller's raw_info and
+    // raw_context made available to the signal deciders (N3924 7.14.2.10): the
+    // corresponding Win32 structured exception is raised for real. An unclaimed
+    // raise takes the exception's default action, exactly as raise() of an
+    // unhandled signal does; a raise that returns was claimed or continued, so
+    // report success.
+    (void) WG14_SIGNALS_PREFIX(win32_raise_impl)(signo, raw_info, raw_context);
+    return 0;
   }
 
   // You must NOT do anything async signal unsafe in here!

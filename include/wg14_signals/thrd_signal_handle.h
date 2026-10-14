@@ -476,11 +476,12 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
     int signo;  //!< The signal raised
 
     //! \brief The system specific error code for this signal, the `si_errno`
-    //! code (POSIX) or `NTSTATUS` code (Windows). Zero when the raise carried
-    //! no OS info (e.g. `stdc_raise(signo, NULL, NULL)`).
+    //! code (POSIX) or `NTSTATUS` code (Windows). Zero when `raw_info` was
+    //! null and an implementation-defined default signal information was
+    //! constructed (e.g. `stdc_raise(signo, NULL, NULL)`).
     WG14_SIGNALS_PREFIX(stdc_siginfo_error_code_t) error_code;
     void *addr;  //!< Memory location which caused fault, if appropriate. NULL
-                 //!< when the raise carried no OS info.
+                 //!< when `raw_info` was null.
     union WG14_SIGNALS_PREFIX(
     stdc_siginfo_value) value;  //!< A user-defined value
 
@@ -488,10 +489,11 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
     WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * raw_info;
     //! \brief The OS specific `ucontext_t` (POSIX) or `PCONTEXT` (Windows)
     WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * raw_context;
-    //! \note On POSIX, a `stdc_raise(signo, NULL, NULL)` sets `raw_info` to
-    //! NULL and `raw_context` to the passed `raw_context` (NULL there); on
-    //! Windows the OS info is always present (`raw_info` points at the
-    //! `EXCEPTION_RECORD`).
+    //! \note A `stdc_raise(signo, NULL, NULL)` constructs an
+    //! implementation-defined default signal information object and a context
+    //! object representing the calling stack frame, and sets `raw_info` and
+    //! `raw_context` to point at them; on Windows the OS info is always present
+    //! (`raw_info` points at the `EXCEPTION_RECORD`).
 
     // Used internally only
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *
@@ -547,8 +549,8 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   //!
   //! `signo` is the signal whose default action is being taken, `raw_info`
   //! the raw OS `siginfo_t *` of the original delivery, and `raw_context` the
-  //! raw `ucontext_t *`; either may be NULL when the raise carried no OS info
-  //! (e.g. `stdc_raise(signo, NULL, NULL)`). An embedder that wants core-dump
+  //! raw `ucontext_t *`; either may be NULL when the original delivery carried
+  //! no OS info. An embedder that wants core-dump
   //! fidelity (the faulting address etc.) may set a callback that re-delivers
   //! with the original `raw_info` preserved (e.g. Linux
   //! `SYS_rt_tgsigqueueinfo`), falling back to a plain self-delivery if that
@@ -638,7 +640,7 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   By "usually async signal safe" we mean that if any function from this library
   has been called from the called from the calling thread, this is async signal
   safe. If you need to set up this library for a calling thread without doing
-  anything else, calling `stdc_raise(0, nullptr, nullptr)`, this will
+  anything else, calling `sighandle(0, nullptr, nullptr)`, this will
   ensure the calling thread's thread local state is set up and return
   immediately doing nothing else.
 
@@ -708,19 +710,22 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
 
   On POSIX, we fetch OUR currently installed signal decider and call it
   directly, rather than delivering through the kernel. This allows us to supply
-  custom `raw_info` and `raw_context`. Each decider in our chain will be invoked
-  in turn until we reach whatever the signal handler was when this library was
-  first initialised, and we hand off to that handler. If that handler was
-  defaulted and the default handling is not to ignore, we reset the handler
-  installation and execute `pthread_kill(pthread_self(), signo)` in order to
-  invoke the default handling (or the callback set with
-  `siginstall_set_default_action_np()`). If that hand-off reaches a previously
-  installed `SA_SIGINFO` handler while `raw_info` is NULL (e.g.
-  `sighandle(signo, NULL, NULL)`), a minimal zeroed `siginfo_t` with `si_signo`
-  set to `signo` and `si_code` set to `SI_USER` is synthesised and passed
-  instead of NULL, so a handler that reads `si->si_signo`/`si->si_code` without
-  a NULL check does not crash; `raw_context` is passed through unchanged and may
-  be NULL.
+  custom `raw_info` and `raw_context` to the deciders; either may be NULL. If
+  `raw_info` is NULL, an implementation-defined default signal information for
+  `signo` is constructed, and if `raw_context` is NULL, an object representing
+  the calling stack frame is constructed; each decider is given a
+  `struct stdc_siginfo` whose `raw_info` and `raw_context` members point at the
+  supplied or constructed objects, which persist at least as long as it. Each
+  decider in our chain will be invoked in turn until we reach whatever the
+  signal handler was when this library was first initialised, and we hand off to
+  that handler. If that handler was defaulted and the default handling is not to
+  ignore, we reset the handler installation and execute
+  `pthread_kill(pthread_self(), signo)` in order to invoke the default handling
+  (or the callback set with `siginstall_set_default_action_np()`). A previously
+  installed `SA_SIGINFO` handler that is handed the signal is passed the
+  supplied signal information or, where `raw_info` was NULL, the constructed
+  default, so a handler that reads `si->si_signo`/`si->si_code` without a NULL
+  check does not crash.
 
   It is important to note that this call does not raise signals itself except in
   that final handling step as just described. Therefore, if your code overwrites
@@ -758,18 +763,14 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
 
   `raw_info` and `raw_context` are the OS specific `siginfo_t *` (POSIX) or
   `EXCEPTION_RECORD *` (Windows) and `ucontext_t *` (POSIX) or `PCONTEXT`
-  (Windows) to surface to deciders; either may be NULL. When
-  `raw_info` is NULL the corresponding `struct stdc_siginfo` member is a null
-  pointer, the `error_code` member is zero, and the `addr` member is a null
-  pointer; otherwise the values of `error_code` and `addr` are
-  implementation-defined.
+  (Windows) to surface to deciders. If `raw_info` is NULL, an
+  implementation-defined default signal information object is constructed. If
+  `raw_context` is NULL, an object representing the calling stack frame is
+  constructed. The `raw_info` and `raw_context` members of the
+  `struct stdc_siginfo` passed to deciders are never NULL.
 
   \return Zero if successful and nonzero if unsuccessful. If `signo` is not a
   valid signal number, this function is unsuccessful and no signal is raised.
-
-  \warning This function is declared here to reserve the API, its name and its
-  ABI, but the reference implementation does not define it yet. Calling it
-  currently fails to link.
   */
   WG14_SIGNALS_EXTERN int WG14_SIGNALS_PREFIX(stdc_raise)(
   int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * raw_info,

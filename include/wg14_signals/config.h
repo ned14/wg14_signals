@@ -201,6 +201,26 @@ which are async signal safe, and which are not.
 #define WG14_SIGNALS_KILL_SELF(signo) pthread_kill(pthread_self(), (signo))
 #endif
 
+//! \brief `WG14_SIGNALS_RAISE_WITH_TOKEN(signo, sigval)` routes the
+//! token-carrying self-delivery used by `stdc_raise()`: `sigval.sival_ptr`
+//! carries the stack address of the raise record, so the raw handler can tell
+//! one raise of a signal apart from another (and from a foreign delivery of the
+//! same signal). On Linux the default is the POSIX backend's thread-directed
+//! `rt_tgsigqueueinfo` delivery; elsewhere it is `WG14_SIGNALS_KILL_SELF()`,
+//! which carries no token and makes the raw handler match by signal number
+//! alone. An embedding libc may point this at its own thread-directed,
+//! token-carrying delivery (e.g. the `rt_tgsigqueueinfo`/`tgkill` syscall
+//! pair). The replacement must be async-signal-safe.
+#ifndef WG14_SIGNALS_RAISE_WITH_TOKEN
+#if defined(__linux__)
+#define WG14_SIGNALS_RAISE_WITH_TOKEN(signo, sigval)                           \
+  WG14_SIGNALS_PREFIX(raise_with_token)((signo), (sigval))
+#else
+#define WG14_SIGNALS_RAISE_WITH_TOKEN(signo, sigval)                           \
+  WG14_SIGNALS_KILL_SELF(signo)
+#endif
+#endif
+
 //! \brief `WG14_SIGNALS_GETTID()` routes the thread-id query used by
 //! `current_thread_id()` on Linux. An embedding standard C library that does
 //! not expose `syscall()` under that name (e.g. LLVM-libc, whose generated

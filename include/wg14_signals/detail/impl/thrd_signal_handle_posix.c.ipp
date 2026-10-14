@@ -31,6 +31,50 @@ limitations under the License.
 #include <pthread.h>
 #include <signal.h>
 
+#if !defined(__APPLE__)
+// getcontext(), for capturing the calling context as the implementation-defined
+// default raw_context (N3924 7.14.2.9 p8). Not on macOS: its <ucontext.h>
+// hard-errors without _XOPEN_SOURCE and its getcontext() is deprecated and
+// broken on arm64, so the calling frame is captured directly there instead.
+#include <ucontext.h>
+#endif
+
+#if defined(__linux__)
+#include <sys/syscall.h>  // SYS_gettid, SYS_rt_tgsigqueueinfo
+#include <unistd.h>       // syscall(), getpid()
+#endif
+
+#if defined(__linux__)
+//! \brief Delivers `signo` to the calling thread with `value` carried in the
+//! delivered siginfo's `si_value.sival_ptr`, so the raw handler can match the
+//! delivery to the stdc_raise() record that produced it. This implements the
+//! Linux default of `WG14_SIGNALS_RAISE_WITH_TOKEN()` (config.h) via the
+//! thread-directed `rt_tgsigqueueinfo(2)` syscall -- not `pthread_sigqueue()`,
+//! which glibc declares only under `_GNU_SOURCE`, a macro this library must not
+//! define in a public header. The kernel fills in `si_pid`/`si_uid` for
+//! `SI_QUEUE`; only `si_value` is ours. Returns 0 on success, -1 on failure
+//! (like `WG14_SIGNALS_KILL_SELF()`). `static inline` so that an embedding libc
+//! which overrides `WG14_SIGNALS_RAISE_WITH_TOKEN()` does not leave it unused;
+//! on a Linux target without `rt_tgsigqueueinfo` it degrades to a tokenless
+//! self-delivery.
+static inline int
+WG14_SIGNALS_PREFIX(raise_with_token)(const int signo, const union sigval value)
+{
+#if defined(SYS_rt_tgsigqueueinfo)
+  siginfo_t si;
+  WG14_SIGNALS_MEMSET(&si, 0, sizeof(si));
+  si.si_signo = signo;
+  si.si_code = SI_QUEUE;
+  si.si_value = value;
+  return (int) syscall(SYS_rt_tgsigqueueinfo, getpid(),
+                       (pid_t) WG14_SIGNALS_GETTID(), signo, &si);
+#else
+  (void) value;
+  return WG14_SIGNALS_KILL_SELF(signo);
+#endif
+}
+#endif
+
 #include "thrd_signal_handle_common.ipp.ipp"
 
 #include "linked_list.h"
@@ -306,12 +350,105 @@ static void __attribute__((noreturn)) default_abort(void)
     rsi->internal_sighandler = WG14_SIGNALS_NULLPTR;
   }
 
+  // Releases the calling thread's in-flight stdc_raise() records that were
+  // created after `seq_at_entry`, the per-thread stdc_raise_seq value
+  // snapshotted when a guard frame was entered. A non-local jump out of a
+  // delivery (recovery, or an abandoned decider) unwinds the stdc_raise() calls
+  // made inside the guard, whether or not the raw handler had already consumed
+  // their records; their raw_info/raw_context point into the unwound stack, so
+  // they must not be matched by a later delivery. Records are pushed with
+  // increasing seq and removed LIFO, so the unwound ones are exactly the head
+  // prefix with a newer seq; an outer raise that was already in flight when the
+  // frame was entered has an older seq and survives, which is what makes "jump
+  // back to the earlier raise, then clean up" correct.
+  static void WG14_SIGNALS_PREFIX(release_stdc_raise_records_after)(
+  struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) * tss,
+  const uintptr_t seq_at_entry)
+  {
+    while(tss->stdc_raise_records != WG14_SIGNALS_NULLPTR &&
+          tss->stdc_raise_records->seq > seq_at_entry)
+    {
+      tss->stdc_raise_records = tss->stdc_raise_records->prev;
+    }
+  }
+
+  // Returns the newest in-flight stdc_raise() record of the calling thread for
+  // `signo`, or NULL when this delivery was not caused by a stdc_raise(). The
+  // caller must mark the record consumed and copy its raw_info/raw_context out
+  // before walking any deciders: a decider may longjmp out (recovery), and the
+  // record lives on the stdc_raise() caller's stack. Records are per-thread, so
+  // a delivery only ever sees this thread's raises; "newest" is what makes a
+  // rethrow from a decider (which pushes its own record, carrying the original
+  // or supplied information) resolve to the rethrow rather than the raise it
+  // rethrows.
+  static struct WG14_SIGNALS_PREFIX(stdc_raise_record_t) *
+  WG14_SIGNALS_PREFIX(find_stdc_raise_record)(const int signo,
+                                              const void *token)
+  {
+#if !defined(__GLIBC__)
+    (void) token;
+#endif
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+    WG14_SIGNALS_PREFIX(sig_global_tss_state_if_exists)();
+    if(tss != WG14_SIGNALS_NULLPTR)
+    {
+      struct WG14_SIGNALS_PREFIX(stdc_raise_record_t) *record =
+      tss->stdc_raise_records;
+      while(record != WG14_SIGNALS_NULLPTR)
+      {
+        if(record->consumed || record->signo != signo)
+        {
+          record = record->prev;
+          continue;
+        }
+#if defined(__GLIBC__)
+        if(record->token == (uintptr_t) token)
+        {
+          return record;
+        }
+        record = record->prev;
+#else
+      return record;
+#endif
+      }
+    }
+    return WG14_SIGNALS_NULLPTR;
+  }
+
   // The base signal handler for POSIX
   // You must NOT do anything async signal unsafe in here!
   static void WG14_SIGNALS_PREFIX(raw_signal_handler)(int signo,
                                                       siginfo_t *siginfo,
                                                       void *context)
   {
+    // A delivery caused by stdc_raise() hands the deciders exactly the
+    // caller-supplied raw_info and raw_context in place of the kernel's own
+    // siginfo_t/ucontext_t, which describe the raise rather than the caller's
+    // information. A NULL argument is surfaced as NULL -- the decider then sees
+    // a NULL raw_info member with error_code zero and addr NULL (N3924
+    // 7.14.2.10 p4). The record is marked consumed here, before any decider
+    // runs, so a re-entrant delivery (SA_NODEFER) or a rethrow cannot reuse it;
+    // the stdc_raise() call that pushed it removes it when it returns, or the
+    // guard frame's seq snapshot removes it if a decider longjmps out. An
+    // ordinary delivery finds no record and keeps the OS values untouched.
+    struct WG14_SIGNALS_PREFIX(stdc_raise_record_t) *record =
+    WG14_SIGNALS_PREFIX(find_stdc_raise_record)(signo,
+#if defined(__GLIBC__)
+                                                (const void *) siginfo->si_ptr
+#else
+                                              (const void *)
+                                              siginfo->si_value.sival_ptr
+#endif
+    );
+    if(record != WG14_SIGNALS_NULLPTR)
+    {
+      record->consumed = true;
+      siginfo = record->raw_info;
+      if(record->raw_context != WG14_SIGNALS_NULLPTR)
+      {
+        context = (void *) record->raw_context;
+      }
+    }
     if(!WG14_SIGNALS_PREFIX(sighandle)(
        signo, siginfo, (WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) *) context))
     {
@@ -362,9 +499,15 @@ static void __attribute__((noreturn)) default_abort(void)
     current.recovery = recovery;
     current.decider = decider;
     current.rsi.value = value;
+    // Snapshot the per-thread raise sequence: a non-local jump below releases
+    // this thread's records created after this point, whose stdc_raise() call
+    // is being unwound (see release_stdc_raise_records_after).
+    current.stdc_raise_seq_at_entry = tss->stdc_raise_seq;
     if(WG14_SIGNALS_SETJMP(current.buf) != 0)
     {
       tss->front = old;
+      WG14_SIGNALS_PREFIX(release_stdc_raise_records_after)(
+      tss, current.stdc_raise_seq_at_entry);
       // Technically needed to ensure previous handler is active before recovery
       // function is called, as it may raise a signal
       atomic_signal_fence(WG14_SIGNALS_ATOMIC_PREFIX memory_order_acq_rel);
@@ -380,6 +523,52 @@ static void __attribute__((noreturn)) default_abort(void)
     return ret;
   }
 
+  // Fills `tss->default_context` with a context object representing the
+  // calling stack frame: the implementation-defined default raw_context for a
+  // NULL argument (N3924 7.14.2.9 p8, 7.14.2.10 p6). getcontext() captures the
+  // real machine state on the platforms where it is sound; macOS's is
+  // deprecated and broken on arm64 (it writes an mcontext_t past the caller's
+  // ucontext_t), so the calling frame is captured there directly from the frame
+  // pointer, stack pointer and return address into the per-thread mcontext
+  // storage. It is intentionally not marked async-signal-safe: getcontext() is
+  // not in POSIX's async-signal-safe set, but sighandle() is only "usually"
+  // async signal safe (see the header) and this runs only on the NULL-context
+  // path.
+  static void WG14_SIGNALS_PREFIX(construct_default_context)(
+  struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) * tss)
+  {
+    WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) *uc = &tss->default_context;
+    WG14_SIGNALS_MEMSET(uc, 0, sizeof(*uc));
+#if defined(__APPLE__)
+    WG14_SIGNALS_MEMSET(&tss->default_mcontext, 0,
+                        sizeof(tss->default_mcontext));
+    uc->uc_mcontext = &tss->default_mcontext;
+    uc->uc_mcsize = sizeof(tss->default_mcontext);
+    uc->uc_link = WG14_SIGNALS_NULLPTR;
+    uc->uc_stack.ss_sp = __builtin_frame_address(0);
+    uc->uc_stack.ss_size = 0;
+    uc->uc_stack.ss_flags = 0;
+#if defined(__aarch64__)
+    uintptr_t sp;
+    __asm__ volatile("mov %0, sp" : "=r"(sp));
+    uc->uc_mcontext->__ss.__sp = sp;
+    uc->uc_mcontext->__ss.__fp = (uintptr_t) __builtin_frame_address(0);
+    uc->uc_mcontext->__ss.__lr = (uintptr_t) __builtin_return_address(0);
+    uc->uc_mcontext->__ss.__pc = (uintptr_t) __builtin_return_address(0);
+#elif defined(__x86_64__)
+    uintptr_t sp;
+    __asm__ volatile("movq %%rsp, %0" : "=r"(sp));
+    uc->uc_mcontext->__ss.__rsp = sp;
+    uc->uc_mcontext->__ss.__rbp = (uintptr_t) __builtin_frame_address(0);
+    uc->uc_mcontext->__ss.__rip = (uintptr_t) __builtin_return_address(0);
+#else
+#error "Unsupported macOS architecture for the default raw_context"
+#endif
+#else
+  (void) getcontext(uc);
+#endif
+  }
+
   // You must NOT do anything async signal unsafe in here!
   bool WG14_SIGNALS_PREFIX(sighandle)(
   int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * info,
@@ -388,20 +577,11 @@ static void __attribute__((noreturn)) default_abort(void)
     // This isn't async signal safe, but caller may not have called
     // siginstall() so we have no other choice within this
     // library
-    if(0 != WG14_SIGNALS_PREFIX(sig_global_tss_state_init)())
+    if(0 != WG14_SIGNALS_PREFIX(sig_tss_state_init_or_set_errno)())
     {
       // The per-thread TSS setup failed (e.g. OOM). The return value alone
       // cannot distinguish this from "no decider installed for this signal"
-      // (both are false), so report the failure via errno: the init chain
-      // already sets errno on its own failure paths (calloc -> ENOMEM,
-      // tss_async_signal_safe_thread_init -> ENOMEM/EINVAL), and we guarantee
-      // a diagnostic even if a lower layer forgot (plans/analysis.md 3.7).
-      // In particular the documented setup call sighandle(0, NULL, NULL)
-      // then lets the caller detect that setup actually failed.
-      if(errno == 0)
-      {
-        errno = ENOMEM;
-      }
+      // (both are false), so report the failure via errno (see the helper).
       return false;
     }
     if(signo == 0)
@@ -409,23 +589,41 @@ static void __attribute__((noreturn)) default_abort(void)
       // Caller is doing the non-async safe setup
       return false;
     }
-    if(signo < 1 || signo >= NSIG)
+    if(!WG14_SIGNALS_PREFIX(is_valid_signo)(signo))
     {
       // No frame can guard an out-of-range signo and no handler can be
-      // installed for one. On macOS/BSD WG14_SIGNALS_SIGISMEMBER() is a
-      // shift-count macro, so a negative or >= NSIG signo is UB there and
-      // probe-verified to deterministically alias another signal's frame
-      // decider -- stdc_raise(-1) inside a frame guarding SIGUSR2 invoked that
-      // frame's decider with rsi->signo == -1 (the masking turns 1u << -2 into
-      // 1u << 30, i.e. signal 31); glibc's sigismember returns 0 and Windows'
-      // is total, so the bug was invisible there (plans/analysis.md NEGS).
-      // Reject before the frame walk: the signo-to-sighandler map's get() would
-      // report absence anyway, so this is the documented "no decider installed
-      // for that signal" return.
+      // installed for one. Reject before the frame walk: the
+      // signo-to-sighandler map's get() would report absence anyway, so this is
+      // the documented "no decider installed for that signal" return. (The
+      // shared helper also documents the macOS/BSD SIGISMEMBER shift-count UB,
+      // plans/analysis.md NEGS.)
       return false;
     }
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
     WG14_SIGNALS_PREFIX(sig_global_tss_state)();
+    // N3924 7.14.2.9 p7/p8/p9: a NULL raw_info/raw_context is replaced by a
+    // constructed implementation-defined default, so deciders never see NULL.
+    // The defaults live in the per-thread state so a pointer to them outlives
+    // this call: the frame path copies the rsi into frame->rsi and can longjmp
+    // to a recovery routine that reads them later.
+    WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) *eff_info = info;
+    if(eff_info == WG14_SIGNALS_NULLPTR)
+    {
+      WG14_SIGNALS_MEMSET(&tss->default_info, 0, sizeof(tss->default_info));
+      tss->default_info.si_signo = signo;
+      tss->default_info.si_code = SI_USER;
+      eff_info = &tss->default_info;
+    }
+    WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) *eff_context = raw_context;
+    if(eff_context == WG14_SIGNALS_NULLPTR)
+    {
+      // Construct a context object representing the calling stack frame, rather
+      // than leaving deciders with a NULL or zeroed context (N3924 7.14.2.9
+      // p8). It lives in the per-thread state so the pointer also survives a
+      // recovery longjmp.
+      WG14_SIGNALS_PREFIX(construct_default_context)(tss);
+      eff_context = &tss->default_context;
+    }
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *frame =
     tss->front;
     while(frame != WG14_SIGNALS_NULLPTR)
@@ -440,7 +638,7 @@ static void __attribute__((noreturn)) default_abort(void)
         // so the recovery routine (read post-longjmp from the sigguarded frame)
         // sees exactly the raising raise's info.
         struct WG14_SIGNALS_PREFIX(stdc_siginfo) rsi;
-        WG14_SIGNALS_PREFIX(prepare_rsi)(&rsi, signo, info, raw_context);
+        WG14_SIGNALS_PREFIX(prepare_rsi)(&rsi, signo, eff_info, eff_context);
         rsi.value = frame->rsi.value;
         // In case they wish to abandon
         rsi.internal_local_decider = frame;
@@ -485,7 +683,7 @@ static void __attribute__((noreturn)) default_abort(void)
     signo_to_sighandler_map_t_value(it);
     struct sigaction sa = item->old_handler;
     struct WG14_SIGNALS_PREFIX(stdc_siginfo) rsi;
-    WG14_SIGNALS_PREFIX(prepare_rsi)(&rsi, signo, info, raw_context);
+    WG14_SIGNALS_PREFIX(prepare_rsi)(&rsi, signo, eff_info, eff_context);
     // Take a reference on the container for the duration of the raise so a
     // concurrent siguninstall cannot free it while we are unlocked inside a
     // decider call (analysis.md 2.2).
@@ -530,8 +728,108 @@ static void __attribute__((noreturn)) default_abort(void)
     // handler
     WG14_SIGNALS_PREFIX(sighandler_info_release)(item);
     UNLOCK(state->lock);
-    WG14_SIGNALS_PREFIX(invoke_sigaction)(&sa, signo, info, raw_context);
+    WG14_SIGNALS_PREFIX(invoke_sigaction)(&sa, signo, eff_info, eff_context);
     return true;
+  }
+
+  // You must NOT do anything async signal unsafe in here!
+  int WG14_SIGNALS_PREFIX(stdc_raise)(
+  int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * info,
+  WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * raw_context)
+  {
+    // Behave as if raise(signo) was called, with the caller's raw_info and
+    // raw_context made available to the signal deciders (N3924 7.14.2.10).
+    // Unlike sighandle(), which invokes the decider chain directly, this
+    // delivers the signal for real through the kernel: the raw handler runs
+    // synchronously on this thread, and a record pushed onto this thread's
+    // existing stdc_raise() chain tells it to hand the deciders the caller's
+    // raw_info/raw_context in place of the kernel's own siginfo_t/ucontext_t.
+    //
+    // Nothing is allocated and no lock is taken: the record lives in this
+    // frame and is linked into the per-thread state only when that state
+    // already exists (sig_global_tss_state_if_exists(), the async-signal-safe
+    // read of the state sighandle(0, NULL, NULL)/sigguarded() set up). A thread
+    // that has never set its state up simply raises without a record, exactly
+    // as raise() would. The record is removed here whether or not the handler
+    // ran; if a decider longjmps out before this returns, the guard frame's
+    // sequence snapshot removes it (release_stdc_raise_records_after()), so
+    // nothing this call stacked can outlive it or need unstacking by the
+    // signal handling. The token is stack-aware rather than thread-aware: it is
+    // the address of the record in this frame, delivered with the signal (via
+    // WG14_SIGNALS_RAISE_WITH_TOKEN(), pthread_sigqueue on glibc) so the raw
+    // handler can pick this raise's record out of the chain and tell one raise
+    // of a signal apart from another. Where the host has no token-carrying
+    // delivery the record is matched by signal number alone.
+    if(!WG14_SIGNALS_PREFIX(is_valid_signo)(signo))
+    {
+      // Not a valid signal number: unsuccessful, and no signal is raised
+      // (7.14.2.10 p5). No frame can guard an out-of-range signo and no handler
+      // can be installed for one (analysis.md NEGS).
+      errno = EINVAL;
+      return -1;
+    }
+    struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_t) *tss =
+    WG14_SIGNALS_PREFIX(sig_global_tss_state_if_exists)();
+    struct WG14_SIGNALS_PREFIX(stdc_raise_record_t) record;
+    union sigval raise_token;
+    raise_token.sival_ptr = WG14_SIGNALS_NULLPTR;
+    if(tss != WG14_SIGNALS_NULLPTR)
+    {
+      // N3924 7.14.2.10 p5/p7: a NULL raw_info is replaced by a constructed
+      // implementation-defined default. It lives in the per-thread state, not
+      // in this frame, so a pointer to it survives a recovery longjmp that
+      // unwinds this stdc_raise() call before the recovery routine reads it.
+      WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) *use_info = info;
+      if(use_info == WG14_SIGNALS_NULLPTR)
+      {
+        WG14_SIGNALS_MEMSET(&tss->default_info, 0, sizeof(tss->default_info));
+        tss->default_info.si_signo = signo;
+        tss->default_info.si_code = SI_USER;
+        use_info = &tss->default_info;
+      }
+      record.prev = tss->stdc_raise_records;
+      record.signo = signo;
+      record.raw_info = use_info;
+      record.raw_context = raw_context;
+      record.token = (uintptr_t) &record;
+      record.seq = ++tss->stdc_raise_seq;
+      record.consumed = false;
+      tss->stdc_raise_records = &record;
+      // The raw handler reads this back from the delivered signal's
+      // si_value.sival_ptr (on glibc) to match the record; it is also the
+      // stack-aware identity a rethrow must not reuse.
+      raise_token.sival_ptr = (void *) record.token;
+    }
+    // Self-delivery to the calling thread. For an unblocked signal the handler
+    // runs synchronously before this returns and consumes the record; if the
+    // caller has blocked the signal, or the disposition is no longer this
+    // library's raw handler, the delivery never consults it and the record is
+    // removed below all the same. The token is carried where the host provides
+    // a token-carrying self-delivery (pthread_sigqueue on glibc); the fallback
+    // WG14_SIGNALS_KILL_SELF() has no token and the raw handler then matches by
+    // signal number alone.
+    const int rc = WG14_SIGNALS_RAISE_WITH_TOKEN(signo, raise_token);
+    if(tss != WG14_SIGNALS_NULLPTR)
+    {
+      // Remove our record, plus any records left above it by a non-local jump
+      // that skipped their removal. The stack-aware token identifies the
+      // record; the per-thread seq guards against two raises sharing a token
+      // (e.g. a rethrow that passes the original raw_info/raw_context).
+      struct WG14_SIGNALS_PREFIX(stdc_raise_record_t) *head =
+      tss->stdc_raise_records;
+      while(head != WG14_SIGNALS_NULLPTR)
+      {
+        const bool ours =
+        head->token == record.token && head->seq == record.seq;
+        tss->stdc_raise_records = head->prev;
+        if(ours)
+        {
+          break;
+        }
+        head = tss->stdc_raise_records;
+      }
+    }
+    return (rc == 0) ? 0 : -1;
   }
 
   // You must NOT do anything async signal unsafe in here!
@@ -552,6 +850,11 @@ static void __attribute__((noreturn)) default_abort(void)
         }
         // Pop the top most sigguarded()
         tss->front = tss->front->prev;
+        // The decider may longjmp away without ever returning through this
+        // delivery, unwinding stdc_raise() records created inside the frame;
+        // release them (see release_stdc_raise_records_after).
+        WG14_SIGNALS_PREFIX(release_stdc_raise_records_after)(
+        tss, rsi->internal_local_decider->stdc_raise_seq_at_entry);
       }
       if(rsi->internal_sighandler != WG14_SIGNALS_NULLPTR ||
          rsi->internal_global_decider != WG14_SIGNALS_NULLPTR)

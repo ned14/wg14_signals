@@ -49,6 +49,15 @@ add_code_test(sighandle_null_info_test SOURCES "sighandle_null_info_test.c" FEAT
 # invoke_sigaction must synthesise a minimal siginfo_t (si_signo/si_code set)
 # instead. POSIX-only, no-op on Windows.
 add_code_test(nsih_siginfo_handoff_test SOURCES "nsih_siginfo_handoff_test.c" FEATURES c_std_11)
+# Test for stdc_raise() (N3924 7.14.2.10): a real raise with the caller's
+# raw_info/raw_context surfaced to deciders, the constructed default for a NULL
+# argument, and the EINVAL contract for an invalid signo. POSIX exercises the
+# kernel self-delivery and the per-thread record chain (including concurrent
+# raises, a raise after a recovery longjmp, and rethrowing from a decider or a
+# signal handler); Windows exercises a real structured-exception raise of an
+# installed signal observed by a frame decider.
+add_code_test(stdc_raise_test SOURCES "stdc_raise_test.c" FEATURES c_std_11)
+set_tests_properties(stdc_raise_test PROPERTIES TIMEOUT 60)
 # Regression test for analysis.md DFLT: the SIG_DFL default-action re-raise in
 # the POSIX invoke_sigaction must restore the library's installed handler, not
 # leave the kernel handler reset to SIG_DFL (stop/continue default signals).

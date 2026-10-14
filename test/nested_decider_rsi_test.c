@@ -29,7 +29,8 @@ static atomic_int outer_decider_calls = 0;
 static atomic_int nested_decider_calls = 0;
 #ifndef _WIN32
 // 0 = outer rsi clean after the nested delivery; 1 = outer rsi clobbered by the
-// nested raise (the NSTR defect); 2 = outer rsi already non-NULL at entry.
+// nested raise (the NSTR defect); 2 = outer raise's raw_info was NULL (the
+// constructed default required by N3924 7.14.2.9 p7 was missing).
 static volatile int outer_saw_nested_info = 0;
 // Set if the nested decider itself saw an unexpected raw_info/signo.
 static volatile int nested_saw_bad_info = 0;
@@ -37,17 +38,20 @@ static volatile int nested_saw_bad_info = 0;
 // Both the outer and the nested delivery run this decider. The outer call
 // triggers a real nested delivery of the same signal via pthread_kill and, once
 // it has returned, verifies its own rsi was not clobbered (the outer raise
-// passed NULL info, so raw_info must still be NULL; the nested delivery carries
-// the kernel's real siginfo, which is what the old shared-frame-rsi bug would
-// leave in the outer decider's view). POSIX-only: pthread_kill is unavailable
-// on Windows and the NSTR defect is POSIX-frame-specific anyway.
+// passed NULL info, so raw_info points at the constructed default and must be
+// unchanged by the nested delivery, which carries the kernel's real siginfo --
+// the old shared-frame-rsi bug would leave the nested siginfo in the outer
+// decider's view). POSIX-only: pthread_kill is unavailable on Windows and the
+// NSTR defect is POSIX-frame-specific anyway.
 static enum WG14_SIGNALS_PREFIX(sig_decision)
 nested_rsi_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 {
   if(0 == atomic_fetch_add(&outer_decider_calls, 1))
   {
-    // First (outer) activation: software raise with NULL info.
-    if(rsi->raw_info != WG14_SIGNALS_NULLPTR)
+    // First (outer) activation: software raise with NULL info, which must be
+    // surfaced as a constructed default, not NULL.
+    void *const before = rsi->raw_info;
+    if(before == WG14_SIGNALS_NULLPTR)
     {
       outer_saw_nested_info = 2;
     }
@@ -56,7 +60,7 @@ nested_rsi_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
     // interrupts this call; the kernel siginfo is what the nested raise's
     // prepare_rsi used to write into the shared frame->rsi.
     pthread_kill(pthread_self(), SIGNAL_TO_USE);
-    if(rsi->raw_info != WG14_SIGNALS_NULLPTR)
+    if(rsi->raw_info != before)
     {
       outer_saw_nested_info = 1;
     }
@@ -75,7 +79,8 @@ nested_rsi_decider(struct WG14_SIGNALS_PREFIX(stdc_siginfo) * rsi)
 static union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
 raise_inside_guard(union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
 {
-  // Software raise with NULL info: the outer decider must see raw_info == NULL.
+  // Software raise with NULL info: the outer decider must see a constructed
+  // default (non-NULL) raw_info (N3924 7.14.2.9 p7).
   (void) WG14_SIGNALS_PREFIX(sighandle)(SIGNAL_TO_USE, WG14_SIGNALS_NULLPTR,
                                         WG14_SIGNALS_NULLPTR);
   return value;
