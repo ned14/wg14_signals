@@ -657,7 +657,8 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
     return true;
   }
 
-  void *WG14_SIGNALS_PREFIX(siginstall)(const sigset_t *guarded)
+  WG14_SIGNALS_PREFIX(sig_handlers_t)
+  WG14_SIGNALS_PREFIX(siginstall)(const sigset_t *guarded)
   {
     sigset_t *ret = (sigset_t *) WG14_SIGNALS_MALLOC(sizeof(sigset_t));
     if(ret == WG14_SIGNALS_NULLPTR)
@@ -753,10 +754,10 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
         }
       }
     }
-    return ret;
+    return (WG14_SIGNALS_PREFIX(sig_handlers_t)) ret;
   }
 
-  int WG14_SIGNALS_PREFIX(siguninstall)(void *ss)
+  int WG14_SIGNALS_PREFIX(siguninstall)(WG14_SIGNALS_PREFIX(sig_handlers_t) ss)
   {
     if(ss == WG14_SIGNALS_NULLPTR)
     {
@@ -792,7 +793,8 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
     return 0;
   }
 
-  void *WG14_SIGNALS_PREFIX(signal_decider_create)(
+  WG14_SIGNALS_PREFIX(signal_decider_t)
+  WG14_SIGNALS_PREFIX(signal_decider_create)(
   const sigset_t *guarded, bool callfirst,
   WG14_SIGNALS_PREFIX(sig_decide_t) decider,
   union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value)
@@ -876,7 +878,8 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
         {
           int errcode = errno;
           UNLOCK(state->lock);
-          WG14_SIGNALS_PREFIX(signal_decider_destroy)(ret);
+          WG14_SIGNALS_PREFIX(signal_decider_destroy)(
+          (WG14_SIGNALS_PREFIX(signal_decider_t)) ret);
           errno = errcode;
           return WG14_SIGNALS_NULLPTR;
         }
@@ -897,10 +900,11 @@ static int WG14_SIGNALS_PREFIX(sig_global_tss_state_destroy)(void)
         UNLOCK(state->lock);
       }
     }
-    return ret;
+    return (WG14_SIGNALS_PREFIX(signal_decider_t)) ret;
   }
 
-  int WG14_SIGNALS_PREFIX(signal_decider_destroy)(void *p)
+  int WG14_SIGNALS_PREFIX(signal_decider_destroy)(
+  WG14_SIGNALS_PREFIX(signal_decider_t) p)
   {
     if(p == WG14_SIGNALS_NULLPTR)
     {

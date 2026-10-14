@@ -27,13 +27,17 @@
 int main(void)
 {
   int ret = 0;
-  sigset_t *set = WG14_SIGNALS_PREFIX(siginstall)(WG14_SIGNALS_NULLPTR);
-  CHECK(set != WG14_SIGNALS_NULLPTR);
-  if(set == WG14_SIGNALS_NULLPTR)
+  WG14_SIGNALS_PREFIX(sig_handlers_t)
+  handle = WG14_SIGNALS_PREFIX(siginstall)(WG14_SIGNALS_NULLPTR);
+  CHECK(handle != WG14_SIGNALS_NULLPTR);
+  if(handle == WG14_SIGNALS_NULLPTR)
   {
     fprintf(stderr, "siginstall() failed: %s\n", strerror(errno));
     return ret;
   }
+  // White-box: the handle is a copy of the installed signal set, so it can be
+  // inspected with the signal set predicates.
+  const sigset_t *set = (const sigset_t *) handle;
 
   // The standard signals must all be covered. SIGUSR1 is POSIX-only (MSVC
   // defines no SIGUSR1), so its check is conditional.
@@ -63,7 +67,7 @@ int main(void)
   }
 #endif
 
-  CHECK(WG14_SIGNALS_PREFIX(siguninstall)(set) == 0);
+  CHECK(WG14_SIGNALS_PREFIX(siguninstall)(handle) == 0);
 
   // The same libc-internal filtering must apply to explicit guarded inputs: a
   // caller doing sigfillset() then siginstall(&set) must not get handlers
@@ -72,13 +76,15 @@ int main(void)
   SECTION("explicit guarded input is also filtered");
   sigset_t guarded;
   sigfillset(&guarded);
-  sigset_t *explicit = WG14_SIGNALS_PREFIX(siginstall)(&guarded);
-  CHECK(explicit != WG14_SIGNALS_NULLPTR);
-  if(explicit == WG14_SIGNALS_NULLPTR)
+  WG14_SIGNALS_PREFIX(sig_handlers_t)
+  explicit_handle = WG14_SIGNALS_PREFIX(siginstall)(&guarded);
+  CHECK(explicit_handle != WG14_SIGNALS_NULLPTR);
+  if(explicit_handle == WG14_SIGNALS_NULLPTR)
   {
     fprintf(stderr, "siginstall() failed: %s\n", strerror(errno));
     return ret;
   }
+  const sigset_t *explicit = (const sigset_t *) explicit_handle;
 #ifdef SIGCANCEL
   CHECK(sigismember(explicit, SIGCANCEL) != 1);
 #endif
@@ -88,6 +94,6 @@ int main(void)
   // Standard signals remain installable via the explicit path.
   CHECK(sigismember(explicit, SIGILL) == 1);
   CHECK(sigismember(explicit, SIGTERM) == 1);
-  CHECK(WG14_SIGNALS_PREFIX(siguninstall)(explicit) == 0);
+  CHECK(WG14_SIGNALS_PREFIX(siguninstall)(explicit_handle) == 0);
   return ret;
 }

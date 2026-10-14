@@ -801,11 +801,26 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   of itself, but is NOT threadsafe with respect to other code modifying the
   global signal handlers.
   */
-  WG14_SIGNALS_EXTERN void *
+  //! \brief An implementation-defined opaque pointer type that represents a set
+  //! of installed signal handlers. It is the type of the value returned by
+  //! `siginstall()` and of the argument of `siguninstall()`; a null pointer
+  //! value represents no installation.
+  typedef struct WG14_SIGNALS_PREFIX(sig_handlers_s) *
+  WG14_SIGNALS_PREFIX(sig_handlers_t);
+
+  //! \brief An implementation-defined opaque pointer type that represents an
+  //! installed global signal decider. It is the type of the value returned by
+  //! `signal_decider_create()` and of the argument of
+  //! `signal_decider_destroy()`; a null pointer value represents no decider.
+  typedef struct WG14_SIGNALS_PREFIX(signal_decider_s) *
+  WG14_SIGNALS_PREFIX(signal_decider_t);
+
+  WG14_SIGNALS_EXTERN WG14_SIGNALS_PREFIX(sig_handlers_t)
   WG14_SIGNALS_PREFIX(siginstall)(const sigset_t *guarded);
   /*! \brief THREADSAFE Uninstall a previously installed signal guard.
    */
-  WG14_SIGNALS_EXTERN int WG14_SIGNALS_PREFIX(siguninstall)(void *i);
+  WG14_SIGNALS_EXTERN int
+  WG14_SIGNALS_PREFIX(siguninstall)(WG14_SIGNALS_PREFIX(sig_handlers_t) i);
   /*! \brief THREADSAFE Uninstall a previously system installed signal guard.
    */
   WG14_SIGNALS_EXTERN int WG14_SIGNALS_PREFIX(siguninstall_system)(int version);
@@ -834,10 +849,10 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   \param value A user supplied value to set in the `stdc_siginfo.value` member
   passed to the decider callback.
   */
-  WG14_SIGNALS_EXTERN void *WG14_SIGNALS_PREFIX(signal_decider_create)(
-  const sigset_t *guarded, bool callfirst,
-  WG14_SIGNALS_PREFIX(sig_decide_t) decider,
-  union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value);
+  WG14_SIGNALS_EXTERN WG14_SIGNALS_PREFIX(signal_decider_t) WG14_SIGNALS_PREFIX(
+  signal_decider_create)(const sigset_t *guarded, bool callfirst,
+                         WG14_SIGNALS_PREFIX(sig_decide_t) decider,
+                         union WG14_SIGNALS_PREFIX(stdc_siginfo_value) value);
   /*! \brief THREADSAFE Destroy a global signal continuation
   decider. Threadsafe with respect to other calls of this function. It is
   permitted to call this function from within a signal decider function: if the
@@ -848,8 +863,8 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   deliberately does not guard against it (plans/analysis.md `TSSD`).
   \return 0 if successful, a negative value if `decider` was a null pointer.
   */
-  WG14_SIGNALS_EXTERN int
-  WG14_SIGNALS_PREFIX(signal_decider_destroy)(void *decider);
+  WG14_SIGNALS_EXTERN int WG14_SIGNALS_PREFIX(signal_decider_destroy)(
+  WG14_SIGNALS_PREFIX(signal_decider_t) decider);
 
   /*! \brief THREADSAFE (POSIX only) Sets the `sa_flags` used when the library
   installs its raw signal handler (the filtering handler installed by
