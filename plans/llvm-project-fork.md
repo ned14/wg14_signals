@@ -1886,15 +1886,18 @@ Submodule (added 2026-08-20; staged in the fork, not yet committed):
 
 - Path: `libc/src/signal/wg14`
 - URL: `https://github.com/ned14/wg14_signals.git`
-- Pinned commit: `2217d72eb0d1266eb8e97f2b5df0e83792b73867` ("Implement
-  stdc_raise() with the raw_info/raw_context contract"; heads/main). Pin
+- Pinned commit: `df864cce2d6c755b759952bd947be6dd81d3b011` ("Route the
+  remaining host calls through embedder override hooks"; heads/main). Pin
   history: `50042da` (2026-08-20, initial) -> `b2059fb` (2026-08-21,
   embedder override hooks + `WG14_SIGNALS_DISABLE_*` guards) -> `d25ccd2`
   (2026-08-26, second integration round) -> `77f4fbd` (split the old
   `stdc_raise()` into `sighandle()` plus a reserved `stdc_raise()`) ->
   `2217d72` (implemented `stdc_raise()` and added the
-  `WG14_SIGNALS_RAISE_WITH_TOKEN` hook plus the constructed
-  default-context path).
+  `WG14_SIGNALS_RAISE_WITH_TOKEN` hook plus the constructed default-context
+  path) -> `72d8641` (added `WG14_SIGNALS_RAISE_EXCEPTION`,
+  `WG14_SIGNALS_GETPID` and `WG14_SIGNALS_GETCONTEXT`, routed the Windows
+  backend's host calls through the hooks) -> `df864cc` (corrected the
+  `getcontext` hook notes).
 - `.gitmodules` entry:
   ```
   [submodule "libc/src/signal/wg14"]
@@ -1956,7 +1959,7 @@ missing-submodule guard), the force-included `embedder_shim.{h,cpp}`, the
 
 The second-generation integration of this template — extending the
 `ned14/glibc` fork's libc with the same N3924 API, consuming the same
-pinned `2217d72eb0d1266eb8e97f2b5df0e83792b73867` submodule — is
+pinned `df864cce2d6c755b759952bd947be6dd81d3b011` submodule — is
 `plans/glibc-fork.md` (its commit record above is the ground truth the
 glibc plan inherits; the glibc integration in turn proved the template's
 "duplicate identical definitions are valid C" assumption wrong for

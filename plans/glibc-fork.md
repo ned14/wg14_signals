@@ -52,9 +52,11 @@ Integration decisions (2026-08-31, agreed with the user):
 - **Submodule**: the reference implementation is mounted as a git submodule
   at `glibc/wg14_signals/` (URL `https://github.com/ned14/wg14_signals.git`),
   pristine and zero-drift, **pinned to
-  `2217d72eb0d1266eb8e97f2b5df0e83792b73867` (`2217d72` "Implement stdc_raise()
-  with the raw_info/raw_context contract")** — the current upstream `main`
-  HEAD and exactly the pin the llvm fork settled on (Appendix A) — mirroring
+  `df864cce2d6c755b759952bd947be6dd81d3b011` (`df864cc` "Route the remaining
+  host calls through embedder override hooks", on top of `2217d72` "Implement
+  stdc_raise() with the raw_info/raw_context contract")** — the current
+  upstream `main` HEAD and exactly the pin the llvm fork settled on
+  (Appendix A) — mirroring
   the llvm-libc fork's `libc/src/signal/wg14` submodule. All glibc-owned
   integration files live in a **new top-level glibc build subdir
   `glibc/wg14/`** (git cannot track files inside a submodule directory — the
@@ -81,7 +83,7 @@ stated otherwise.
 
 All fork-side work tracked below has been implemented **in the working
 tree** (nothing committed — AGENTS.md rule 10): the submodule is mounted
-at `glibc/wg14_signals/` pinned to `2217d72` (`.gitmodules` staged); the
+at `glibc/wg14_signals/` pinned to `df864cc` (`.gitmodules` staged); the
 `wg14` build subdir (`Makefile`, `embedder_shim.h`, `Depend`, `Versions`,
 15 ported tests, `check-wg14-mirror.py`); `Makeconfig` all-subdirs; the
 `signal/signal.h` + `sysdeps/pthread/threads.h` mirror blocks; the
@@ -165,7 +167,7 @@ incorporated above; the plan text below stands as the record):
 This is the executive summary; each item is expanded in the sections below.
 
 1. Add wg14_signals as a git submodule of the glibc fork at
-   `wg14_signals/`, pinned to `2217d72eb0d1266eb8e97f2b5df0e83792b73867`
+   `wg14_signals/`, pinned to `df864cce2d6c755b759952bd947be6dd81d3b011`
    (§"Submodule integration"). Requires the glibc fork's CI to checkout with
    `submodules: recursive` (Phase 4).
 2. Create the glibc-owned build subdir `glibc/wg14/` (§"Build wiring"):
@@ -990,7 +992,7 @@ Follow-up work items (not yet fixed):
 
 - Mount the reference implementation as a git submodule of the glibc fork
   at **`wg14_signals/`** (URL `https://github.com/ned14/wg14_signals.git`,
-  **pinned to `2217d72eb0d1266eb8e97f2b5df0e83792b73867`** — current
+  **pinned to `df864cce2d6c755b759952bd947be6dd81d3b011`** — current
   upstream `main` HEAD, the llvm fork's final pin; Appendix A). The
   submodule root IS the reference implementation: `include/`, `src/`,
   `test/`, `CMakeLists.txt`, docs. No copying, no subtree merge.
@@ -1396,7 +1398,7 @@ does. glibc merely works correctly when external code does so.** `abort()`,
 
 1. `git submodule add https://github.com/ned14/wg14_signals.git
    wg14_signals` in the glibc fork, pinned to
-   `2217d72eb0d1266eb8e97f2b5df0e83792b73867` (current upstream HEAD, the
+   `df864cce2d6c755b759952bd947be6dd81d3b011` (current upstream HEAD, the
    llvm fork's final pin); commit the `.gitmodules` entry and the pin.
 2. Add `wg14` to `all-subdirs` (`Makeconfig:1441`); create
    `glibc/wg14/{Makefile,embedder_shim.h,Depend,Versions}` per §"Build
@@ -1735,17 +1737,19 @@ results" block before and after.
 
 - Path: `wg14_signals/` (in the glibc fork)
 - URL: `https://github.com/ned14/wg14_signals.git`
-- Pin: **`2217d72eb0d1266eb8e97f2b5df0e83792b73867`** (`2217d72`
-  "Implement stdc_raise() with the raw_info/raw_context contract") —
-  current upstream `main` HEAD and the llvm fork's final pin. Pin
-  history in the llvm fork (the override-layer work): `50042da`
-  (2026-08-20, initial) -> `b2059fb` (2026-08-21, embedder override
-  hooks + `WG14_SIGNALS_DISABLE_*` guards) -> `d25ccd2` (2026-08-26,
-  after `866d85d`'s second integration round) -> `77f4fbd` (split the old
-  `stdc_raise()` into `sighandle()` plus a reserved `stdc_raise()`) ->
-  `2217d72` (implemented `stdc_raise()` and added the
-  `WG14_SIGNALS_RAISE_WITH_TOKEN` hook plus the constructed
-  default-context path).
+- Pin: **`df864cce2d6c755b759952bd947be6dd81d3b011`** (`df864cc` "Route the
+  remaining host calls through embedder override hooks") — current upstream
+  `main` HEAD and the llvm fork's final pin. Pin history in the llvm fork
+  (the override-layer work): `50042da` (2026-08-20, initial) -> `b2059fb`
+  (2026-08-21, embedder override hooks + `WG14_SIGNALS_DISABLE_*` guards) ->
+  `d25ccd2` (2026-08-26, after `866d85d`'s second integration round) ->
+  `77f4fbd` (split the old `stdc_raise()` into `sighandle()` plus a reserved
+  `stdc_raise()`) -> `2217d72` (implemented `stdc_raise()` and added the
+  `WG14_SIGNALS_RAISE_WITH_TOKEN` hook plus the constructed default-context
+  path) -> `72d8641` (added `WG14_SIGNALS_RAISE_EXCEPTION`,
+  `WG14_SIGNALS_GETPID` and `WG14_SIGNALS_GETCONTEXT`, and routed the Windows
+  backend's host calls through the hooks) -> `df864cc` (corrected the
+  `getcontext` hook notes).
 - `.gitmodules` entry:
   ```
   [submodule "wg14_signals"]
