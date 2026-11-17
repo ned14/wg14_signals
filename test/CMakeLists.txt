@@ -277,20 +277,24 @@ set_tests_properties(tid_reuse_test PROPERTIES TIMEOUT 60)
 # WG14_SIGNALS_MALLOC to a failing allocator so the registration fails. It does
 # NOT link the library and deliberately does not get the
 # WG14_SIGNALS_HAVE__CXA_THREAD_ATEXIT definition (that path ignores failure).
-add_executable(tss_thread_init_rollback_test "tss_thread_init_rollback_test.c")
-if(MSVC)
-  target_compile_options(tss_thread_init_rollback_test PRIVATE /W4 /experimental:c11atomics)
-else()
-  target_compile_options(tss_thread_init_rollback_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+# MinGW has no supported thread_atexit() fallback without __cxa_thread_atexit()
+# (thread_atexit.c.ipp errors out), so the test is MSVC-only on Windows.
+if(NOT WIN32 OR MSVC)
+  add_executable(tss_thread_init_rollback_test "tss_thread_init_rollback_test.c")
+  if(MSVC)
+    target_compile_options(tss_thread_init_rollback_test PRIVATE /W4 /experimental:c11atomics)
+  else()
+    target_compile_options(tss_thread_init_rollback_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  target_include_directories(tss_thread_init_rollback_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../include")
+  target_compile_features(tss_thread_init_rollback_test PRIVATE c_std_11)
+  target_link_libraries(tss_thread_init_rollback_test PRIVATE $<$<PLATFORM_ID:FreeBSD>:stdthreads>)
+  set_target_properties(tss_thread_init_rollback_test PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+  )
+  add_test(NAME tss_thread_init_rollback_test COMMAND $<TARGET_FILE:tss_thread_init_rollback_test>)
+  set_tests_properties(tss_thread_init_rollback_test PROPERTIES TIMEOUT 60)
 endif()
-target_include_directories(tss_thread_init_rollback_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../include")
-target_compile_features(tss_thread_init_rollback_test PRIVATE c_std_11)
-target_link_libraries(tss_thread_init_rollback_test PRIVATE $<$<PLATFORM_ID:FreeBSD>:stdthreads>)
-set_target_properties(tss_thread_init_rollback_test PROPERTIES
-  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
-)
-add_test(NAME tss_thread_init_rollback_test COMMAND $<TARGET_FILE:tss_thread_init_rollback_test>)
-set_tests_properties(tss_thread_init_rollback_test PROPERTIES TIMEOUT 60)
 
 # The header-only targets above do not link the library, so propagate the
 # __cxa_thread_atexit() discovery (compile definition + supplying library)
