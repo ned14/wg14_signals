@@ -368,7 +368,34 @@ WG14_SIGNALS_THREAD_LOCAL
       void (*func)(void *) = (void (*)(void *))(uintptr_t) WG14_SIGNALS_PREFIX(
       tss_async_signal_safe_thread_deinit);
       res = WG14_SIGNALS_PREFIX(thread_atexit)(func, mem->state);
-      return (res == 0) ? WG14_SIGNALS_THRD_SUCCESS : WG14_SIGNALS_THRD_ERROR;
+      if(res == 0)
+      {
+        return WG14_SIGNALS_THRD_SUCCESS;
+      }
+      // thread_atexit() failed after the create callback had already produced
+      // a value: undo the map insertion and the state count, then release the
+      // value with the destroy callback (7.30.6.7 p2). The count prevents the
+      // deinit state from being freed by a concurrent thread exit while it is
+      // still ours to drop.
+      const int errcode = errno;
+      LOCK(mem->lock);
+      WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_erase)
+      (&mem->thread_id_to_tls_map, mytid);
+      if(mem->state != WG14_SIGNALS_NULLPTR)
+      {
+        if(1 == atomic_fetch_sub_explicit(
+                &mem->state->count, 1,
+                WG14_SIGNALS_ATOMIC_PREFIX memory_order_relaxed))
+        {
+          struct WG14_SIGNALS_PREFIX(deinit_state) *state = mem->state;
+          mem->state = WG14_SIGNALS_NULLPTR;
+          WG14_SIGNALS_FREE(state);
+        }
+      }
+      UNLOCK(mem->lock);
+      mem->attr.destroy(newitem);
+      errno = errcode;
+      return WG14_SIGNALS_THRD_ERROR;
     }
     UNLOCK(mem->lock);
     return res;
