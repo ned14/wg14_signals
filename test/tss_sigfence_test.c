@@ -67,6 +67,11 @@ int main(void)
   CHECK(0 == raise(SIGINT));
   CHECK(handler_calls == 1);
   CHECK(state->count == 1);
+
+  // Some C runtimes reset the handler after delivery (notably the MSVC CRT,
+  // which follows the C89 resetting semantics), so reinstall it before raising
+  // again. Reinstalling an already-installed handler is harmless elsewhere.
+  CHECK(SIG_ERR != signal(SIGINT, handler));
   CHECK(0 == raise(SIGINT));
   CHECK(handler_calls == 2);
   CHECK(state->count == 2);
