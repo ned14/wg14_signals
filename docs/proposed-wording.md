@@ -1,9 +1,9 @@
 ---
-title: "N3984: Wording for \"Thread-safe signals handling rev 5\""
+title: "Nxxxx: Wording for \"Thread-safe signals handling rev 6\""
 author:
     - Douglas, Niall
 date:
-    - 2026-08-19
+    - 2026-11-17
 ---
 
 
@@ -24,8 +24,9 @@ Niall Douglas, Jens Gustedt (wording)
 | [N3765](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3765.pdf) | Thread-safe signals handling           | Douglas, Niall | revision 2, 2025-12-14    |
 | [N3872](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3872.pdf) | Thread-safe signals handling           | Douglas, Niall | revision 3, 2026-04-12    |
 | [N3924](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3924.htm) | Thread-safe signals handling           | Douglas, Niall | revision 4, 2026-06-26    |
+| [N3984](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3984.pdf) | Thread-safe signals handling           | Douglas, Niall | revision 5, 2026-10-11    |
 | [N3886](https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3886.pdf) | Working Draft                          |                | base for diff, 2026-05-24 |
-| N3984                                                                 | &lt;this paper&gt;                     | Wording Group  |                           |
+| Nxxxx                                                                 | &lt;this paper&gt;                     | Wording Group  |                           |
 
 
 ### LaTeX document branch
@@ -40,6 +41,7 @@ WG21, Austin Group
 
 | meeting                                       | date       | for | against | abstain |
 |-----------------------------------------------|------------|-----|---------|---------|
+| Nxxxx revision 6                              | N/A        | N/A | N/A     | N/A     |
 | N3984 revision 5                              | N/A        | N/A | N/A     | N/A     |
 | N3924 revision 4 (Summer 2026 Ottawa [N3953]) | 2026-08-17 | N/A | N/A     | N/A     |
 | N3872 revision 3                              | N/A        | N/A | N/A     | N/A     |
@@ -99,7 +101,6 @@ through 3.33 are renumbered 3.24 through 3.34:
 > 1. A lock-free atomic object.
 > 2. An object of type `volatile sig_atomic_t`.
 > 3. An object not modified after a call to the `sigfence` macro (7.14.1) that describes the memory of the object and that is sequenced before the interruption.
-> 4. An object pointed to by the `void *` value returned by `tss_async_signal_safe_get` (7.30.6.8).
 > </ins>
 
 > are unspecified, as is
@@ -111,13 +112,12 @@ through 3.33 are renumbered 3.24 through 3.34:
 > 1. A lock-free atomic object.
 > 2. An object of type `volatile sig_atomic_t`.
 > 3. An object not modified after a call to the `sigfence` macro (7.14.1) that describes the memory of the object and that is sequenced before the handler exits.
-> 4. An object pointed to by the `void *` value returned by `tss_async_signal_safe_get` (7.30.6.8).
 > </ins>
 
 > becomes
 > indeterminate when the handler exits, as does the state of the dynamic floating-point environment if
-> it is modified by the handler and not restored to its original state. <ins>For the purposes of this
-> paragraph, the processing of the abstract machine is interrupted when the handling of the signal
+> it is modified by the handler and not restored to its original state. <ins>For the purposes of 5.2.2.4,
+> the processing of the abstract machine is interrupted when the handling of the signal
 > (7.14.1) begins.
 </ins>
 
@@ -139,7 +139,7 @@ through 3.33 are renumbered 3.24 through 3.34:
 > 10 When a non-local jump is performed, all accessible objects have values, and all other components of the abstract machine have state, as of the time the non-local jump was performed, except that the representation of objects of automatic storage duration that are local to the function containing the operation that saved the environment and that do not have volatile-qualified type and have been changed between the saving of the environment and the non-local jump is indeterminate. The representation of an object that is not modified after a call to the `sigfence` macro (7.14.1) that describes the memory of the object and that is sequenced before the non-local jump is not indeterminate.
 > </ins>
 
-> **In the forward references of 5.2.2.4, replace "the signal function (7.14), files (7.24.3)" with "non-local jumps (7.13), the sigfence macro (7.14.1), the signal function (7.14.2.3), the signal recovery mechanism (7.14.3.1), files (7.24.3), the tss_async_signal_safe_get function (7.30.6.8)":**
+> **In the forward references of 5.2.2.4, replace "the signal function (7.14), files (7.24.3)" with "non-local jumps (7.13), the sigfence macro (7.14.1), the signal function (7.14.2.3), the signal recovery mechanism (7.14.3.1), files (7.24.3)":**
 
 ### Modifications in clause 7.13 Non-local jumps `<setjmp.h>`
 
@@ -185,11 +185,15 @@ through 3.33 are renumbered 3.24 through 3.34:
 > **Insert the following new paragraphs after paragraph 1:**
 
 > <ins>
-> 2 A signal can be received by a thread within the program.
+> 2 The feature test macro `__STDC_VERSION_SIGNAL_H__` expands to the token `202ymmL`.
+> </ins>
+
+> <ins>
+> 3 A signal can be received by a thread within the program.
 > When a signal is received, the processing of the abstract machine is
 > interrupted (5.2.2.4) and the signal is handled as described below.
 >
-> 3 There are the following categories of signal:
+> 4 There are the following categories of signal:
 > </ins>
 
 > <ins>
@@ -215,7 +219,7 @@ through 3.33 are renumbered 3.24 through 3.34:
 >
 >     The implementation may define additional signals in the asynchronous debug category.
 >
-> 4 *Async-signal-safe* functions and macros are those safe to call during the handling of a signal. Only the functions and macros in the standard library listed below are required to be async-signal-safe; all other functions and macros in the standard library need not be async-signal-safe. This document does not specify whether functions of the program that are not in the standard library are async-signal-safe. The following functions and macros are required to be async-signal-safe:
+> 5 *Async-signal-safe* functions and macros are those safe to call during the handling of a signal. Only the functions and macros in the standard library listed below are required to be async-signal-safe. It is unspecified whether any other function or macro in the standard library, or any function of the program that is not in the standard library, is async-signal-safe. The following functions and macros are required to be async-signal-safe:
 >
 > - the functions in `<stdatomic.h>` (except where explicitly stated otherwise) when the atomic arguments are lock-free,
 > - the `atomic_is_lock_free` function with any atomic argument,
@@ -224,33 +228,33 @@ through 3.33 are renumbered 3.24 through 3.34:
 >
 > If such a call to the `signal` function results in a `SIG_ERR` return, the object designated by `errno` has an indeterminate representation.
 >
-> 5 There are two ways to specify the handling of a signal:
+> 6 There are two ways to specify the handling of a signal:
 >
 > 1. The `signal` function installs a single signal handler for the whole program, replacing any handler previously installed by the `signal` function.
 >
 > 2. The `siginstall` function enables an alternative, thread-safe, composable signal handling mechanism.
 >
-> 6 A *signal decider* is a function of type `sig_decide_t` that is installed by a call of the `sigguarded` function (7.14.3.1) or of the `signal_decider_create` function (7.14.2.7) and that is invoked during the handling of a signal to decide how that signal is to be handled. Signal deciders installed by the `sigguarded` function are *thread-local signal deciders*; signal deciders installed by the `signal_decider_create` function are *global signal deciders*.
+> 7 A *signal decider* is a function of type `sig_decide_t` that is installed by a call of the `sigguarded` function (7.14.3.1) or of the `signal_decider_create` function (7.14.2.7) and that is invoked during the handling of a signal to decide how that signal is to be handled. Signal deciders installed by the `sigguarded` function are *thread-local signal deciders*; signal deciders installed by the `signal_decider_create` function are *global signal deciders*.
 >
-> 7 Signal handling state persists for the entire execution of the program and consists of the following kinds, all of which coexist:
+> 8 Signal handling state persists for the entire execution of the program and consists of the following kinds, all of which coexist:
 >
 > - the signal handler installed by the `signal` function (7.14.2.3): a single handler per signal number, replaced by each call of the `signal` function, which persists whether or not the signal number is activated;
 > - the thread-local signal deciders installed by the `sigguarded` function (7.14.3.1), one ordered sequence per thread, which persist whether or not the signal numbers in their signal sets are activated;
 > - the global signal deciders installed by the `signal_decider_create` function (7.14.2.7), which persist whether or not the signal numbers in their signal sets are activated; and
 > - the activation count for each signal number: the number of calls of `siginstall` that install that signal number, minus the number of calls of `siguninstall` that uninstall it; a signal number is *activated* while its activation count is nonzero, and is *deactivated* while its activation count is zero.
 >
-> 8 The kinds of state coexist whether or not a signal number is activated: activation and deactivation create or remove none of the other kinds of state. In particular, a call of the `signal` function replaces only the signal handler installed by a previous call of the `signal` function; it does not remove thread-local or global signal deciders, nor does it change the activation count for any signal number. For the purposes of this subclause, the equivalent of `signal(sig, SIG_DFL)` that an implementation may perform prior to calling a signal handler (7.14.2.3), and the equivalents of `signal(sig, SIG_IGN)` and `signal(sig, SIG_DFL)` that an implementation may perform at program startup (7.14.2.3), are considered calls of the `signal` function.
+> 9 The kinds of state coexist whether or not a signal number is activated: activation and deactivation create or remove none of the other kinds of state. In particular, a call of the `signal` function replaces only the signal handler installed by a previous call of the `signal` function; it does not remove thread-local or global signal deciders, nor does it change the activation count for any signal number. For the purposes of this subclause, the equivalent of `signal(sig, SIG_DFL)` that an implementation may perform prior to calling a signal handler (7.14.2.3), and the equivalents of `signal(sig, SIG_IGN)` and `signal(sig, SIG_DFL)` that an implementation may perform at program startup (7.14.2.3), are considered calls of the `signal` function.
 >
-> 9 Concurrent calls of the `siginstall` (7.14.2.5), `siguninstall` (7.14.2.6), `signal_decider_create` (7.14.2.7), and `signal_decider_destroy` (7.14.2.8) functions from multiple threads shall not introduce data races.
+> 10 Concurrent calls of the `siginstall` (7.14.2.5), `siguninstall` (7.14.2.6), `signal_decider_create` (7.14.2.7), and `signal_decider_destroy` (7.14.2.8) functions from multiple threads shall not introduce data races.
 > </ins>
 
 > <ins>
-> 10 If the signal number of the signal received is not activated, then the following sequence occurs on receipt of the signal:
+> 11 If the signal number of the signal received is not activated, then the following sequence occurs on receipt of the signal:
 >
 > 1. The handler installed by the most recent call of the `signal` function for that signal number before the receipt of the signal is called, unless that handler is `SIG_IGN`, in which case the signal is ignored, or is `SIG_DFL`, in which case the default handling for that signal number on that implementation is performed.
 > The thread on which the handler is called is unspecified.
 >
-> 11 If the signal number of the signal received is activated, then the following sequence occurs on receipt of the signal:
+> 12 If the signal number of the signal received is activated, then the following sequence occurs on receipt of the signal:
 >
 > 1. For synchronous category signals, the signal deciders are invoked on the thread that caused the signal; for asynchronous category signals, the thread on which the signal deciders are invoked is unspecified.
 >
@@ -268,24 +272,23 @@ through 3.33 are renumbered 3.24 through 3.34:
 >         - `sig_decision_call_recovery`: the default handling for that signal number on that implementation is performed.
 >         - `sig_decision_next_decider`: the next decider in the sequence is called.
 >
-> 12 It is implementation-defined whether, when a signal occurs while an earlier occurrence of the same signal has not yet been completely processed, the later occurrence is blocked until the processing of the earlier occurrence has completed, is discarded, or is processed immediately, in which case its processing may be nested within that of the earlier occurrence. In particular, an implementation may block the signal during the execution of a signal handler or of signal deciders for that signal, and may discard repeated occurrences before the processing of the signal completes, so that only one occurrence is processed.
+> 13 It is implementation-defined whether, when a signal occurs while an earlier occurrence of the same signal has not yet been completely processed, the later occurrence is blocked until the processing of the earlier occurrence has completed, is discarded, or is processed immediately, in which case its processing may be nested within that of the earlier occurrence. In particular, an implementation may block the signal during the execution of a signal handler or of signal deciders for that signal, and may discard repeated occurrences before the processing of the signal completes, so that only one occurrence is processed.
 >
-> 13 A signal decider is not required to return. Signal deciders shall meet the requirements of 7.14.4.
-> A signal decider that determines that it will never return should call the `sigdecider_abandon` function (7.14.3.2) before it does so, and may call the `sigdecider_abandon_resume` function (7.14.3.3) to retract that declaration if it later determines that it will return.
-> 14 If every signal decider in the ordered sequence returns `sig_decision_next_decider`, or if the ordered sequence is empty, the signal is passed to the signal handler that was installed for that signal number before it was activated; if that signal handler was the default handling, the default handling for that signal number on that implementation is performed. While a signal number is activated, the signal handler installed by the `signal` function for that signal number is invoked only as that continuation; it is not invoked directly by the implementation's signal delivery mechanism. Conversely, while a signal number is not activated, signal deciders are not used to handle signals received with that number, except by a call of the `sighandle` function (7.14.2.9).
+> 14 A signal decider is not required to return. Signal deciders shall meet the requirements of 7.14.4. A signal decider that determines that it will never return shall call the `sigdecider_abandon` function (7.14.3.2) before it does so; otherwise the behavior is undefined. A signal decider may call the `sigdecider_abandon_resume` function (7.14.3.3) to retract a declaration made by a call of the `sigdecider_abandon` function if it later determines that it will return.
+> 15 If every signal decider in the ordered sequence returns `sig_decision_next_decider`, or if the ordered sequence is empty, the signal is passed to the signal handler that was installed for that signal number before it was activated; if that signal handler was the default handling, the default handling for that signal number on that implementation is performed. While a signal number is activated, the signal handler installed by the `signal` function for that signal number is invoked only as that continuation; it is not invoked directly by the implementation's signal delivery mechanism. Conversely, while a signal number is not activated, signal deciders are not used to handle signals received with that number, except by a call of the `sighandle` function (7.14.2.9).
 >
-> 15 The activation count for a signal number is incremented by each call of `siginstall` that installs that signal number, and is decremented by each call of `siguninstall` that uninstalls it; a signal number shall not be deactivated until the last uninstallation for that signal number is performed, that is, until its activation count reaches zero. While a signal number is not activated, a signal with that number is handled as specified for a signal whose signal number is not activated, and no signal deciders are invoked for it, except by a call of the `sighandle` function (7.14.2.9); when a signal number becomes activated again, the signal deciders whose signal sets include that signal number are invoked again. Activation and deactivation of signal numbers do not install or remove signal deciders or signal handlers.
+> 16 The activation count for a signal number is incremented by each call of `siginstall` that installs that signal number, and is decremented by each call of `siguninstall` that uninstalls it; a signal number shall not be deactivated until the last uninstallation for that signal number is performed, that is, until its activation count reaches zero. While a signal number is not activated, a signal with that number is handled as specified for a signal whose signal number is not activated, and no signal deciders are invoked for it, except by a call of the `sighandle` function (7.14.2.9); when a signal number becomes activated again, the signal deciders whose signal sets include that signal number are invoked again. Activation and deactivation of signal numbers do not install or remove signal deciders or signal handlers.
 > </ins>
 
 > <ins>
-> 16 **Recommended practice** It is recommended practice
+> 17 **Recommended practice** It is recommended practice
 > that pre-existing programs be upgraded to use `siginstall`,
 > and that newly written code prefer `siginstall`
 > over `signal`.
 > </ins>
 
 > <ins>
-> 17 EXAMPLE 1 Use `sigguarded` to recover from a `SIGFPE`
+> 18 EXAMPLE 1 Use `sigguarded` to recover from a `SIGFPE`
 > </ins>
 
 > <ins>
@@ -325,7 +328,7 @@ through 3.33 are renumbered 3.24 through 3.34:
 > {
 >   /* volatile is needed to prevent elision under optimization */
 >   volatile int divisor = 0;
->   /* This should trigger SIGFPE */
+>   /* This is intended to trigger SIGFPE */
 >   volatile int result = 42 / divisor;
 >   /* If we get here, this architecture doesn't trap integer divide by zero */
 >   sighandle(SIGFPE, nullptr, nullptr);
@@ -348,10 +351,10 @@ through 3.33 are renumbered 3.24 through 3.34:
 > }
 > ```
 >
-> 18 NOTE The integer division by zero in this example is undefined behavior (6.5.5); the example relies on the implementation trapping the operation and raising `SIGFPE`, and falls back to `sighandle` when it does not.
+> 19 NOTE The integer division by zero in this example is undefined behavior (6.5.5); the example relies on the implementation trapping the operation and raising `SIGFPE`, and falls back to `sighandle` when it does not.
 > </ins>
 
-> 19 (base paragraph 2) The <del>type defined is</del><ins>types defined are</ins>
+> 20 (base paragraph 2) The <del>type defined is</del><ins>types defined are</ins>
 
 > <ins>
 > `stdc_siginfo_error_code_t`
@@ -466,7 +469,7 @@ through 3.33 are renumbered 3.24 through 3.34:
 > </ins>
 
 > <ins>
-> which is an implementation-defined complete object type able to represent a set of signals. Copying the representation of a `sigset_t` object, by assignment or otherwise, yields an object that represents the same set of signals as the original; the set represented does not depend on the address of the object or on the continued existence of the object from which it was copied. In particular, the following code is valid:
+> which is an implementation-defined complete object type, either an integer type or a structure type, that can represent a set of signals. Copying a `sigset_t` object by assignment or by copying its representation yields an object that represents the same set of signals as the original; the set represented does not depend on the address of the object or on the continued existence of the object from which it was copied. In particular, the following code is valid:
 > </ins>
 
 > <ins>
@@ -477,13 +480,13 @@ through 3.33 are renumbered 3.24 through 3.34:
 > ```
 > </ins>
 
-> **After paragraph 19 (base paragraph 2), insert the following new paragraph:**
+> **After paragraph 20 (base paragraph 2), insert the following new paragraph:**
 
 > <ins>
-> 20 `SIGGUARDED_FAILURE_VALUE`, which is a `constexpr` object of type `union stdc_siginfo_value` with an implementation-defined value, is the value returned by the `sigguarded` function (7.14.3.1) when it fails to install the guard.
+> 21 The macro `SIGGUARDED_FAILURE_VALUE` expands to an expression of type `union stdc_siginfo_value` with an implementation-defined value, which is the value returned by the `sigguarded` function (7.14.3.1) when it fails to install the guard.
 > </ins>
 
-> 21 (base paragraph 3) The macros defined are
+> 22 (base paragraph 3) The macros defined are
 
 > ```
 > SIG_DFL
@@ -494,19 +497,19 @@ through 3.33 are renumbered 3.24 through 3.34:
 > which expand to constant expressions with distinct values that have type compatible with the second argument to, and the return value of, the `signal` function, and whose values compare unequal to the address of any declarable function; and the following,
 >  which expand to positive integer constant expressions with type `int` and distinct values that are the signal numbers, each corresponding to the specified condition:
 
-> `SIGABRT` abnormal termination, such as is initiated by the `abort` function<ins>, which is of the *synchronous* signal category</ins>
+> `SIGABRT` abnormal termination, such as is initiated by the `abort` function<ins>, which is of the synchronous signal category</ins>
 
-> `SIGFPE` an erroneous arithmetic operation, such as zero divide or an operation resulting in overflow<ins>, which is of the *synchronous* signal category</ins>
+> `SIGFPE` an erroneous arithmetic operation, such as zero divide or an operation resulting in overflow<ins>, which is of the synchronous signal category</ins>
 
-> `SIGILL` detection of an invalid function image, such as an invalid instruction<ins>, which is of the *synchronous* signal category</ins>
+> `SIGILL` detection of an invalid function image, such as an invalid instruction<ins>, which is of the synchronous signal category</ins>
 
-> `SIGINT` receipt of an interactive attention signal<ins>, which is of the *asynchronous non-debug* signal category</ins>
+> `SIGINT` receipt of an interactive attention signal<ins>, which is of the asynchronous non-debug signal category</ins>
 
-> `SIGSEGV` an invalid access to storage<ins>, which is of the *synchronous* signal category</ins>
+> `SIGSEGV` an invalid access to storage<ins>, which is of the synchronous signal category</ins>
 
-> `SIGTERM` a termination request sent to the program<ins>, which is of the *asynchronous non-debug* signal category</ins>
+> `SIGTERM` a termination request sent to the program<ins>, which is of the asynchronous non-debug signal category</ins>
 
-> **In paragraph 21 (base paragraph 3), insert the following after the `SIGTERM` entry:**
+> **In paragraph 22 (base paragraph 3), insert the following after the `SIGTERM` entry:**
 
 <ins>
 > and the following macro, which restricts, for the memory described below, the freedom of an implementation to deviate from the abstract machine (5.2.2.4):
@@ -519,18 +522,18 @@ through 3.33 are renumbered 3.24 through 3.34:
 > `sigfence()` is async-signal-safe. The behavior is undefined if the `sigfence` macro is invoked with more than eight arguments. Each argument, if any, shall be an lvalue designating an object; the behavior is undefined if an argument is a bit-field or designates an object declared with the `register` storage-class specifier. An argument that designates an object with external or internal linkage is permitted but has no effect, because the memory storing such objects is described by any invocation of this macro.
 </ins>
 
-> **After paragraph 21 (base paragraph 3), insert the following new paragraph:**
+> **After paragraph 22 (base paragraph 3), insert the following new paragraph:**
 
 <ins>
-> 22 NOTE The `atomic_signal_fence` function (7.17.4.3) provides weaker guarantees than the `sigfence` macro, and may be sufficient for performance-oriented use cases.
+> 23 NOTE The `atomic_signal_fence` function (7.17.4.3) provides weaker guarantees than the `sigfence` macro; for some performance-oriented use cases, it is sufficient.
 </ins>
 
-> 23 (base paragraph 4) An implementation is not required to generate any of these signals, except as a result of explicit calls to the `raise` function. Additional signals and pointers to undeclarable functions, with macro definitions beginning, respectively, with the letters `SIG` and an uppercase letter or with `SIG_` and an uppercase letter, may also be specified by the implementation. The complete set of signals, their semantics, and their default handling is implementation-defined; all signal numbers shall be positive.
+> 24 (base paragraph 4) An implementation is not required to generate any of these signals, except as a result of explicit calls to the `raise` function. Additional signals and pointers to undeclarable functions, with macro definitions beginning, respectively, with the letters `SIG` and an uppercase letter or with `SIG_` and an uppercase letter, may also be specified by the implementation. The complete set of signals, their semantics, and their default handling is implementation-defined; all signal numbers shall be positive.
 
-**After paragraph 23 (base paragraph 4), insert the following new paragraph:**
+**After paragraph 24 (base paragraph 4), insert the following new paragraph:**
 
 <ins>
-> 24 A *valid signal number* is a positive integer that is the signal number of one of the signals defined by the implementation.
+> 25 A *valid signal number* is a positive integer that is the signal number of one of the signals defined by the implementation.
 </ins>
 
 ### Insert the signal set functions into clause 7.14.2, renumbering the subsections below accordingly
@@ -743,9 +746,11 @@ The text of "The raise function" (7.14.3.1), moved and renumbered 7.14.2.4, is a
 
 > 3 If `guarded` is a null pointer, it is treated as if it pointed to a signal set containing all signals.
 
-> 4 All signal numbers in the signal set `guarded` shall be activated as specified in 7.14.1, except that a signal number that cannot be installed for reasons specific to the implementation is silently not installed and the call reports success. It is implementation-defined which signal numbers are not installed; an implementation should document the set of signal numbers for which it silently does not install.
+> 4 All signal numbers in the signal set `guarded` shall be activated as specified in 7.14.1, except that a signal number that cannot be installed for reasons specific to the implementation is silently not installed and the call reports success. It is implementation-defined which signal numbers are not installed.
 
-> 5 **Returns** The `siginstall` function returns a handle that can be passed to the `siguninstall` function (7.14.2.6) to uninstall the installation, if the installation was successful; otherwise it returns a null pointer. The installation is successful if every signal number in the signal set was either installed or silently not installed as specified in paragraph 4.
+> 5 **Recommended practice** It is recommended practice that an implementation document the set of signal numbers for which it silently does not install.
+
+> 6 **Returns** The `siginstall` function returns a handle that can be passed to the `siguninstall` function (7.14.2.6) to uninstall the installation, if the installation was successful; otherwise it returns a null pointer. The installation is successful if every signal number in the signal set was either installed or silently not installed as specified in this subclause.
 
 > Forward references: the `siguninstall` function (7.14.2.6).
 </ins>
@@ -836,9 +841,9 @@ The text of "The raise function" (7.14.3.1), moved and renumbered 7.14.2.4, is a
 
 > 8 If `raw_context` specified here is not a null pointer, the `raw_context` member in the `struct stdc_siginfo` object passed to deciders is set to `raw_context`. Otherwise, an object of type `stdc_siginfo_context_t` that represents the calling stack frame is constructed, and the `raw_context` member in the `struct stdc_siginfo` object passed to deciders is set to a pointer to that object.
 
-> 9 Objects constructed as described in the previous two paragraphs persist at least as long as the `struct stdc_siginfo` object whose `raw_info` or `raw_context` member points to it (7.14.1).
+> 9 Objects constructed for `raw_info` or `raw_context` as described in this subclause persist at least as long as the `struct stdc_siginfo` object whose `raw_info` or `raw_context` member points to it (7.14.1).
 
-> 10 **Returns** It is unspecified whether the `sighandle` function ever returns. If it returns, it returns true if a signal decider did not return `sig_decision_next_decider`, or if the signal was passed to a previously installed signal handler as described in paragraph 4, and false otherwise.
+> 10 **Returns** It is unspecified whether the `sighandle` function ever returns. If it returns, it returns true if a signal decider did not return `sig_decision_next_decider`, or if the signal was passed to a previously installed signal handler as described in this subclause, and false otherwise.
 </ins>
 
 #### Add 7.14.2.10: The `stdc_raise` function
@@ -862,7 +867,7 @@ The text of "The raise function" (7.14.3.1), moved and renumbered 7.14.2.4, is a
 
 > 6 If `raw_context` specified here is not a null pointer, the `raw_context` member in the `struct stdc_siginfo` object passed to deciders is set to `raw_context`. Otherwise, an object of type `stdc_siginfo_context_t` that represents the calling stack frame is constructed, and the `raw_context` member in the `struct stdc_siginfo` object passed to deciders is set to a pointer to that object.
 
-> 7 Objects constructed as described in the previous two paragraphs persist at least as long as the `struct stdc_siginfo` object whose `raw_info` or `raw_context` member points to it (7.14.1).
+> 7 Objects constructed for `raw_info` or `raw_context` as described in this subclause persist at least as long as the `struct stdc_siginfo` object whose `raw_info` or `raw_context` member points to it (7.14.1).
 
 > 8 **Returns** The `stdc_raise` function returns zero if successful and nonzero if unsuccessful. If `signo` is not a valid signal number (7.14.1), this function is unsuccessful and no signal is raised.
 </ins>
@@ -949,7 +954,7 @@ The text of "The raise function" (7.14.3.1), moved and renumbered 7.14.2.4, is a
 
 > 3 A signal decider may call the `raise` (7.14.2.4), `stdc_raise` (7.14.2.10), and `abort` (7.25.5.1) functions.
 
-> 4 The rules of 5.2.2.4 paragraph 6 apply to any object modified by a signal handler or by a signal decider. In particular, the representation of an object modified by a signal decider becomes indeterminate when the decider exits unless the object is of one of the categories specified in 5.2.2.4 paragraph 6; a signal decider can ensure that the representation of an object it modifies does not become indeterminate by calling the `sigfence` macro (7.14.1) with the object as an argument, sequenced after the last modification of the object by the decider.
+> 4 The rules of 5.2.2.4 governing the values and representations of objects when the processing of the abstract machine is interrupted by receipt of a signal apply to any object modified by a signal handler or by a signal decider. In particular, the representation of an object modified by a signal decider becomes indeterminate when the decider exits unless the object is of one of the categories specified in 5.2.2.4; a signal decider can ensure that the representation of an object it modifies does not become indeterminate by calling the `sigfence` macro (7.14.1) with the object as an argument, sequenced after the last modification of the object by the decider.
 </ins>
 
 
@@ -995,10 +1000,10 @@ The text of "The raise function" (7.14.3.1), moved and renumbered 7.14.2.4, is a
 > which is a complete object type that holds an identifier for an async-signal-safe thread-specific storage pointer. The identifier is the value set by `tss_async_signal_safe_create` (7.30.6.5), and is not the thread-specific storage pointer itself;
 </ins>
 
-**After paragraph 4, insert the following new paragraphs; the existing paragraph 5 is renumbered 7:**
+**After paragraph 4, insert the following new paragraphs; the existing paragraph 5 is renumbered 9:**
 
 <ins>
-> 5 The `tss_async_signal_safe_attr` structure shall contain at least the following members, in any order. The semantics of the members are expressed in the comments.
+> 5 The `tss_async_signal_safe_attr` structure shall contain at least the following members, in any order. The semantics of the members are described in the following paragraphs.
 >
 > ```
 > // Create an instance
@@ -1008,11 +1013,16 @@ The text of "The raise function" (7.14.3.1), moved and renumbered 7.14.2.4, is a
 > int (*destroy)(void *v);
 > ```
 >
-> The functions pointed to by the members of this structure shall be reentrant (3.23) and shall not introduce data races.
+> The functions pointed to by the members of this structure shall be reentrant (3.23) and shall not introduce data races. The `create` and `destroy` members shall not be null pointers. They may allocate or release storage and are not required to be async-signal-safe.
 >
-> 6 EXAMPLE 1 Use `tss_async_signal_safe_get` to retrieve the thread-specific storage pointer in a signal handler
+> 6 The `create` function pointer is invoked with a pointer to an object of type `void *`. The function shall store in that object a pointer to the thread-specific storage it creates and shall return zero on success or a nonzero value on failure. If it returns zero, the stored pointer shall not be a null pointer. If it returns a nonzero value, the function is responsible for releasing any storage it allocated. The implementation uses the stored pointer as the thread-specific storage pointer for the calling thread.
+>
+> 7 The `destroy` function pointer is invoked with the thread-specific storage pointer created by the corresponding call of the `create` function pointer. The function shall release the storage and shall return zero on success or a nonzero value on failure. `tss_async_signal_safe_destroy` (7.30.6.6) returns `thrd_error` if any call of the `destroy` function pointer returns a nonzero value, and `thrd_success` otherwise.
+>
+> 8 EXAMPLE 1 Use `tss_async_signal_safe_get` to retrieve the thread-specific storage pointer in a signal handler
 >
 > ```
+> #include <signal.h>
 > #include <threads.h>
 > #include <stdlib.h>
 >
@@ -1024,7 +1034,7 @@ The text of "The raise function" (7.14.3.1), moved and renumbered 7.14.2.4, is a
 >
 > static int create_state(void **dest)
 > {
->   struct thread_state *state = malloc(sizeof(*state));
+>   struct thread_state *state = calloc(1, sizeof(*state));
 >   if (state == nullptr)
 >   {
 >     return -1;
@@ -1046,11 +1056,19 @@ The text of "The raise function" (7.14.3.1), moved and renumbered 7.14.2.4, is a
 >
 > static tss_async_signal_safe_t tss;
 >
+> /* Called once, before creating any threads */
+> static void process_setup(void)
+> {
+>   if (tss_async_signal_safe_create(&tss, &attr) == thrd_error)
+>   {
+>     abort();
+>   }
+> }
+>
 > /* Called near the beginning of each thread */
 > static void thread_setup(void)
 > {
->   if (tss_async_signal_safe_create(&tss, &attr) == thrd_error ||
->      tss_async_signal_safe_thread_init(tss) == thrd_error)
+>   if (tss_async_signal_safe_thread_init(tss) == thrd_error)
 >   {
 >     abort();
 >   }
@@ -1061,6 +1079,7 @@ The text of "The raise function" (7.14.3.1), moved and renumbered 7.14.2.4, is a
 > {
 >   struct thread_state *state = tss_async_signal_safe_get(tss);
 >   state->signal_count++;
+>   sigfence(state->signal_count);
 >   ...
 > }
 > ```
@@ -1093,9 +1112,9 @@ The text of "The raise function" (7.14.3.1), moved and renumbered 7.14.2.4, is a
 
 > 2 **Description** Destroys a previously created async-signal-safe thread-specific storage pointer. All thread-specific storage pointers associated with this instance for which the `destroy` function pointer of the original `attr` argument has not already been called at thread exit (7.30.6.7) are destroyed using that `destroy` function pointer. The `destroy` function pointer of the original `attr` argument is called at most once for each thread-specific storage pointer, and calls of the `destroy` function pointer for different thread-specific storage pointers are not synchronized with one another.
 
-> 3 It is undefined behavior if this function is called while any thread that has called the `tss_async_signal_safe_thread_init` function for this instance has not yet exited.
+> 3 It is undefined behavior if this function is called while any thread that has successfully called the `tss_async_signal_safe_thread_init` function for this instance has not yet exited.
 
-> 4 **Returns** The `tss_async_signal_safe_destroy` function returns `thrd_success` if successful and `thrd_error` if unsuccessful.
+> 4 **Returns** The `tss_async_signal_safe_destroy` function returns `thrd_success` if every call of the `destroy` function pointer returns zero, and `thrd_error` otherwise.
 </ins>
 
 #### Add 7.30.6.7: The `tss_async_signal_safe_thread_init` function
@@ -1107,7 +1126,7 @@ The text of "The raise function" (7.14.3.1), moved and renumbered 7.14.2.4, is a
 > int tss_async_signal_safe_thread_init(tss_async_signal_safe_t val);
 > ```
 
-> 2 **Description** Creates the thread-specific storage pointer for the calling thread for the instance identified by `val`, by invoking the `create` function pointer of the original `attr` argument. It is permitted to call this function multiple times on the same thread for the same instance; subsequent calls do not invoke the `create` function pointer again, do not change the thread-specific storage pointer, and return `thrd_success`.
+> 2 **Description** Creates the thread-specific storage pointer for the calling thread for the instance identified by `val`, by invoking the `create` function pointer of the original `attr` argument. If the `create` function pointer returns a nonzero value or stores a null pointer, the thread-specific storage pointer is not created and the function returns `thrd_error`. If the implementation cannot complete the creation after the `create` function pointer has returned zero, it shall invoke the `destroy` function pointer with the stored pointer before returning `thrd_error`. It is permitted to call this function multiple times on the same thread for the same instance. If the thread-specific storage pointer has already been created for the calling thread, subsequent calls do not invoke the `create` function pointer again, do not change the thread-specific storage pointer, and return `thrd_success`.
 
 > 3 At thread exit, it is implementation-defined whether the `destroy` function pointer of the original `attr` argument is called with the thread-specific storage pointer as its argument.
 
@@ -1127,9 +1146,11 @@ The text of "The raise function" (7.14.3.1), moved and renumbered 7.14.2.4, is a
 
 > 2 **Description** The `tss_async_signal_safe_get` function is async-signal-safe.
 
-> 3 The `tss_async_signal_safe_thread_init` function (7.30.6.7) shall have been called on the same thread for the instance identified by `val`, in which case the thread-specific storage pointer created at that time for that instance is returned; otherwise the behavior is undefined.
+> 3 The `tss_async_signal_safe_thread_init` function (7.30.6.7) shall have been called on the same thread for the instance identified by `val` and returned `thrd_success`, in which case the thread-specific storage pointer created by that call for that instance is returned; otherwise the behavior is undefined.
 
 > 4 **Returns** The `tss_async_signal_safe_get` function returns the thread-specific storage pointer for the calling thread for the instance identified by `val`.
+
+> 5 NOTE The `tss_async_signal_safe_get` function is async-signal-safe and the thread-specific storage pointer it returns is usable during the handling of a signal, but the values stored in that storage are not thereby made async-signal-safe. Access to those values from a signal handler or signal decider is subject to 5.2.2.4; in particular, a value is preserved only if it is a lock-free atomic object, an object of type `volatile sig_atomic_t`, or an object protected by a `sigfence` call as specified in that subclause.
 </ins>
 
 ### Editorial tasks
@@ -1137,14 +1158,14 @@ The text of "The raise function" (7.14.3.1), moved and renumbered 7.14.2.4, is a
 - Delete footnote 259 (7.13.3.1): its text was moved to 5.2.2.4, where the floating-point environment and the state of open files are now enumerated in the paragraph itself.
 - Delete footnote 262 (7.14.2.3 paragraph 5): its rule (a signal generated by an asynchronous signal handler is undefined behavior) is superseded — signal handlers and signal deciders may now generate signals, for example by calling the `raise`, `stdc_raise`, or `abort` functions, subject to the restrictions of 7.14.4 and paragraph 4 of 7.14.2.3 as amended.
 - Footnote renumbering: after the deletions of footnotes 259 and 262, footnotes 260 and 261 are renumbered 259 and 260, and footnotes 262 onward are renumbered 261 onward.
-- Paragraph numbering: the inserted paragraphs are numbered with their final numbers in this paper (5.2.2.4 paragraphs 7 through 10; 7.14.1 paragraphs 2 through 18, 20, 22, and 24; 7.30.1 paragraphs 5 and 6), and the displaced base paragraphs are renumbered accordingly: 5.2.2.4 paragraphs 7 through 17 become 11 through 21; 7.14.1 paragraphs 2 through 4 become 19, 21, and 23; 7.30.1 paragraph 5 becomes 7. The paragraphs of the new subsections 7.14.2.1, 7.14.2.2, 7.14.2.5 through 7.14.2.10, 7.14.3.1 through 7.14.3.3, 7.14.4, and 7.30.6.5 through 7.30.6.8 are numbered from 1, except that the forward references of 7.14.2.5 and 7.14.2.7 are unnumbered, as is the forward references line of the base text. The new clause 3 entry is numbered 3.23, and the entries 3.23 through 3.33 are renumbered 3.24 through 3.34.
-- Annex B (summary of library functions): add entries for `sigfence`, `SIGGUARDED_FAILURE_VALUE`, `sigemptyset`, `sigfillset`, `sigfillset_synchronous`, `sigfillset_asynchronous_nondebug`, `sigfillset_asynchronous_debug`, `sigaddset`, `sigdelset`, `sigismember`, `siginstall`, `siguninstall`, `signal_decider_create`, `signal_decider_destroy`, `sighandle`, `stdc_raise`, `sigguarded`, `sigdecider_abandon`, `sigdecider_abandon_resume`, `tss_async_signal_safe_create`, `tss_async_signal_safe_destroy`, `tss_async_signal_safe_thread_init`, and `tss_async_signal_safe_get`.
+- Paragraph numbering: the inserted paragraphs are numbered with their final numbers in this paper (5.2.2.4 paragraphs 7 through 10; 7.14.1 paragraphs 2 through 19, 21, 23, and 25; 7.30.1 paragraphs 5, 6, 7, and 8), and the displaced base paragraphs are renumbered accordingly: 5.2.2.4 paragraphs 7 through 17 become 11 through 21; 7.14.1 paragraphs 2 through 4 become 20, 22, and 24; 7.30.1 paragraph 5 becomes 9. The paragraphs of the new subsections 7.14.2.1, 7.14.2.2, 7.14.2.5 through 7.14.2.10, 7.14.3.1 through 7.14.3.3, 7.14.4, and 7.30.6.5 through 7.30.6.8 are numbered from 1, except that the forward references of 7.14.2.5 and 7.14.2.7 are unnumbered, as is the forward references line of the base text. The new clause 3 entry is numbered 3.23, and the entries 3.23 through 3.33 are renumbered 3.24 through 3.34.
+- Annex B (summary of library functions): add entries for `__STDC_VERSION_SIGNAL_H__`, `sigfence`, `SIGGUARDED_FAILURE_VALUE`, `sigemptyset`, `sigfillset`, `sigfillset_synchronous`, `sigfillset_asynchronous_nondebug`, `sigfillset_asynchronous_debug`, `sigaddset`, `sigdelset`, `sigismember`, `siginstall`, `siguninstall`, `signal_decider_create`, `signal_decider_destroy`, `sighandle`, `stdc_raise`, `sigguarded`, `sigdecider_abandon`, `sigdecider_abandon_resume`, `tss_async_signal_safe_create`, `tss_async_signal_safe_destroy`, `tss_async_signal_safe_thread_init`, and `tss_async_signal_safe_get`.
 - Annex J.1 (unspecified behavior): update item (3) for the amended 5.2.2.4 paragraph 6; add the thread on which the signal handler is called (7.14.1), the thread on which signal deciders are invoked for asynchronous category signals (7.14.1), and whether the `sighandle` function ever returns (7.14.2.9).
-- Annex J.2 (undefined behavior): renumber the references to the signal function and the raise function in items (102) through (109) from 7.14.2.1 and 7.14.3.1 to 7.14.2.3 and 7.14.2.4; update item (105) for the amended paragraph 4 of 7.14.2.3 (a signal occurs as the result of calling the `abort`, `raise`, or `stdc_raise` function, and the signal handler calls the `raise` or `stdc_raise` function); update item (107) for the `errno` rule relocated to 7.14.1 (drop the qualifier "other than as the result of calling the `abort` or `raise` function", and change the reference from 7.14.2.1 to 7.14.1); delete item (106), whose object-access rule is no longer undefined behavior (it is now specified by the amended 5.2.2.4 paragraph 6 and by 7.14.4), and add an item for the violation of 7.14.4 (a signal handler or signal decider calls a function in the standard library not described as async-signal-safe); delete item (108), whose rule was deleted with footnote 262; and add the undefined behaviors introduced by this paper: calling the `signal` function for a signal number that is activated (7.14.2.3); use of an uninitialized `sigset_t` object (7.14.2.1, 7.14.2.2); misuse of the `siginstall`, `siguninstall`, `signal_decider_create`, `signal_decider_destroy`, `sigguarded`, `sigdecider_abandon`, and `sigdecider_abandon_resume` functions (7.14.2.5 through 7.14.2.8, 7.14.3.1 through 7.14.3.3); misuse of the `sigfence` macro (7.14.1); and misuse of the `tss_async_signal_safe_create`, `tss_async_signal_safe_destroy`, `tss_async_signal_safe_thread_init`, and `tss_async_signal_safe_get` functions (7.30.6.5 through 7.30.6.8).
+- Annex J.2 (undefined behavior): renumber the references to the signal function and the raise function in items (102) through (109) from 7.14.2.1 and 7.14.3.1 to 7.14.2.3 and 7.14.2.4; update item (105) for the amended paragraph 4 of 7.14.2.3 (a signal occurs as the result of calling the `abort`, `raise`, or `stdc_raise` function, and the signal handler calls the `raise` or `stdc_raise` function); update item (107) for the `errno` rule relocated to 7.14.1 (drop the qualifier "other than as the result of calling the `abort` or `raise` function", and change the reference from 7.14.2.1 to 7.14.1); delete item (106), whose object-access rule is no longer undefined behavior (it is now specified by the amended 5.2.2.4 paragraph 6 and by 7.14.4), and add an item for the violation of 7.14.4 (a signal handler or signal decider calls a function in the standard library not described as async-signal-safe); delete item (108), whose rule was deleted with footnote 262; and add the undefined behaviors introduced by this paper: calling the `signal` function for a signal number that is activated (7.14.2.3); a signal decider that determines it will never return not calling `sigdecider_abandon` (7.14.1); use of an uninitialized `sigset_t` object (7.14.2.1, 7.14.2.2); misuse of the `siginstall`, `siguninstall`, `signal_decider_create`, `signal_decider_destroy`, `sigguarded`, `sigdecider_abandon`, and `sigdecider_abandon_resume` functions (7.14.2.5 through 7.14.2.8, 7.14.3.1 through 7.14.3.3); misuse of the `sigfence` macro (7.14.1); and misuse of the `tss_async_signal_safe_create`, `tss_async_signal_safe_destroy`, `tss_async_signal_safe_thread_init`, and `tss_async_signal_safe_get` functions (7.30.6.5 through 7.30.6.8).
 - Annex J.3 (implementation-defined behavior): add the signal categories of the standard signals and of implementation-defined signals (7.14.1); which signal numbers are not installed by a call of `siginstall` (7.14.2.5); the default handling performed when a global signal decider returns `sig_decision_call_recovery` (7.14.1); the value of `SIGGUARDED_FAILURE_VALUE` (7.14.1); the additional signals in the sets produced by `sigfillset_synchronous`, `sigfillset_asynchronous_nondebug`, and `sigfillset_asynchronous_debug` (7.14.2.1); the values of the remaining members of the `struct stdc_siginfo` object, for signals other than those raised by the `stdc_raise` function (7.14.1); the values of the `error_code` and `addr` members when `raw_info` is not a null pointer (7.14.2.10); whether a later occurrence of a signal is blocked, discarded, or processed immediately while an earlier occurrence is being processed (7.14.1); and whether the `destroy` function pointer of the original `attr` argument is called at thread exit (7.30.6.7); and renumber the references to the signal function in items (9), (10), and (16) from 7.14.2.1 to 7.14.2.3.
 - Annex J.5.16 (extra arguments for signal handlers): renumber the reference from 7.14.2.1 to 7.14.2.3.
 - Index: add the new types, enumeration constants, functions, macros, and the term reentrant.
-- No change is needed to the future library directions: 7.35.10 already reserves macro names beginning with `SIG_` and an uppercase letter (which covers `SIGGUARDED_FAILURE_VALUE`), and 7.35.20 already reserves function names, type names, and enumeration constants beginning with `tss_` and a lowercase letter (which covers the `tss_async_signal_safe_*` names).
+- No change is needed to the future library directions: 7.35.20 already reserves function names, type names, and enumeration constants beginning with `tss_` and a lowercase letter (which covers the `tss_async_signal_safe_*` names).
 
 [N2471]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n2471.pdf
 [N2519]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n2519.pdf
@@ -1156,3 +1177,4 @@ The text of "The raise function" (7.14.3.1), moved and renumbered 7.14.2.4, is a
 [N3886]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3886.pdf
 [N3924]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3924.htm
 [N3953]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3953.htm
+[N3984]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3984.pdf
