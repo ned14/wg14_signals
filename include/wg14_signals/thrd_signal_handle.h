@@ -641,10 +641,11 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   ensure the calling thread's thread local state is set up and return
   immediately doing nothing else.
 
-  If you will never return from `decider`,
-  you must call `sigdecider_abandon()` to let the runtime clean up its state.
-  If after abandonment you realise that you actually shall return, you can
-  call `sigdecider_abandon_resume()` to undo the abandonment.
+  If you will never return from `decider`, you must call
+  `sigdecider_abandon()` to let the runtime clean up its state; otherwise the
+  behavior is undefined (7.14.1 p14). If after abandonment you realise that you
+  actually shall return, you can call `sigdecider_abandon_resume()` to undo the
+  abandonment.
   */
   WG14_SIGNALS_EXTERN union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
   WG14_SIGNALS_PREFIX(sigguarded)(const sigset_t *signals,
@@ -664,6 +665,9 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   If called within a local decider, it MUST be the topmost `sigguarded()` for
   the current thread, and it will effectively abandon the current
   `sigguarded()`.
+
+  A signal decider that determines it will never return shall call this
+  function before it does so; otherwise the behavior is undefined (7.14.1 p14).
 
   \param rsi The siginfo passed to the decider function.
   */
