@@ -206,6 +206,7 @@ WG14_SIGNALS_THREAD_LOCAL
   {
     struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *mem =
     (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *) val;
+    int ret = WG14_SIGNALS_THRD_SUCCESS;
     LOCK(mem->lock);
     if(mem->state)
     {
@@ -231,14 +232,19 @@ WG14_SIGNALS_THREAD_LOCAL
       it = WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_erase_itr)(
       &mem->thread_id_to_tls_map, it);
       UNLOCK(mem->lock);
-      mem->attr.destroy(item);
+      if(mem->attr.destroy(item) != 0)
+      {
+        // A nonzero destroy result makes the whole operation thrd_error, but
+        // every remaining entry is still destroyed.
+        ret = WG14_SIGNALS_THRD_ERROR;
+      }
       LOCK(mem->lock);
     }
     WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_cleanup)
     (&mem->thread_id_to_tls_map);
     UNLOCK(mem->lock);
     WG14_SIGNALS_FREE(mem);
-    return WG14_SIGNALS_THRD_SUCCESS;
+    return ret;
   }
 
   static int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_deinit)(

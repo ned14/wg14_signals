@@ -8,6 +8,10 @@ set_tests_properties(tss_concurrent_exit_test PROPERTIES TIMEOUT 300)
 # so the pre-fix hang is a fast failure instead of a ctest hang.
 add_code_test(tss_destroy_reentrancy_test SOURCES "tss_destroy_reentrancy_test.c" FEATURES c_std_11)
 set_tests_properties(tss_destroy_reentrancy_test PROPERTIES TIMEOUT 60)
+# 7.30.1 p7 / 7.30.6.6 p4: a nonzero attr.destroy return makes
+# tss_async_signal_safe_destroy return thrd_error; only all-zero returns give
+# thrd_success.
+add_code_test(tss_destroy_result_test SOURCES "tss_destroy_result_test.c" FEATURES c_std_11)
 
 add_code_test(benchmark_thrd_signal_handle_test SOURCES "benchmark_thrd_signal_handle_test.c" FEATURES c_std_11)
 add_code_test(thrd_signal_handle_test SOURCES "thrd_signal_handle_test.c" FEATURES c_std_11)
