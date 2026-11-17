@@ -384,32 +384,29 @@ extern "C"
 #endif
   };
 
-  /*! \brief A variable of type `union stdc_siginfo_value` whose `int_value`
-  member is -99, returned by `sigguarded()` if it fails to install the guard.
-  On C++11-or-later compilers it is a `constexpr` variable; on C23 compilers
-  it is a `constexpr` variable if the compiler implements C23 `constexpr`
-  objects (N3018: GCC >= 13, upstream Clang >= 19, Apple Clang >= 17, per
-  cppreference.com/c/compiler_support/23) and a `const` object otherwise
-  (WG14_SIGNALS_C23_CONSTEXPR_OR_CONST); on C11/C17 compilers it is a
-  macro expanding to a compound literal.
+  /*! \brief A macro expanding to an expression of type
+  `union stdc_siginfo_value` whose `int_value` member is -99, the value
+  returned by `sigguarded()` if it fails to install the guard (N3924 7.14.1).
+
+  In C the expression is a compound literal; in C++11-or-later it is a prvalue
+  constructed by the union's `constexpr` converting constructor, so it remains
+  usable in constant expressions.
 
   Embedders whose own generated `<signal.h>` provides a mirrored
   `SIGGUARDED_FAILURE_VALUE` (e.g. an embedding libc that declares the N3924
   API in its own headers) must define
   `WG14_SIGNALS_DISABLE_SIGGUARDED_FAILURE_VALUE` before including this header
-  to suppress this definition and avoid a duplicate-symbol / macro-redefinition
-  conflict; the embedder's mirror must be layout-identical. The implementation
+  to suppress this definition and avoid a macro-redefinition conflict; the
+  embedder's mirror must produce a layout-identical value. The implementation
   helper `WG14_SIGNALS_PREFIX(sigguarded_failure_value)()` below is always
   defined so the `.ipp` implementation still compiles in the disabled case.
   */
 #if !defined(WG14_SIGNALS_DISABLE_SIGGUARDED_FAILURE_VALUE)
 #if defined(__cplusplus)
-  constexpr WG14_SIGNALS_PREFIX(stdc_siginfo_value)
-  WG14_SIGNALS_PREFIX(SIGGUARDED_FAILURE_VALUE){-99};
+#define SIGGUARDED_FAILURE_VALUE (WG14_SIGNALS_PREFIX(stdc_siginfo_value)(-99))
 #else
-  static WG14_SIGNALS_C23_CONSTEXPR_OR_CONST union WG14_SIGNALS_PREFIX(
-  stdc_siginfo_value)
-  WG14_SIGNALS_PREFIX(SIGGUARDED_FAILURE_VALUE) = {.int_value = -99};
+#define SIGGUARDED_FAILURE_VALUE                                               \
+  ((union WG14_SIGNALS_PREFIX(stdc_siginfo_value)) {.int_value = -99})
 #endif
 #endif
   //! \brief Implementation helper: the SIGGUARDED_FAILURE_VALUE value, usable

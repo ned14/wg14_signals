@@ -69,9 +69,10 @@ int main(void)
 {
   int ret = 0;
 
-  // The documented failure sentinel of sigguarded() (N3924 7.14.4.1,
-  // SIGGUARDED_FAILURE_VALUE): int_value == -99.
-  CHECK(WG14_SIGNALS_PREFIX(SIGGUARDED_FAILURE_VALUE).int_value == -99);
+  // The documented failure sentinel of sigguarded() (N3924 7.14.1,
+  // SIGGUARDED_FAILURE_VALUE): the macro expands to a union whose int_value
+  // member is -99.
+  CHECK(SIGGUARDED_FAILURE_VALUE.int_value == -99);
 
   sigset_t guarded;
   sigemptyset(&guarded);
