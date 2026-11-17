@@ -12,6 +12,9 @@ set_tests_properties(tss_destroy_reentrancy_test PROPERTIES TIMEOUT 60)
 # tss_async_signal_safe_destroy return thrd_error; only all-zero returns give
 # thrd_success.
 add_code_test(tss_destroy_result_test SOURCES "tss_destroy_result_test.c" FEATURES c_std_11)
+# 7.30.6.8 p5: the TSS pointer is usable from a signal handler, but the values
+# stored through it are preserved only under 5.2.2.4 (here via sigfence).
+add_code_test(tss_sigfence_test SOURCES "tss_sigfence_test.c" FEATURES c_std_11)
 
 add_code_test(benchmark_thrd_signal_handle_test SOURCES "benchmark_thrd_signal_handle_test.c" FEATURES c_std_11)
 add_code_test(thrd_signal_handle_test SOURCES "thrd_signal_handle_test.c" FEATURES c_std_11)
