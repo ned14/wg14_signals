@@ -780,6 +780,16 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
 
   If `guarded` is null, all the standard POSIX signals are used.
 
+  ## Signals that are silently not installed
+
+  A signal number that cannot be installed for reasons specific to the
+  implementation is silently skipped and the call still reports success
+  (7.14.2.5 p4). This implementation always skips `SIGKILL` and `SIGSTOP`; on
+  glibc it also skips `SIGCANCEL` and `SIGSETXID`; when `guarded` is null it
+  skips the realtime signal range; and under Fil-C it skips the signals for
+  which Fil-C forbids user handlers. All other signal numbers in the set are
+  installed. Documenting this set is the recommended practice of 7.14.2.5 p5.
+
   ## POSIX only
 
   Any existing global signal handlers are replaced with a filtering signal
