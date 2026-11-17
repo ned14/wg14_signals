@@ -28,19 +28,21 @@ limitations under the License.
 #include <stdint.h>
 
 #if __GLIBC__
-// glibc defines a userspace siginfo_t as an unnamed struct. No
-// choice here but to drag in the relevant header.
+/* glibc defines a userspace siginfo_t as an unnamed struct. No
+ choice here but to drag in the relevant header.
+ */
 #include <bits/types/siginfo_t.h>
 #endif
 
 #ifndef _WIN32
 #if defined(__linux__) && !defined(__GLIBC__)
-// musl declares ucontext_t in <signal.h> (recent versions) and <ucontext.h>
-// (POSIX; required by older musl, where <signal.h> lacks it). glibc exposes it
-// via <signal.h> under feature-test macros, and the BSDs/macOS via
-// <sys/signal.h>, so only the non-glibc Linux libcs need the include
-// (analysis.md MUSL). A blanket <ucontext.h> is not possible: macOS's
-// hard-errors without _XOPEN_SOURCE.
+/* musl declares ucontext_t in <signal.h> (recent versions) and <ucontext.h>
+ (POSIX; required by older musl, where <signal.h> lacks it). glibc exposes it
+ via <signal.h> under feature-test macros, and the BSDs/macOS via
+ <sys/signal.h>, so only the non-glibc Linux libcs need the include
+ (analysis.md MUSL). A blanket <ucontext.h> is not possible: macOS's
+ hard-errors without _XOPEN_SOURCE.
+ */
 #include <ucontext.h>
 #endif
 #endif
@@ -52,35 +54,37 @@ extern "C"
 #endif
 
 #ifdef _WIN32
-  // MSVC may be missing necessary signal support, so the sigset helpers are
-  // defined here. The N3924 synopses (7.14.2.1/7.14.2.2) follow the POSIX
-  // contract for these APIs: 0 on success, -1 with errno = EINVAL for an
-  // out-of-range signo in sigaddset/sigdelset/sigismember, and "positive one
-  // if set, zero if not" for a valid signo in sigismember. On POSIX the
-  // helpers are the host libc's (from <signal.h>): glibc and musl follow the
-  // same POSIX contract, but the macOS/BSD libcs deviate for out-of-range
-  // input (sigaddset/sigdelset return 0 without errno; sigismember is a
-  // shift-count macro, undefined behaviour out of range) -- the reference
-  // implementation passes the host through there (plans/analysis.md 3).
+  /* MSVC may be missing necessary signal support, so the sigset helpers are
+   defined here. The N3924 synopses (7.14.2.1/7.14.2.2) follow the POSIX
+   contract for these APIs: 0 on success, -1 with errno = EINVAL for an
+   out-of-range signo in sigaddset/sigdelset/sigismember, and "positive one
+   if set, zero if not" for a valid signo in sigismember. On POSIX the
+   helpers are the host libc's (from <signal.h>): glibc and musl follow the
+   same POSIX contract, but the macOS/BSD libcs deviate for out-of-range
+   input (sigaddset/sigdelset return 0 without errno; sigismember is a
+   shift-count macro, undefined behaviour out of range) -- the reference
+   implementation passes the host through there (plans/analysis.md 3).
+   */
   typedef uint32_t sigset_t;
-  static inline int sigemptyset(sigset_t *ss)
+  static WG14_SIGNALS_INLINE int sigemptyset(sigset_t *ss)
   {
     *ss = 0;
     return 0;
   }
-  static inline int sigfillset(sigset_t *ss)
+  static WG14_SIGNALS_INLINE int sigfillset(sigset_t *ss)
   {
     *ss = UINT32_MAX;
     return 0;
   }
-  // The shifts below are bounds-checked against the 32-signal bit set
-  // (analysis.md 4.5): for signo outside [1, 32], 1u << (signo - 1) is
-  // undefined behaviour, and the POSIX contract requires -1 with errno =
-  // EINVAL out of range (same as the host libc on POSIX). The internal
-  // sigismember call sites (the Windows sigfillset_* lazy-init checks and the
-  // install/create/destroy loops, all bounded by NSIG <= 32 on MSVC) only ever
-  // pass valid signal numbers, so the EINVAL path is never taken there.
-  static inline int sigaddset(sigset_t *ss, const int signo)
+  /* The shifts below are bounds-checked against the 32-signal bit set
+   (analysis.md 4.5): for signo outside [1, 32], 1u << (signo - 1) is
+   undefined behaviour, and the POSIX contract requires -1 with errno =
+   EINVAL out of range (same as the host libc on POSIX). The internal
+   sigismember call sites (the Windows sigfillset_* lazy-init checks and the
+   install/create/destroy loops, all bounded by NSIG <= 32 on MSVC) only ever
+   pass valid signal numbers, so the EINVAL path is never taken there.
+   */
+  static WG14_SIGNALS_INLINE int sigaddset(sigset_t *ss, const int signo)
   {
     if(signo < 1 || signo > 32)
     {
@@ -90,7 +94,7 @@ extern "C"
     *ss |= (1u << (signo - 1));
     return 0;
   }
-  static inline int sigdelset(sigset_t *ss, const int signo)
+  static WG14_SIGNALS_INLINE int sigdelset(sigset_t *ss, const int signo)
   {
     if(signo < 1 || signo > 32)
     {
@@ -100,7 +104,8 @@ extern "C"
     *ss &= ~(1u << (signo - 1));
     return 0;
   }
-  static inline int sigismember(const sigset_t *ss, const int signo)
+  static WG14_SIGNALS_INLINE int sigismember(const sigset_t *ss,
+                                             const int signo)
   {
     if(signo < 1 || signo > 32)
     {
@@ -110,14 +115,16 @@ extern "C"
     return (*ss & (1u << (signo - 1))) != 0;
   }
 
-  // The 32-signal bit-set scheme above (sigfillset == UINT32_MAX, shifts
-  // 1..32, plans/ideas.md 4.3) requires the redefinition to be at least 32
-  // bits wide; fail the build if it ever shrinks (plans/ideas.md 4.2).
+  /* The 32-signal bit-set scheme above (sigfillset == UINT32_MAX, shifts
+   1..32, plans/ideas.md 4.3) requires the redefinition to be at least 32
+   bits wide; fail the build if it ever shrinks (plans/ideas.md 4.2).
+   */
   WG14_SIGNALS_STATIC_ASSERT((sizeof(sigset_t) >= sizeof(uint32_t)),
                              "wg14_signals: Windows sigset_t must be at least "
                              "32 bits to hold the 32-signal bit set");
 
-// MSVC appears to follow the Linux signal numbering
+/* MSVC appears to follow the Linux signal numbering
+ */
 #ifndef SIGBUS
 #define SIGBUS (7)
 #endif
@@ -137,14 +144,15 @@ extern "C"
 #define WG14_SIGNALS_SIGFENCE_EXPAND_ARGS(args)                                \
   WG14_SIGNALS_SIGFENCE_RETURN_ARG_COUNT args
 
-// The argument counting below uses __VA_OPT__ only for the zero-argument
-// sigfence() form (the comma-suppression case it exists for). __VA_OPT__ is
-// C23/C++20, provided as an extension by GCC/Clang in all modes and by MSVC's
-// conforming preprocessor in C++20 and C11/C17 modes only. MSVC in C++14/17
-// mode has no __VA_OPT__ at all, so use a plain comma-list counting there:
-// it dispatches 1..8 arguments correctly (and the compile-time assert below
-// checks exactly those), while the zero-argument sigfence() form is
-// unavailable on such compilers (plans/analysis.md 4.10).
+/* The argument counting below uses __VA_OPT__ only for the zero-argument
+ sigfence() form (the comma-suppression case it exists for). __VA_OPT__ is
+ C23/C++20, provided as an extension by GCC/Clang in all modes and by MSVC's
+ conforming preprocessor in C++20 and C11/C17 modes only. MSVC in C++14/17
+ mode has no __VA_OPT__ at all, so use a plain comma-list counting there:
+ it dispatches 1..8 arguments correctly (and the compile-time assert below
+ checks exactly those), while the zero-argument sigfence() form is
+ unavailable on such compilers (plans/analysis.md 4.10).
+ */
 #if defined(__GNUC__) || defined(__clang__)
 #define WG14_SIGNALS_HAVE_VA_OPT 1
 #elif defined(_MSC_VER) && defined(_MSVC_TRADITIONAL) &&                       \
@@ -178,32 +186,38 @@ extern "C"
   name, WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(__VA_ARGS__)),                   \
   (__VA_ARGS__))
 
-  // The arg counting above depends on __VA_OPT__ (C23/C++20, supported as a
-  // GNU/Clang/MSVC extension in older modes). Verify at compile time that the
-  // counting machinery returns the right counts: on a compiler without
-  // __VA_OPT__ the expansion below is a hard preprocessing error, and on a
-  // compiler whose counting is broken the assertion fails — either way the
-  // defect surfaces instead of silently mis-dispatching. (The zero-argument
-  // path — the comma-suppression case __VA_OPT__ exists for — is exercised by
-  // test/sigfence_fence_test.c, whose TU suppresses the -Wpedantic diagnostic
-  // that an empty variadic-macro call triggers; a public header must not.
-  // The counts asserted here — 3 and 5 — are in the 1..8 range that the
-  // non-__VA_OPT__ fallback counting also handles, so the assert is valid on
-  // every supported compiler, including MSVC C++14/17.)
+  /* The arg counting above depends on __VA_OPT__ (C23/C++20, supported as a
+   GNU/Clang/MSVC extension in older modes). Verify at compile time that the
+   counting machinery returns the right counts: on a compiler without
+   __VA_OPT__ the expansion below is a hard preprocessing error, and on a
+   compiler whose counting is broken the assertion fails — either way the
+   defect surfaces instead of silently mis-dispatching. (The zero-argument
+   path — the comma-suppression case __VA_OPT__ exists for — is exercised by
+   test/sigfence_fence_test.c, whose TU suppresses the -Wpedantic diagnostic
+   that an empty variadic-macro call triggers; a public header must not.
+   The counts asserted here — 3 and 5 — are in the 1..8 range that the
+   non-__VA_OPT__ fallback counting also handles, so the assert is valid on
+   every supported compiler, including MSVC C++14/17.)
+   */
+#if (defined(__cplusplus) && __cplusplus >= 201103L) ||                        \
+(!defined(__cplusplus) && defined(__STDC_VERSION__) &&                         \
+ (__STDC_VERSION__ >= 201112L))
   WG14_SIGNALS_STATIC_ASSERT(
   ((WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(a, b, c) == 3) &&
    (WG14_SIGNALS_SIGFENCE_COUNT_ARGS_MAX8(a, b, c, d, e) == 5)),
   "wg14_signals: sigfence() argument counting is broken (requires __VA_OPT__ "
   "on this compiler, or a counting-broken preprocessor)");
+#endif
 
 #if (defined(__GNUC__) || defined(__clang__)) && !defined(DISABLE_INLINE_ASM)
-// On compilers with extended inline asm, we can tell the compiler that a
-// specific list of variables must be specifically written out and reloaded
-// around the fence. You may find https://godbolt.org/z/chh8ee6Mj useful to
-// review. DISABLE_INLINE_ASM (defined by cmake/filc-toolchain.cmake for the
-// Fil-C memory-safe compiler) selects the portable volatile-sink fallback
-// below instead, because Fil-C cannot compile these asm forms (analysis.md
-// AA2).
+/* On compilers with extended inline asm, we can tell the compiler that a
+ specific list of variables must be specifically written out and reloaded
+ around the fence. You may find https://godbolt.org/z/chh8ee6Mj useful to
+ review. DISABLE_INLINE_ASM (defined by cmake/filc-toolchain.cmake for the
+ Fil-C memory-safe compiler) selects the portable volatile-sink fallback
+ below instead, because Fil-C cannot compile these asm forms (analysis.md
+ AA2).
+ */
 #define WG14_SIGNALS_SIGFENCE_IMPL_0() __asm__ volatile(";" : : : "memory")
 #define WG14_SIGNALS_SIGFENCE_IMPL_1(a)                                        \
   __asm__ volatile(";" : "+m"(a) : : "memory")
@@ -236,20 +250,21 @@ extern "C"
                    :                                                           \
                    : "memory")
 #else
-  // Compilers without extended inline asm (e.g. MSVC), or with it disabled via
-  // -DDISABLE_INLINE_ASM (Fil-C): force the listed local variables to be
-  // memory-resident, and their values reloaded afterwards, as the "+m" operands
-  // and "memory" clobber above do.
-  // WG14_SIGNALS_SIGFENCE_ESCAPE() (1) stores each variable's address into a
-  // volatile sink so the address escapes to observable memory, and (2) performs
-  // a volatile read of one byte of the object -- char may alias any object
-  // (C11 6.5p7), and volatile accesses are observable behaviour (C11 5.1.2.3),
-  // so no optimizer, link-time code generation (/GL /LTCG) included, may
-  // eliminate or reorder them: the value is committed to memory before the
-  // fence and must be reloaded after it. No out-of-line function is needed, so
-  // the fence cannot be defeated by the optimizer inlining a helper away, and
-  // the sink is per-TU static, so header-only consumers need no library
-  // symbols.
+  /* Compilers without extended inline asm (e.g. MSVC), or with it disabled via
+   -DDISABLE_INLINE_ASM (Fil-C): force the listed local variables to be
+   memory-resident, and their values reloaded afterwards, as the "+m" operands
+   and "memory" clobber above do.
+   WG14_SIGNALS_SIGFENCE_ESCAPE() (1) stores each variable's address into a
+   volatile sink so the address escapes to observable memory, and (2) performs
+   a volatile read of one byte of the object -- char may alias any object
+   (C11 6.5p7), and volatile accesses are observable behaviour (C11 5.1.2.3),
+   so no optimizer, link-time code generation (/GL /LTCG) included, may
+   eliminate or reorder them: the value is committed to memory before the
+   fence and must be reloaded after it. No out-of-line function is needed, so
+   the fence cannot be defeated by the optimizer inlining a helper away, and
+   the sink is per-TU static, so header-only consumers need no library
+   symbols.
+   */
   static void *volatile WG14_SIGNALS_PREFIX(sigfence_sink)[9];
 #define WG14_SIGNALS_SIGFENCE_BARRIER()                                        \
   ((void) (WG14_SIGNALS_PREFIX(sigfence_sink)[8] =                             \
@@ -346,15 +361,16 @@ extern "C"
     WG14_SIGNALS_SIGFENCE_BARRIER();                                           \
   } while(0)
 #endif
-//! \brief A compiler-only memory barrier, including for local variables in the
-//! argument list. Any variable in the argument list MUST be a lvalue.
+/*! \brief A compiler-only memory barrier, including for local variables in the
+ argument list. Any variable in the argument list MUST be a lvalue.
+ */
 #define sigfence(...)                                                          \
   WG14_SIGNALS_SIGFENCE_CALL_OVERLOAD(WG14_SIGNALS_SIGFENCE_IMPL_, __VA_ARGS__)
 #endif
 
 #ifdef _MSC_VER
 #pragma warning(push)
-#pragma warning(disable : 4190)  // C-linkage with UDTs
+#pragma warning(disable : 4190) /* C-linkage with UDTs */
 #endif
 #if defined(__clang__) && defined(__cplusplus)
 #pragma clang diagnostic push
@@ -368,7 +384,7 @@ extern "C"
   {
     intptr_t int_value;
     void *ptr_value;
-#if defined(__cplusplus)
+#if defined(__cplusplus) && __cplusplus >= 201103L
     constexpr WG14_SIGNALS_PREFIX(stdc_siginfo_value)()
         : int_value(0)
     {
@@ -388,9 +404,10 @@ extern "C"
   `union stdc_siginfo_value` whose `int_value` member is -99, the value
   returned by `sigguarded()` if it fails to install the guard (N3924 7.14.1).
 
-  In C the expression is a compound literal; in C++11-or-later it is a prvalue
-  constructed by the union's `constexpr` converting constructor, so it remains
-  usable in constant expressions.
+  The macro expands to an expression naming an implementation-defined object of
+  that type. It is a `constexpr` object on C++11-or-later compilers (so it
+  remains usable in constant expressions) and a `static const` object on
+  C89/C90 and C++98/03 compilers.
 
   Embedders whose own generated `<signal.h>` provides a mirrored
   `SIGGUARDED_FAILURE_VALUE` (e.g. an embedding libc that declares the N3924
@@ -402,16 +419,23 @@ extern "C"
   defined so the `.ipp` implementation still compiles in the disabled case.
   */
 #if !defined(WG14_SIGNALS_DISABLE_SIGGUARDED_FAILURE_VALUE)
-#if defined(__cplusplus)
-#define SIGGUARDED_FAILURE_VALUE (WG14_SIGNALS_PREFIX(stdc_siginfo_value)(-99))
+#if defined(__cplusplus) && __cplusplus >= 201103L
+  constexpr WG14_SIGNALS_PREFIX(stdc_siginfo_value)
+  WG14_SIGNALS_PREFIX(sigguarded_failure_value_object){-99};
 #else
+  /* C89/C90 and C++98/03 have no constexpr and no compound literals; the
+   first union member is int_value, so a braced initialiser is portable.
+   */
+  static const union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
+  WG14_SIGNALS_PREFIX(sigguarded_failure_value_object) = {-99};
+#endif
 #define SIGGUARDED_FAILURE_VALUE                                               \
-  ((union WG14_SIGNALS_PREFIX(stdc_siginfo_value)) {.int_value = -99})
+  (WG14_SIGNALS_PREFIX(sigguarded_failure_value_object))
 #endif
-#endif
-  //! \brief Implementation helper: the SIGGUARDED_FAILURE_VALUE value, usable
-  //! even when the SIGGUARDED_FAILURE_VALUE definition above is suppressed by
-  //! an embedder. Returns the union whose int_value member is -99.
+  /*! \brief Implementation helper: the SIGGUARDED_FAILURE_VALUE value, usable
+   even when the SIGGUARDED_FAILURE_VALUE definition above is suppressed by
+   an embedder. Returns the union whose int_value member is -99.
+   */
   static WG14_SIGNALS_INLINE union WG14_SIGNALS_PREFIX(stdc_siginfo_value)
   WG14_SIGNALS_PREFIX(sigguarded_failure_value)(void)
   {
@@ -419,42 +443,48 @@ extern "C"
     v.int_value = -99;
     return v;
   }
-  //! \brief Typedef to a system specific error code type
+  /*! \brief Typedef to a system specific error code type
+   */
 #ifdef _WIN32
   typedef long WG14_SIGNALS_PREFIX(stdc_siginfo_error_code_t);
 #else
 typedef int WG14_SIGNALS_PREFIX(stdc_siginfo_error_code_t);
 #endif
 
-//! \brief A placeholder type for an OS specific `siginfo_t *` (POSIX) or
-//! `PEXCEPTION_RECORD` (Windows)
+/*! \brief A placeholder type for an OS specific `siginfo_t *` (POSIX) or
+ `PEXCEPTION_RECORD` (Windows)
+ */
 #ifdef _WIN32
   typedef struct _EXCEPTION_RECORD WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #elif __GLIBC__
 typedef siginfo_t WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #elif defined(__FILC__)
-// Fil-C's libc siginfo_t is its own complete type, unrelated to the
-// struct __siginfo that other POSIX libcs expose, so forward-declaring that
-// struct would make every siginfo interaction in the POSIX backend a
-// compile-time error. Alias directly to the type the signal handler receives.
+/* Fil-C's libc siginfo_t is its own complete type, unrelated to the
+ struct __siginfo that other POSIX libcs expose, so forward-declaring that
+ struct would make every siginfo interaction in the POSIX backend a
+ compile-time error. Alias directly to the type the signal handler receives.
+ */
 typedef siginfo_t WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #elif __ANDROID__
 typedef struct siginfo WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #elif defined(__linux__) && !defined(__GLIBC__)
-// musl (and any other non-glibc Linux libc): `siginfo_t` is the standard
-// spelling -- musl defines it as an anonymous struct with no `struct
-// __siginfo` tag, so the BSD-specific fallback below would not compile
-// there. musl does not define __MUSL__, so detect it as Linux-not-glibc
-// (analysis.md MUSL).
+/* musl (and any other non-glibc Linux libc): `siginfo_t` is the standard
+ spelling -- musl defines it as an anonymous struct with no `struct
+ __siginfo` tag, so the BSD-specific fallback below would not compile
+ there. musl does not define __MUSL__, so detect it as Linux-not-glibc
+ (analysis.md MUSL).
+ */
 typedef siginfo_t WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #else
-// BSD/macOS: `struct __siginfo` is the always-visible tag underlying
-// siginfo_t, exposed even in strict-POSIX modes that hide the typedef.
+/* BSD/macOS: `struct __siginfo` is the always-visible tag underlying
+ siginfo_t, exposed even in strict-POSIX modes that hide the typedef.
+ */
 typedef struct __siginfo WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t);
 #endif
 
-  //! \brief A placeholder type for an OS specific `ucontext_t` (POSIX) or
-  //! `PCONTEXT` (Windows)
+  /*! \brief A placeholder type for an OS specific `ucontext_t` (POSIX) or
+   `PCONTEXT` (Windows)
+   */
 #ifdef _WIN32
   typedef struct _CONTEXT WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
 #else
@@ -470,29 +500,34 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   */
   struct WG14_SIGNALS_PREFIX(stdc_siginfo)
   {
-    int signo;  //!< The signal raised
+    int signo; /*!< The signal raised */
 
-    //! \brief The system specific error code for this signal, the `si_errno`
-    //! code (POSIX) or `NTSTATUS` code (Windows). Zero when `raw_info` was
-    //! null and an implementation-defined default signal information was
-    //! constructed (e.g. `stdc_raise(signo, NULL, NULL)`).
+    /*! \brief The system specific error code for this signal, the `si_errno`
+     code (POSIX) or `NTSTATUS` code (Windows). Zero when `raw_info` was
+     null and an implementation-defined default signal information was
+     constructed (e.g. `stdc_raise(signo, NULL, NULL)`).
+     */
     WG14_SIGNALS_PREFIX(stdc_siginfo_error_code_t) error_code;
-    void *addr;  //!< Memory location which caused fault, if appropriate. NULL
-                 //!< when `raw_info` was null.
+    void *addr; /*!< Memory location which caused fault, if appropriate.
+                   NULL when `raw_info` was null. */
     union WG14_SIGNALS_PREFIX(
-    stdc_siginfo_value) value;  //!< A user-defined value
+    stdc_siginfo_value) value; /*!< A user-defined value */
 
-    //! \brief The OS specific signal info
+    /*! \brief The OS specific signal info
+     */
     WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * raw_info;
-    //! \brief The OS specific `ucontext_t` (POSIX) or `PCONTEXT` (Windows)
+    /*! \brief The OS specific `ucontext_t` (POSIX) or `PCONTEXT` (Windows)
+     */
     WG14_SIGNALS_PREFIX(stdc_siginfo_context_t) * raw_context;
-    //! \note A `stdc_raise(signo, NULL, NULL)` constructs an
-    //! implementation-defined default signal information object and a context
-    //! object representing the calling stack frame, and sets `raw_info` and
-    //! `raw_context` to point at them; on Windows the OS info is always present
-    //! (`raw_info` points at the `EXCEPTION_RECORD`).
+    /*! \note A `stdc_raise(signo, NULL, NULL)` constructs an
+     implementation-defined default signal information object and a context
+     object representing the calling stack frame, and sets `raw_info` and
+     `raw_context` to point at them; on Windows the OS info is always present
+     (`raw_info` points at the `EXCEPTION_RECORD`).
+     */
 
-    // Used internally only
+    /* Used internally only
+     */
     struct WG14_SIGNALS_PREFIX(sig_global_state_tss_state_per_frame_t) *
     internal_local_decider;
     struct WG14_SIGNALS_PREFIX(sighandler_info) * internal_sighandler;
@@ -504,54 +539,62 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
     bool internal_decider_is_abandoned;
   };
 
-  //! \brief The type of the guarded function.
+  /*! \brief The type of the guarded function.
+   */
   typedef union WG14_SIGNALS_PREFIX(stdc_siginfo_value)(WG14_SIGNALS_PREFIX(
   sig_func_t))(union WG14_SIGNALS_PREFIX(stdc_siginfo_value));
 
-  //! \brief The type of the function called to recover from a signal being
-  //! raised in a guarded section.
+  /*! \brief The type of the function called to recover from a signal being
+   raised in a guarded section.
+   */
   typedef union WG14_SIGNALS_PREFIX(stdc_siginfo_value)(WG14_SIGNALS_PREFIX(
   sig_recover_t))(const struct WG14_SIGNALS_PREFIX(stdc_siginfo) *);
 
-  //! \brief The decision taken by the decider function
+  /*! \brief The decision taken by the decider function
+   */
   enum WG14_SIGNALS_PREFIX(sig_decision)
   {
-    //! \brief We have decided to do nothing
+    /*! \brief We have decided to do nothing
+     */
     WG14_SIGNALS_PREFIX(sig_decision_next_decider),
-    //! \brief We have fixed the cause of the signal, please resume execution
+    /*! \brief We have fixed the cause of the signal, please resume execution
+     */
     WG14_SIGNALS_PREFIX(sig_decision_resume_execution),
-    //! \brief Thread local signal deciders only: reset the stack and local
-    //! state to entry to `sigguarded()`, and call the recovery
-    //! function.
+    /*! \brief Thread local signal deciders only: reset the stack and local
+     state to entry to `sigguarded()`, and call the recovery
+     function.
+     */
     WG14_SIGNALS_PREFIX(sig_decision_call_recovery)
   };
 
-  //! \brief The type of the function called when a signal is raised. Returns
-  //! a decision of how to handle the signal.
+  /*! \brief The type of the function called when a signal is raised. Returns
+   a decision of how to handle the signal.
+   */
   typedef enum WG14_SIGNALS_PREFIX(sig_decision)(WG14_SIGNALS_PREFIX(
   sig_decide_t))(struct WG14_SIGNALS_PREFIX(stdc_siginfo) *);
 
-  //! \brief The type of the function called by the library to take a signal's
-  //! default action, from within its signal machinery, when the previously
-  //! installed disposition for that signal was `SIG_DFL`.
-  //!
-  //! The caller (`invoke_sigaction()`'s `SIG_DFL` branch) has already queried
-  //! and saved the current (library) disposition, and restores it after the
-  //! callback returns, so the callback itself only needs to (1) reset the
-  //! kernel disposition to `SIG_DFL` and (2) re-deliver the signal to the
-  //! calling thread. For a terminating default the process dies inside the
-  //! delivery and the restore never runs; for a stop/continue default the
-  //! process survives the stop and the restore runs after resumption, so the
-  //! library's handler is still in place for later deliveries.
-  //!
-  //! `signo` is the signal whose default action is being taken, `raw_info`
-  //! the raw OS `siginfo_t *` of the original delivery, and `raw_context` the
-  //! raw `ucontext_t *`; either may be NULL when the original delivery carried
-  //! no OS info. An embedder that wants core-dump
-  //! fidelity (the faulting address etc.) may set a callback that re-delivers
-  //! with the original `raw_info` preserved (e.g. Linux
-  //! `SYS_rt_tgsigqueueinfo`), falling back to a plain self-delivery if that
-  //! fails or the info is NULL. The callback must be async-signal-safe.
+  /*! \brief The type of the function called by the library to take a signal's
+   default action, from within its signal machinery, when the previously
+   installed disposition for that signal was `SIG_DFL`.
+
+   The caller (`invoke_sigaction()`'s `SIG_DFL` branch) has already queried
+   and saved the current (library) disposition, and restores it after the
+   callback returns, so the callback itself only needs to (1) reset the
+   kernel disposition to `SIG_DFL` and (2) re-deliver the signal to the
+   calling thread. For a terminating default the process dies inside the
+   delivery and the restore never runs; for a stop/continue default the
+   process survives the stop and the restore runs after resumption, so the
+   library's handler is still in place for later deliveries.
+
+   `signo` is the signal whose default action is being taken, `raw_info`
+   the raw OS `siginfo_t *` of the original delivery, and `raw_context` the
+   raw `ucontext_t *`; either may be NULL when the original delivery carried
+   no OS info. An embedder that wants core-dump
+   fidelity (the faulting address etc.) may set a callback that re-delivers
+   with the original `raw_info` preserved (e.g. Linux
+   `SYS_rt_tgsigqueueinfo`), falling back to a plain self-delivery if that
+   fails or the info is NULL. The callback must be async-signal-safe.
+   */
   typedef void(WG14_SIGNALS_PREFIX(sig_default_action_np_t))(
   int signo, WG14_SIGNALS_PREFIX(stdc_siginfo_siginfo_t) * raw_info,
   void *raw_context);
@@ -812,17 +855,19 @@ typedef ucontext_t WG14_SIGNALS_PREFIX(stdc_siginfo_context_t);
   of itself, but is NOT threadsafe with respect to other code modifying the
   global signal handlers.
   */
-  //! \brief An implementation-defined opaque pointer type that represents a set
-  //! of installed signal handlers. It is the type of the value returned by
-  //! `siginstall()` and of the argument of `siguninstall()`; a null pointer
-  //! value represents no installation.
+  /*! \brief An implementation-defined opaque pointer type that represents a set
+   of installed signal handlers. It is the type of the value returned by
+   `siginstall()` and of the argument of `siguninstall()`; a null pointer
+   value represents no installation.
+   */
   typedef struct WG14_SIGNALS_PREFIX(sig_handlers_s) *
   WG14_SIGNALS_PREFIX(sig_handlers_t);
 
-  //! \brief An implementation-defined opaque pointer type that represents an
-  //! installed global signal decider. It is the type of the value returned by
-  //! `signal_decider_create()` and of the argument of
-  //! `signal_decider_destroy()`; a null pointer value represents no decider.
+  /*! \brief An implementation-defined opaque pointer type that represents an
+   installed global signal decider. It is the type of the value returned by
+   `signal_decider_create()` and of the argument of
+   `signal_decider_destroy()`; a null pointer value represents no decider.
+   */
   typedef struct WG14_SIGNALS_PREFIX(signal_decider_s) *
   WG14_SIGNALS_PREFIX(signal_decider_t);
 

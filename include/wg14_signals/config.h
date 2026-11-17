@@ -17,7 +17,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// #define WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL 0
+/* #define WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL 0
+ */
 
 #ifndef WG14_SIGNALS_CONFIG_H
 #define WG14_SIGNALS_CONFIG_H
@@ -27,24 +28,50 @@ limitations under the License.
 #endif
 
 #ifndef WG14_SIGNALS_INLINE
+#if defined(__cplusplus) ||                                                    \
+(defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L)
 #define WG14_SIGNALS_INLINE inline
+#elif defined(__GNUC__) || defined(__clang__)
+/* Pre-C99 C modes have no `inline` keyword, but GCC/Clang provide the
+ __inline__ extension (which also keeps unused static helpers quiet).
+ */
+#define WG14_SIGNALS_INLINE __inline__
+#elif defined(_MSC_VER)
+#define WG14_SIGNALS_INLINE __inline
+#else
+/* A bare `static` function definition is valid C89.
+ */
+#define WG14_SIGNALS_INLINE
+#endif
 #endif
 
-//! \brief Compile-time assertion, spelled _Static_assert in C11 and
-//! static_assert in C++11 (plans/ideas.md 4.2).
+/*! \brief Compile-time assertion, spelled _Static_assert in C11 and
+ static_assert in C++11 (plans/ideas.md 4.2). It is a no-op in C89/C90 and
+ C++98/03, where neither spelling is available.
+ */
 #ifndef WG14_SIGNALS_STATIC_ASSERT
-#ifdef __cplusplus
+#if defined(__cplusplus) && __cplusplus >= 201103L
 #define WG14_SIGNALS_STATIC_ASSERT(cond, msg) static_assert((cond), msg)
-#else
+#elif !defined(__cplusplus) && defined(__STDC_VERSION__) &&                    \
+(__STDC_VERSION__ >= 201112L)
 #define WG14_SIGNALS_STATIC_ASSERT(cond, msg) _Static_assert((cond), msg)
+#else
+#define WG14_SIGNALS_STATIC_ASSERT(cond, msg)
 #endif
 #endif
 
 #ifndef WG14_SIGNALS_THREAD_LOCAL
-#ifdef __cplusplus
+#if defined(__cplusplus) && __cplusplus >= 201103L
 #define WG14_SIGNALS_THREAD_LOCAL thread_local
-#else
+#elif !defined(__cplusplus) && defined(__STDC_VERSION__) &&                    \
+(__STDC_VERSION__ >= 201112L)
 #define WG14_SIGNALS_THREAD_LOCAL _Thread_local
+#elif defined(__GNUC__) || defined(__clang__)
+#define WG14_SIGNALS_THREAD_LOCAL __thread
+#elif defined(_MSC_VER)
+#define WG14_SIGNALS_THREAD_LOCAL __declspec(thread)
+#else
+#define WG14_SIGNALS_THREAD_LOCAL
 #endif
 #endif
 
@@ -80,35 +107,39 @@ WG14_SIGNALS_GETCONTEXT() hook directly. */
 #ifndef WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL
 #if WG14_SIGNALS_HAVE_ASYNC_SAFE_THREAD_LOCAL
 #ifdef __GNUC__
-// ELF needs to use the initial or local exec TLS model to be async signal safe
-//
-// WARNING: This can cause issues with this library being loaded dynamically as
-// part of a runtime loaded shared library!
+/* ELF needs to use the initial or local exec TLS model to be async signal safe
+
+ WARNING: This can cause issues with this library being loaded dynamically as
+ part of a runtime loaded shared library!
+ */
 #define WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL                                   \
   WG14_SIGNALS_THREAD_LOCAL __attribute__((tls_model("initial-exec")))
 #elif defined(_MSC_VER)
-// MSVC's thread locals are always async signal safe
+/* MSVC's thread locals are always async signal safe
+ */
 #define WG14_SIGNALS_ASYNC_SAFE_THREAD_LOCAL WG14_SIGNALS_THREAD_LOCAL
 #endif
 #endif
 #endif
 
 #ifndef WG14_SIGNALS_NULLPTR
-#if __STDC_VERSION__ >= 202300L || __cplusplus
+#if (defined(__cplusplus) && __cplusplus >= 201103L) ||                        \
+(defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202300L)
 #define WG14_SIGNALS_NULLPTR nullptr
 #else
 #define WG14_SIGNALS_NULLPTR NULL
 #endif
 #endif
 
-//! \brief `constexpr` where the language provides one (C++11-or-later, and
-//! C23 compilers implementing the N3018 `constexpr` objects), else `const`.
-//! For file-scope constant objects in public headers: the object is a
-//! compile-time constant where supported, and a plain `const` object
-//! otherwise. N3018 is implemented in GCC >= 13, upstream Clang >= 19 and
-//! Apple Clang >= 17 (its LLVM 19.1 base); other compilers, including older
-//! clang and MSVC, reject the keyword in C mode with "unknown type name
-//! 'constexpr'" (cppreference.com/c/compiler_support/23).
+/*! \brief `constexpr` where the language provides one (C++11-or-later, and
+ C23 compilers implementing the N3018 `constexpr` objects), else `const`.
+ For file-scope constant objects in public headers: the object is a
+ compile-time constant where supported, and a plain `const` object
+ otherwise. N3018 is implemented in GCC >= 13, upstream Clang >= 19 and
+ Apple Clang >= 17 (its LLVM 19.1 base); other compilers, including older
+ clang and MSVC, reject the keyword in C mode with "unknown type name
+ 'constexpr'" (cppreference.com/c/compiler_support/23).
+ */
 #ifndef WG14_SIGNALS_C23_CONSTEXPR_OR_CONST
 #if (defined(__cplusplus) && __cplusplus >= 201103L) ||                        \
 ((defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L) &&                 \
@@ -155,11 +186,12 @@ WG14_SIGNALS_GETCONTEXT() hook directly. */
 
 #ifndef WG14_SIGNALS_EXTERN
 #if WG14_SIGNALS_ENABLE_HEADER_ONLY
-// Per-TU static inline: an external-linkage inline function may not call the
-// internal static helpers used by the shared implementation
-// (-Wstatic-in-inline), and per-TU static definitions avoid duplicate symbols
-// when the header is included from more than one translation unit (analysis.md
-// 1.8, C3, Y8, Y10).
+/* Per-TU static inline: an external-linkage inline function may not call the
+ internal static helpers used by the shared implementation
+ (-Wstatic-in-inline), and per-TU static definitions avoid duplicate symbols
+ when the header is included from more than one translation unit (analysis.md
+ 1.8, C3, Y8, Y10).
+ */
 #define WG14_SIGNALS_EXTERN static WG14_SIGNALS_INLINE
 #else
 #define WG14_SIGNALS_EXTERN WG14_SIGNALS_EXTERN_IMPL
@@ -171,40 +203,41 @@ WG14_SIGNALS_GETCONTEXT() hook directly. */
 #define WG14_SIGNALS_STDERR_PRINTF(...) fprintf(stderr, __VA_ARGS__)
 #endif
 
-//! \brief Embedder override hooks (the "OS abstraction layer").
-//!
-//! The POSIX backend calls, by name, the very functions an embedding
-//! standard C library may itself be implementing on top of this library:
-//! `sigaction()`, `abort()` and `pthread_kill(pthread_self(), ...)`. If
-//! those calls resolve to the embedding library's public entrypoints, the
-//! library recurses into itself (`sigaction()` calling `sigaction()`,
-//! `raise()` calling `stdc_raise()`). Each hook below is a function-like
-//! macro defaulting to the standard C/POSIX call; an embedding library
-//! redefines the hook to its own internal function by defining the macro
-//! before including this header (or on the compiler command line). The
-//! replacement function must preserve the guarantees of the API whose
-//! implementation it routes (see the ASYNC-SIGNAL-SAFE / THREADSAFE
-//! documentation of the public API), and the hooks are `#undef`-safe: the
-//! standalone build continues to use the defaults, so the same macro
-//! expansion the embedder overrides is what the unmodified reference
-//! implementation's own test suite exercises.
-//!
-//! `WG14_SIGNALS_SIGACTION(signum, act, oldact)` routes every internal
-//! `sigaction()` call (install the library's raw handler, query/restore a
-//! previous disposition, reset to `SIG_DFL`). An embedding libc whose
-//! `sigaction` entrypoint is the registry itself must point this at its
-//! kernel-facing syscall wrapper.
-//!
-//! `WG14_SIGNALS_ABORT()` routes every internal `abort()` call (bad-argument
-//! and invariant-violation exits). An embedding libc whose `abort()` raises
-//! through this library must point this at its internal abort, which must
-//! not loop (it resets to `SIG_DFL` before re-raising).
-//!
-//! `WG14_SIGNALS_KILL_SELF(signo)` routes the self-delivery used to take a
-//! signal's default action (`SIG_DFL`: reset the disposition, re-deliver to
-//! this thread, restore the disposition). An embedding libc that does not
-//! provide `pthread_kill`/`pthread_self` must point this at its own
-//! thread-directed delivery (e.g. the `tgkill`/`gettid` syscall pair).
+/*! \brief Embedder override hooks (the "OS abstraction layer").
+
+ The POSIX backend calls, by name, the very functions an embedding
+ standard C library may itself be implementing on top of this library:
+ `sigaction()`, `abort()` and `pthread_kill(pthread_self(), ...)`. If
+ those calls resolve to the embedding library's public entrypoints, the
+ library recurses into itself (`sigaction()` calling `sigaction()`,
+ `raise()` calling `stdc_raise()`). Each hook below is a function-like
+ macro defaulting to the standard C/POSIX call; an embedding library
+ redefines the hook to its own internal function by defining the macro
+ before including this header (or on the compiler command line). The
+ replacement function must preserve the guarantees of the API whose
+ implementation it routes (see the ASYNC-SIGNAL-SAFE / THREADSAFE
+ documentation of the public API), and the hooks are `#undef`-safe: the
+ standalone build continues to use the defaults, so the same macro
+ expansion the embedder overrides is what the unmodified reference
+ implementation's own test suite exercises.
+
+ `WG14_SIGNALS_SIGACTION(signum, act, oldact)` routes every internal
+ `sigaction()` call (install the library's raw handler, query/restore a
+ previous disposition, reset to `SIG_DFL`). An embedding libc whose
+ `sigaction` entrypoint is the registry itself must point this at its
+ kernel-facing syscall wrapper.
+
+ `WG14_SIGNALS_ABORT()` routes every internal `abort()` call (bad-argument
+ and invariant-violation exits). An embedding libc whose `abort()` raises
+ through this library must point this at its internal abort, which must
+ not loop (it resets to `SIG_DFL` before re-raising).
+
+ `WG14_SIGNALS_KILL_SELF(signo)` routes the self-delivery used to take a
+ signal's default action (`SIG_DFL`: reset the disposition, re-deliver to
+ this thread, restore the disposition). An embedding libc that does not
+ provide `pthread_kill`/`pthread_self` must point this at its own
+ thread-directed delivery (e.g. the `tgkill`/`gettid` syscall pair).
+ */
 #ifndef WG14_SIGNALS_SIGACTION
 #define WG14_SIGNALS_SIGACTION(signum, act, oldact)                            \
   sigaction(signum, act, oldact)
@@ -218,16 +251,17 @@ WG14_SIGNALS_GETCONTEXT() hook directly. */
 #define WG14_SIGNALS_KILL_SELF(signo) pthread_kill(pthread_self(), (signo))
 #endif
 
-//! \brief `WG14_SIGNALS_RAISE_WITH_TOKEN(signo, sigval)` routes the
-//! token-carrying self-delivery used by `stdc_raise()`: `sigval.sival_ptr`
-//! carries the stack address of the raise record, so the raw handler can tell
-//! one raise of a signal apart from another (and from a foreign delivery of the
-//! same signal). On Linux the default is the POSIX backend's thread-directed
-//! `rt_tgsigqueueinfo` delivery; elsewhere it is `WG14_SIGNALS_KILL_SELF()`,
-//! which carries no token and makes the raw handler match by signal number
-//! alone. An embedding libc may point this at its own thread-directed,
-//! token-carrying delivery (e.g. the `rt_tgsigqueueinfo`/`tgkill` syscall
-//! pair). The replacement must be async-signal-safe.
+/*! \brief `WG14_SIGNALS_RAISE_WITH_TOKEN(signo, sigval)` routes the
+ token-carrying self-delivery used by `stdc_raise()`: `sigval.sival_ptr`
+ carries the stack address of the raise record, so the raw handler can tell
+ one raise of a signal apart from another (and from a foreign delivery of the
+ same signal). On Linux the default is the POSIX backend's thread-directed
+ `rt_tgsigqueueinfo` delivery; elsewhere it is `WG14_SIGNALS_KILL_SELF()`,
+ which carries no token and makes the raw handler match by signal number
+ alone. An embedding libc may point this at its own thread-directed,
+ token-carrying delivery (e.g. the `rt_tgsigqueueinfo`/`tgkill` syscall
+ pair). The replacement must be async-signal-safe.
+ */
 #ifndef WG14_SIGNALS_RAISE_WITH_TOKEN
 #if defined(__linux__)
 #define WG14_SIGNALS_RAISE_WITH_TOKEN(signo, sigval)                           \
@@ -238,76 +272,81 @@ WG14_SIGNALS_GETCONTEXT() hook directly. */
 #endif
 #endif
 
-//! \brief `WG14_SIGNALS_RAISE_EXCEPTION(code, flags, nargs, args)` routes the
-//! Win32 structured-exception delivery used by the Windows backend: the
-//! Windows counterpart of `WG14_SIGNALS_RAISE_WITH_TOKEN()`. The default is
-//! `RaiseException(code, flags, nargs, args)` (kernel32). Unlike the other
-//! hooks this routes a Win32 API rather than a C-library function, because a
-//! standard C library embedded on Windows may not be the UCRT (legacy
-//! `msvcrt.dll`, ReactOS, Cygwin/MSYS, a from-scratch libc) and may itself
-//! implement or need to redirect SEH delivery. The replacement must deliver a
-//! non-continuable exception when `EXCEPTION_NONCONTINUABLE` is set in `flags`
-//! and must not return in that case; it runs while a WG14 raise frame is
-//! pushed, so it must deliver a record of the shape `win32_raise_impl` builds
-//! (the appended raw_context parameter and the raise-initiated snapshot).
+/*! \brief `WG14_SIGNALS_RAISE_EXCEPTION(code, flags, nargs, args)` routes the
+ Win32 structured-exception delivery used by the Windows backend: the
+ Windows counterpart of `WG14_SIGNALS_RAISE_WITH_TOKEN()`. The default is
+ `RaiseException(code, flags, nargs, args)` (kernel32). Unlike the other
+ hooks this routes a Win32 API rather than a C-library function, because a
+ standard C library embedded on Windows may not be the UCRT (legacy
+ `msvcrt.dll`, ReactOS, Cygwin/MSYS, a from-scratch libc) and may itself
+ implement or need to redirect SEH delivery. The replacement must deliver a
+ non-continuable exception when `EXCEPTION_NONCONTINUABLE` is set in `flags`
+ and must not return in that case; it runs while a WG14 raise frame is
+ pushed, so it must deliver a record of the shape `win32_raise_impl` builds
+ (the appended raw_context parameter and the raise-initiated snapshot).
+ */
 #ifndef WG14_SIGNALS_RAISE_EXCEPTION
 #define WG14_SIGNALS_RAISE_EXCEPTION(code, flags, nargs, args)                 \
   RaiseException((code), (flags), (nargs), (args))
 #endif
 
-//! \brief `WG14_SIGNALS_GETPID()` routes the calling-process-id query used by
-//! the default Linux body of `WG14_SIGNALS_RAISE_WITH_TOKEN()` (its
-//! thread-directed `rt_tgsigqueueinfo` self-delivery needs the caller's pid).
-//! It is only reached when that hook is left at its default, so an embedding
-//! libc that replaces `WG14_SIGNALS_RAISE_WITH_TOKEN()` wholesale never needs
-//! it; an embedding libc that keeps the default but has no `getpid()`
-//! entrypoint (or must bind it internally) points this at its own query. The
-//! replacement must be async-signal-safe and thread-safe (it runs inside
-//! signal handlers).
+/*! \brief `WG14_SIGNALS_GETPID()` routes the calling-process-id query used by
+ the default Linux body of `WG14_SIGNALS_RAISE_WITH_TOKEN()` (its
+ thread-directed `rt_tgsigqueueinfo` self-delivery needs the caller's pid).
+ It is only reached when that hook is left at its default, so an embedding
+ libc that replaces `WG14_SIGNALS_RAISE_WITH_TOKEN()` wholesale never needs
+ it; an embedding libc that keeps the default but has no `getpid()`
+ entrypoint (or must bind it internally) points this at its own query. The
+ replacement must be async-signal-safe and thread-safe (it runs inside
+ signal handlers).
+ */
 #ifndef WG14_SIGNALS_GETPID
 #define WG14_SIGNALS_GETPID() getpid()
 #endif
 
-//! \brief `WG14_SIGNALS_GETCONTEXT(uc)` routes the calling-frame capture used
-//! to construct the implementation-defined default `raw_context` for a NULL
-//! argument to `sighandle()`/`stdc_raise()` (N3924 7.14.2.9 p8,
-//! 7.14.2.10 p6). The default is POSIX `getcontext()`, which is not in the
-//! async-signal-safe set but is only reached on the NULL-context path (that
-//! path is "usually" async-signal-safe at best). An embedding standard C
-//! library that does not provide `getcontext()` on some target (e.g.
-//! LLVM-libc, whose `getcontext()` exists only on x86_64) must point this at
-//! its own capture, writing a context object representing the calling stack
-//! frame into `uc`. This hook is not used on macOS: there the backend captures
-//! the frame from compiler builtins instead, because `getcontext()` is
-//! deprecated and broken on arm64.
+/*! \brief `WG14_SIGNALS_GETCONTEXT(uc)` routes the calling-frame capture used
+ to construct the implementation-defined default `raw_context` for a NULL
+ argument to `sighandle()`/`stdc_raise()` (N3924 7.14.2.9 p8,
+ 7.14.2.10 p6). The default is POSIX `getcontext()`, which is not in the
+ async-signal-safe set but is only reached on the NULL-context path (that
+ path is "usually" async-signal-safe at best). An embedding standard C
+ library that does not provide `getcontext()` on some target (e.g.
+ LLVM-libc, whose `getcontext()` exists only on x86_64) must point this at
+ its own capture, writing a context object representing the calling stack
+ frame into `uc`. This hook is not used on macOS: there the backend captures
+ the frame from compiler builtins instead, because `getcontext()` is
+ deprecated and broken on arm64.
+ */
 #ifndef WG14_SIGNALS_GETCONTEXT
 #define WG14_SIGNALS_GETCONTEXT(uc) getcontext(uc)
 #endif
 
-//! \brief `WG14_SIGNALS_GETTID()` routes the thread-id query used by
-//! `current_thread_id()` on Linux. An embedding standard C library that does
-//! not expose `syscall()` under that name (e.g. LLVM-libc, whose generated
-//! `<unistd.h>` declares the fixed-arity `__llvm_libc_syscall` instead) must
-//! point this at its own kernel-facing thread-id query (e.g. the
-//! `SYS_gettid` syscall). The default is the standard `syscall(SYS_gettid)`.
-//! The replacement must be async-signal-safe and thread-safe (it runs inside
-//! signal handlers).
+/*! \brief `WG14_SIGNALS_GETTID()` routes the thread-id query used by
+ `current_thread_id()` on Linux. An embedding standard C library that does
+ not expose `syscall()` under that name (e.g. LLVM-libc, whose generated
+ `<unistd.h>` declares the fixed-arity `__llvm_libc_syscall` instead) must
+ point this at its own kernel-facing thread-id query (e.g. the
+ `SYS_gettid` syscall). The default is the standard `syscall(SYS_gettid)`.
+ The replacement must be async-signal-safe and thread-safe (it runs inside
+ signal handlers).
+ */
 #ifndef WG14_SIGNALS_GETTID
 #define WG14_SIGNALS_GETTID() syscall(SYS_gettid)
 #endif
 
-//! \brief Embedder override hooks for the remaining host calls (the
-//! "OS abstraction layer" call-site families, part 2).
-//!
-//! Besides sigaction/abort/pthread_kill(pthread_self(), ...)/gettid, the
-//! POSIX backend calls the C library's memory, sigset, setjmp and
-//! pthread-key functions by name. An embedding standard C library whose
-//! public entrypoints are the very registry being replaced (or whose
-//! internal build provides only C++-linkage symbols for them, as
-//! LLVM-libc's hermetic test builds do) must route these calls through its
-//! own layer too; each hook below defaults to the standard call and is
-//! #undef-safe. The replacements must preserve the guarantees of the
-//! ASYNC-SIGNAL-SAFE / THREADSAFE APIs whose implementation they route.
+/*! \brief Embedder override hooks for the remaining host calls (the
+ "OS abstraction layer" call-site families, part 2).
+
+ Besides sigaction/abort/pthread_kill(pthread_self(), ...)/gettid, the
+ POSIX backend calls the C library's memory, sigset, setjmp and
+ pthread-key functions by name. An embedding standard C library whose
+ public entrypoints are the very registry being replaced (or whose
+ internal build provides only C++-linkage symbols for them, as
+ LLVM-libc's hermetic test builds do) must route these calls through its
+ own layer too; each hook below defaults to the standard call and is
+ #undef-safe. The replacements must preserve the guarantees of the
+ ASYNC-SIGNAL-SAFE / THREADSAFE APIs whose implementation they route.
+ */
 #ifndef WG14_SIGNALS_MEMCPY
 #define WG14_SIGNALS_MEMCPY(dest, src, n) memcpy((dest), (src), (n))
 #endif
@@ -353,11 +392,12 @@ WG14_SIGNALS_GETCONTEXT() hook directly. */
 #define WG14_SIGNALS_PTHREAD_GETSPECIFIC(key) pthread_getspecific(key)
 #endif
 #ifndef WG14_SIGNALS_SETJMP
-// The _setjmp()/_longjmp() pair skips the signal mask (and so is preferred on
-// the POSIX backends), but the MSVC CRT does not link _longjmp (the build's
-// _setjmp probe passes on _setjmp alone yet the pair fails at link time:
-// LNK2019 unresolved external symbol _longjmp), so Windows uses the portable
-// setjmp()/longjmp() pair.
+/* The _setjmp()/_longjmp() pair skips the signal mask (and so is preferred on
+ the POSIX backends), but the MSVC CRT does not link _longjmp (the build's
+ _setjmp probe passes on _setjmp alone yet the pair fails at link time:
+ LNK2019 unresolved external symbol _longjmp), so Windows uses the portable
+ setjmp()/longjmp() pair.
+ */
 #if WG14_SIGNALS_HAVE__SETJMP && !defined(_WIN32)
 #define WG14_SIGNALS_SETJMP(buf) _setjmp(buf)
 #else

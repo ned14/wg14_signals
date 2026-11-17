@@ -27,7 +27,8 @@ extern "C"
 {
 #endif
 
-  //! \brief The type of an async signal safe thread local
+  /*! \brief The type of an async signal safe thread local
+   */
   typedef struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *
   WG14_SIGNALS_PREFIX(tss_async_signal_safe_t);
 
@@ -39,24 +40,26 @@ extern "C"
   */
   struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)
   {
-    //! Create an instance. THREADSAFE REENTRANT
-    //!
-    //! Invoked with a pointer to a `void *` object. The callback shall store in
-    //! that object a pointer to the thread-specific storage it creates and
-    //! return zero on success or a nonzero value on failure. On success the
-    //! stored pointer shall not be a null pointer; on failure the callback is
-    //! responsible for releasing any storage it allocated. The implementation
-    //! uses the stored pointer as the thread-specific storage pointer for the
-    //! calling thread (N3924 7.30.1 p6).
+    /* Create an instance. THREADSAFE REENTRANT
+
+     Invoked with a pointer to a `void *` object. The callback shall store in
+     that object a pointer to the thread-specific storage it creates and
+     return zero on success or a nonzero value on failure. On success the
+     stored pointer shall not be a null pointer; on failure the callback is
+     responsible for releasing any storage it allocated. The implementation
+     uses the stored pointer as the thread-specific storage pointer for the
+     calling thread (N3924 7.30.1 p6).
+     */
     int (*const create)(void **dest);
-    //! Destroy an instance. THREADSAFE REENTRANT
-    //!
-    //! Invoked with the thread-specific storage pointer created by the
-    //! corresponding call of `create`. The callback shall release the storage
-    //! and return zero on success or a nonzero value on failure.
-    //! `tss_async_signal_safe_destroy()` returns `thrd_error` if any call of
-    //! this callback returns a nonzero value, and `thrd_success` otherwise
-    //! (N3924 7.30.1 p7).
+    /* Destroy an instance. THREADSAFE REENTRANT
+
+     Invoked with the thread-specific storage pointer created by the
+     corresponding call of `create`. The callback shall release the storage
+     and return zero on success or a nonzero value on failure.
+     `tss_async_signal_safe_destroy()` returns `thrd_error` if any call of
+     this callback returns a nonzero value, and `thrd_success` otherwise
+     (N3924 7.30.1 p7).
+     */
     int (*const destroy)(void *v);
   };
 
@@ -70,21 +73,22 @@ extern "C"
   WG14_SIGNALS_PREFIX(tss_async_signal_safe_t) * val,
   const struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr) * attr);
 
-  //! \brief Destroy an async signal safe thread local instance
-  //!
-  //! All threads that initialised this instance must have exited (e.g. been
-  //! joined) before this is called: a thread's exit-time deinitialisation
-  //! handler may still access the instance otherwise.
-  //!
-  //! Calling this function twice on the same value is undefined behaviour: the
-  //! value is left dangling after this returns, and this reference
-  //! implementation deliberately does not guard against its reuse (the C11
-  //! `tss_delete` / POSIX `pthread_key_delete` contract likewise leaves a
-  //! second deletion undefined; plans/analysis.md `TSSD`). Zero the value
-  //! after destroying it if it might be destroyed again.
-  //!
-  //! \return `thrd_success` if every `destroy` callback invoked by this call
-  //! returns zero, and `thrd_error` otherwise (N3924 7.30.6.6 p4).
+  /*! \brief Destroy an async signal safe thread local instance
+
+   All threads that initialised this instance must have exited (e.g. been
+   joined) before this is called: a thread's exit-time deinitialisation
+   handler may still access the instance otherwise.
+
+   Calling this function twice on the same value is undefined behaviour: the
+   value is left dangling after this returns, and this reference
+   implementation deliberately does not guard against its reuse (the C11
+   `tss_delete` / POSIX `pthread_key_delete` contract likewise leaves a
+   second deletion undefined; plans/analysis.md `TSSD`). Zero the value
+   after destroying it if it might be destroyed again.
+
+   \return `thrd_success` if every `destroy` callback invoked by this call
+   returns zero, and `thrd_error` otherwise (N3924 7.30.6.6 p4).
+   */
   WG14_SIGNALS_EXTERN int WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(
   WG14_SIGNALS_PREFIX(tss_async_signal_safe_t) val);
 
