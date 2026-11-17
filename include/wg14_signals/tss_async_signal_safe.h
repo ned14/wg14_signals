@@ -109,8 +109,24 @@ extern "C"
   WG14_SIGNALS_PREFIX(tss_async_signal_safe_t) val);
 
   /*! \brief THREADSAFE ASYNC-SIGNAL-SAFE Get the thread local value for the
-   * current thread.
-   */
+  current thread.
+
+  `tss_async_signal_safe_thread_init()` (7.30.6.7) shall have been called on the
+  same thread for the instance identified by `val` and returned `thrd_success`,
+  in which case the thread-specific storage pointer created for that instance is
+  returned; otherwise the behavior is undefined (N3924 7.30.6.8 p3).
+
+  \return The thread-specific storage pointer for the calling thread for the
+  instance identified by `val`.
+
+  \note The function is async-signal-safe and the pointer it returns is usable
+  during signal handling, but the values stored in that storage are not thereby
+  made async-signal-safe. Access to those values from a signal handler or
+  signal decider is subject to 5.2.2.4; in particular, a value is preserved only
+  if it is a lock-free atomic object, an object of type `volatile
+  sig_atomic_t`, or an object protected by a `sigfence` call as specified in
+  that subclause (N3924 7.30.6.8 p5).
+  */
   WG14_SIGNALS_EXTERN void *WG14_SIGNALS_PREFIX(tss_async_signal_safe_get)(
   WG14_SIGNALS_PREFIX(tss_async_signal_safe_t) val);
 
