@@ -230,6 +230,27 @@ add_test(NAME header_only_build_test
                  -P "${CMAKE_CURRENT_SOURCE_DIR}/header_only_build_test.cmake")
 set_tests_properties(header_only_build_test PROPERTIES TIMEOUT 600)
 
+# Compile-only regression test for the public-header language-mode contract:
+# include/wg14_signals/*.h (not detail/) must keep compiling in C89 and C++98
+# as well as C11/C++11. MSVC has no -std=c89/c++98 switches, and clang-cl
+# simulates MSVC, so run this only for GCC/Clang front-ends. Skip Fil-C too:
+# its language dialect and private sysroot are not ISO C89/C++98 compilers,
+# and this test invokes the compiler without the Fil-C-specific flags.
+if((CMAKE_C_COMPILER_ID MATCHES "GNU|Clang") AND
+   (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang") AND NOT MSVC AND
+   NOT (CMAKE_C_SIMULATE_ID STREQUAL "MSVC") AND
+   NOT (CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC") AND
+   NOT (CMAKE_TOOLCHAIN_FILE MATCHES "filc") AND
+   NOT (CMAKE_C_FLAGS MATCHES "__FILC__"))
+  add_test(NAME public_headers_modes_test
+           COMMAND ${CMAKE_COMMAND}
+                   "-DSRC_DIR=${PROJECT_SOURCE_DIR}"
+                   "-DC_COMPILER=${CMAKE_C_COMPILER}"
+                   "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}"
+                   -P "${CMAKE_CURRENT_SOURCE_DIR}/public_headers_modes_test.cmake")
+  set_tests_properties(public_headers_modes_test PROPERTIES TIMEOUT 120)
+endif()
+
 # Multi-TU C header-only consumer (analysis.md Y10): three C TUs each defining
 # WG14_SIGNALS_ENABLE_HEADER_ONLY, linked without the library.
 add_executable(header_only_c_multi_test
