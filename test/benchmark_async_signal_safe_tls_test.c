@@ -32,9 +32,9 @@ int main(void)
   int ret = 0;
   struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)
   attr = {.create = create, .destroy = destroy};
-  CHECK(-1 !=
+  CHECK(thrd_success ==
         WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(&shared.tls, &attr));
-  CHECK(-1 !=
+  CHECK(thrd_success ==
         WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(shared.tls));
   {
     volatile unsigned *val =
@@ -78,7 +78,8 @@ int main(void)
                                              "takes %f nanoseconds.\n\n",
   (double) ticks / ((double) ticks_per_sec / 1000000000.0) / (double) ops);
 
-  CHECK(-1 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(shared.tls));
+  CHECK(thrd_success ==
+        WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(shared.tls));
   printf("Exiting main with result %d ...\n", ret);
   return ret;
 }

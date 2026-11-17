@@ -59,7 +59,7 @@ static int worker_thr(void *unused)
   (void) unused;
   const int init_ret = TSS_THREAD_INIT(g_tls);
   atomic_store_explicit(&worker_ready, 1, memory_order_release);
-  if(init_ret != 0)
+  if(init_ret != thrd_success)
   {
     return -1;
   }
@@ -78,8 +78,8 @@ int main(void)
   atomic_store_explicit(&worker_ready, 0, memory_order_relaxed);
   atomic_store_explicit(&destroy_done, 0, memory_order_relaxed);
   struct TSS_ATTR attr = {.create = create_cb, .destroy = destroy_cb};
-  CHECK(0 == TSS_CREATE(&g_tls, &attr));
-  CHECK(0 == TSS_THREAD_INIT(g_tls));
+  CHECK(thrd_success == TSS_CREATE(&g_tls, &attr));
+  CHECK(thrd_success == TSS_THREAD_INIT(g_tls));
   unsigned *main_val = (unsigned *) TSS_GET(g_tls);
   CHECK(main_val != WG14_SIGNALS_NULLPTR);
   CHECK(*main_val == 42);
@@ -95,7 +95,7 @@ int main(void)
   }
   // Two entries are live; destroy runs both attr.destroy callbacks with the
   // lock released, and each callback re-enters get() on the same handle.
-  CHECK(0 == TSS_DESTROY(g_tls));
+  CHECK(thrd_success == TSS_DESTROY(g_tls));
   CHECK(destroy_calls == 2);
   CHECK(get_never_returned_being_destroyed);
   atomic_store_explicit(&destroy_done, 1, memory_order_release);

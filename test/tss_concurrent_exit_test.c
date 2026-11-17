@@ -32,7 +32,7 @@ static int destroy_cb(void *v)
 static int thr_init_exit(void *unused)
 {
   (void) unused;
-  if(TSS_THREAD_INIT(tls) != 0)
+  if(TSS_THREAD_INIT(tls) != thrd_success)
   {
     return -1;
   }
@@ -49,7 +49,7 @@ static int thr_init_barrier_exit(void *unused)
 {
   (void) unused;
   atomic_fetch_add_explicit(&concurrent_exit_barrier, 1, memory_order_relaxed);
-  if(TSS_THREAD_INIT(tls) != 0)
+  if(TSS_THREAD_INIT(tls) != thrd_success)
   {
     return -1;
   }
@@ -76,7 +76,7 @@ static int test_reinit_and_destroy_after_all_exited(void)
   struct TSS_ATTR attr = {.create = create_cb, .destroy = destroy_cb};
   thrd_t t1, t2;
   int res = 0;
-  CHECK(0 == TSS_CREATE(&tls, &attr));
+  CHECK(thrd_success == TSS_CREATE(&tls, &attr));
   // Compare against thrd_success, not the literal 0: glibc defines thrd_success
   // as 0 but FreeBSD's <threads.h> defines it as 4 (thrd_create returns it on
   // success), so "0 == thrd_create(...)" fails on FreeBSD even when the thread
@@ -89,7 +89,7 @@ static int test_reinit_and_destroy_after_all_exited(void)
   thrd_join(t2, &res);
   CHECK(res == 0);
   // Destroy after the last registered thread exited (X2).
-  CHECK(0 == TSS_DESTROY(tls));
+  CHECK(thrd_success == TSS_DESTROY(tls));
   return ret;
 }
 
@@ -107,7 +107,7 @@ static int test_concurrent_exit(void)
     atomic_store_explicit(&concurrent_exit_barrier, 0, memory_order_relaxed);
     thrd_t a, b;
     int res = 0;
-    CHECK(0 == TSS_CREATE(&tls, &attr));
+    CHECK(thrd_success == TSS_CREATE(&tls, &attr));
     // Compare against thrd_success: on FreeBSD thrd_create returns thrd_success
     // (= 4) rather than 0, so "!= 0" would misreport success as failure.
     if(thrd_create(&a, thr_init_barrier_exit, WG14_SIGNALS_NULLPTR) !=
@@ -127,7 +127,7 @@ static int test_concurrent_exit(void)
     thrd_join(a, &res);
     thrd_join(b, &res);
     CHECK(res == 0);
-    CHECK(0 == TSS_DESTROY(tls));
+    CHECK(thrd_success == TSS_DESTROY(tls));
   }
   return ret;
 }

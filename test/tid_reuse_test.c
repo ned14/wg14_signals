@@ -68,14 +68,14 @@ static int test_generation_assignment(void)
   WG14_SIGNALS_PREFIX(tss_generation_cached) = 0;
   TSS tls = WG14_SIGNALS_NULLPTR;
   struct TSS_ATTR attr = {.create = create_cb, .destroy = destroy_cb};
-  CHECK(0 == TSS_CREATE(&tls, &attr));
-  CHECK(0 == TSS_THREAD_INIT(tls));
+  CHECK(thrd_success == TSS_CREATE(&tls, &attr));
+  CHECK(thrd_success == TSS_THREAD_INIT(tls));
   const WG14_SIGNALS_PREFIX(thread_id_t) generation =
   WG14_SIGNALS_PREFIX(tss_generation_cached);
   CHECK(generation != 0);
-  CHECK(0 == TSS_THREAD_INIT(tls));
+  CHECK(thrd_success == TSS_THREAD_INIT(tls));
   CHECK(WG14_SIGNALS_PREFIX(tss_generation_cached) == generation);
-  CHECK(0 == TSS_DESTROY(tls));
+  CHECK(thrd_success == TSS_DESTROY(tls));
   return ret;
 }
 
@@ -88,7 +88,7 @@ static int test_stale_entry_not_observed(void)
   WG14_SIGNALS_PREFIX(tss_generation_cached) = 1;
   TSS tls = WG14_SIGNALS_NULLPTR;
   struct TSS_ATTR attr = {.create = create_cb, .destroy = destroy_cb};
-  CHECK(0 == TSS_CREATE(&tls, &attr));
+  CHECK(thrd_success == TSS_CREATE(&tls, &attr));
   struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *mem =
   (struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s) *) tls;
 
@@ -120,7 +120,7 @@ static int test_stale_entry_not_observed(void)
 
   // thread_init() must create a fresh value for the new incarnation rather
   // than silently reuse the stale one.
-  CHECK(0 == TSS_THREAD_INIT(tls));
+  CHECK(thrd_success == TSS_THREAD_INIT(tls));
   unsigned *val = (unsigned *) TSS_GET(tls);
   CHECK(val != WG14_SIGNALS_NULLPTR);
   CHECK(val != stale_val);
@@ -128,7 +128,7 @@ static int test_stale_entry_not_observed(void)
 
   // destroy() sweeps both entries (the stale one and the live one), so no
   // value survives destroy.
-  CHECK(0 == TSS_DESTROY(tls));
+  CHECK(thrd_success == TSS_DESTROY(tls));
   return ret;
 }
 
@@ -138,7 +138,7 @@ static WG14_SIGNALS_PREFIX(thread_id_t) worker_generation;
 static int worker_thr(void *unused)
 {
   (void) unused;
-  if(TSS_THREAD_INIT(shared_tls) != 0)
+  if(TSS_THREAD_INIT(shared_tls) != thrd_success)
   {
     return -1;
   }
@@ -154,8 +154,8 @@ static int test_distinct_generations(void)
   int ret = 0;
   WG14_SIGNALS_PREFIX(tss_generation_cached) = 0;
   struct TSS_ATTR attr = {.create = create_cb, .destroy = destroy_cb};
-  CHECK(0 == TSS_CREATE(&shared_tls, &attr));
-  CHECK(0 == TSS_THREAD_INIT(shared_tls));
+  CHECK(thrd_success == TSS_CREATE(&shared_tls, &attr));
+  CHECK(thrd_success == TSS_THREAD_INIT(shared_tls));
   const WG14_SIGNALS_PREFIX(thread_id_t) main_generation =
   WG14_SIGNALS_PREFIX(tss_generation_cached);
   thrd_t thr;
@@ -166,7 +166,7 @@ static int test_distinct_generations(void)
   thrd_join(thr, &res);
   CHECK(res == 0);
   CHECK(worker_generation != main_generation);
-  CHECK(0 == TSS_DESTROY(shared_tls));
+  CHECK(thrd_success == TSS_DESTROY(shared_tls));
   return ret;
 }
 

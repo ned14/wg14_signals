@@ -28,13 +28,15 @@ int main(void)
   struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)
   attr = {tls_create, tls_destroy};
   WG14_SIGNALS_PREFIX(sighandle)(0, WG14_SIGNALS_NULLPTR, WG14_SIGNALS_NULLPTR);
-  if(0 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(&tls, &attr))
+  if(WG14_SIGNALS_THRD_SUCCESS !=
+     WG14_SIGNALS_PREFIX(tss_async_signal_safe_create)(&tls, &attr))
   {
     fprintf(stderr, "header_only_c_consumer: tss_async_signal_safe_create "
                     "failed\n");
     return 1;
   }
-  if(0 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(tls))
+  if(WG14_SIGNALS_THRD_SUCCESS !=
+     WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_init)(tls))
   {
     fprintf(stderr, "header_only_c_consumer: tss_async_signal_safe_thread_init "
                     "failed\n");
@@ -47,7 +49,8 @@ int main(void)
                     "returned NULL\n");
     return 1;
   }
-  if(0 != WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(tls))
+  if(WG14_SIGNALS_THRD_SUCCESS !=
+     WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(tls))
   {
     fprintf(stderr, "header_only_c_consumer: tss_async_signal_safe_destroy "
                     "failed\n");

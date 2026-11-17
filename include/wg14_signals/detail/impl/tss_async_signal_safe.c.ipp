@@ -31,6 +31,29 @@ limitations under the License.
 #include <stdlib.h>
 #include <string.h>
 
+// The TSS functions are specified to return thrd_success/thrd_error, whose
+// values are implementation-defined and differ between C libraries (FreeBSD
+// defines thrd_success as 4; musl and glibc do not agree on thrd_error). Use
+// the real constants where <threads.h> is available, and otherwise fall back
+// to the conventional 0/2 pair (matching the test harness for platforms such
+// as macOS that have no C11 threads header). An embedding C library may
+// override both with WG14_SIGNALS_THRD_SUCCESS/WG14_SIGNALS_THRD_ERROR.
+#ifndef WG14_SIGNALS_THRD_SUCCESS
+#if !(defined(__FILC__) && defined(__cplusplus))
+#if defined(__has_include)
+#if __has_include(<threads.h>)
+#include <threads.h>
+#define WG14_SIGNALS_THRD_SUCCESS thrd_success
+#define WG14_SIGNALS_THRD_ERROR thrd_error
+#endif
+#endif
+#endif
+#endif
+#ifndef WG14_SIGNALS_THRD_SUCCESS
+#define WG14_SIGNALS_THRD_SUCCESS 0
+#define WG14_SIGNALS_THRD_ERROR 2
+#endif
+
 #ifdef __cplusplus
 #include <atomic>
 extern "C"
@@ -169,13 +192,13 @@ WG14_SIGNALS_THREAD_LOCAL
     1, sizeof(struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_s)));
     if(mem == WG14_SIGNALS_NULLPTR)
     {
-      return -1;
+      return WG14_SIGNALS_THRD_ERROR;
     }
     WG14_SIGNALS_MEMCPY(&mem->attr, attr, sizeof(mem->attr));
     WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_init)
     (&mem->thread_id_to_tls_map);
     *val = mem;
-    return 0;
+    return WG14_SIGNALS_THRD_SUCCESS;
   }
 
   int WG14_SIGNALS_PREFIX(tss_async_signal_safe_destroy)(
@@ -215,7 +238,7 @@ WG14_SIGNALS_THREAD_LOCAL
     (&mem->thread_id_to_tls_map);
     UNLOCK(mem->lock);
     WG14_SIGNALS_FREE(mem);
-    return 0;
+    return WG14_SIGNALS_THRD_SUCCESS;
   }
 
   static int WG14_SIGNALS_PREFIX(tss_async_signal_safe_thread_deinit)(
@@ -286,7 +309,7 @@ WG14_SIGNALS_THREAD_LOCAL
     WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_itr)
     it = WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_get)(
     &mem->thread_id_to_tls_map, mytid);
-    int res = 0;
+    int res = WG14_SIGNALS_THRD_SUCCESS;
     if(WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_is_end)(it))
     {
       UNLOCK(mem->lock);
@@ -294,8 +317,9 @@ WG14_SIGNALS_THREAD_LOCAL
       int ret = mem->attr.create(&newitem);
       if(ret != 0)
       {
-        // The create callback reported failure; propagate its error code.
-        return ret;
+        // The create callback reported failure; report thrd_error. The callback
+        // is responsible for releasing any storage it allocated.
+        return WG14_SIGNALS_THRD_ERROR;
       }
       if(newitem == WG14_SIGNALS_NULLPTR)
       {
@@ -304,7 +328,7 @@ WG14_SIGNALS_THREAD_LOCAL
         // and a later get() on this thread would return NULL indistinguishably
         // (plans/analysis.md 2.5). Report failure explicitly.
         errno = EINVAL;
-        return -1;
+        return WG14_SIGNALS_THRD_ERROR;
       }
       LOCK(mem->lock);
       it = WG14_SIGNALS_PREFIX(thread_id_to_tls_map_t_insert)(
@@ -314,7 +338,7 @@ WG14_SIGNALS_THREAD_LOCAL
         UNLOCK(mem->lock);
         mem->attr.destroy(newitem);
         errno = ENOMEM;
-        return -1;
+        return WG14_SIGNALS_THRD_ERROR;
       }
       if(mem->state == WG14_SIGNALS_NULLPTR)
       {
@@ -328,7 +352,7 @@ WG14_SIGNALS_THREAD_LOCAL
           UNLOCK(mem->lock);
           mem->attr.destroy(newitem);
           errno = ENOMEM;
-          return -1;
+          return WG14_SIGNALS_THRD_ERROR;
         }
         mem->state->val = val;
       }
@@ -338,7 +362,7 @@ WG14_SIGNALS_THREAD_LOCAL
       void (*func)(void *) = (void (*)(void *))(uintptr_t) WG14_SIGNALS_PREFIX(
       tss_async_signal_safe_thread_deinit);
       res = WG14_SIGNALS_PREFIX(thread_atexit)(func, mem->state);
-      return res;
+      return (res == 0) ? WG14_SIGNALS_THRD_SUCCESS : WG14_SIGNALS_THRD_ERROR;
     }
     UNLOCK(mem->lock);
     return res;
