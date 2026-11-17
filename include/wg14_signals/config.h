@@ -27,6 +27,19 @@ limitations under the License.
 #define WG14_SIGNALS_PREFIX(x) x
 #endif
 
+/* The C++ language version. MSVC leaves __cplusplus at 199711L unless
+   /Zc:__cplusplus is passed, and reports the real version in _MSVC_LANG, so
+   the C++11 feature guards below must consult that first. */
+#ifndef WG14_SIGNALS_CPLUSPLUS
+#if defined(__cplusplus) && defined(_MSVC_LANG)
+#define WG14_SIGNALS_CPLUSPLUS _MSVC_LANG
+#elif defined(__cplusplus)
+#define WG14_SIGNALS_CPLUSPLUS __cplusplus
+#else
+#define WG14_SIGNALS_CPLUSPLUS 0
+#endif
+#endif
+
 #ifndef WG14_SIGNALS_INLINE
 #if defined(__cplusplus) ||                                                    \
 (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L)
@@ -50,7 +63,7 @@ limitations under the License.
  C++98/03, where neither spelling is available.
  */
 #ifndef WG14_SIGNALS_STATIC_ASSERT
-#if defined(__cplusplus) && __cplusplus >= 201103L
+#if WG14_SIGNALS_CPLUSPLUS >= 201103L
 #define WG14_SIGNALS_STATIC_ASSERT(cond, msg) static_assert((cond), msg)
 #elif !defined(__cplusplus) && defined(__STDC_VERSION__) &&                    \
 (__STDC_VERSION__ >= 201112L)
@@ -61,7 +74,7 @@ limitations under the License.
 #endif
 
 #ifndef WG14_SIGNALS_THREAD_LOCAL
-#if defined(__cplusplus) && __cplusplus >= 201103L
+#if WG14_SIGNALS_CPLUSPLUS >= 201103L
 #define WG14_SIGNALS_THREAD_LOCAL thread_local
 #elif !defined(__cplusplus) && defined(__STDC_VERSION__) &&                    \
 (__STDC_VERSION__ >= 201112L)
@@ -123,7 +136,7 @@ WG14_SIGNALS_GETCONTEXT() hook directly. */
 #endif
 
 #ifndef WG14_SIGNALS_NULLPTR
-#if (defined(__cplusplus) && __cplusplus >= 201103L) ||                        \
+#if (WG14_SIGNALS_CPLUSPLUS >= 201103L) ||                                     \
 (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202300L)
 #define WG14_SIGNALS_NULLPTR nullptr
 #else
@@ -141,7 +154,7 @@ WG14_SIGNALS_GETCONTEXT() hook directly. */
  'constexpr'" (cppreference.com/c/compiler_support/23).
  */
 #ifndef WG14_SIGNALS_C23_CONSTEXPR_OR_CONST
-#if (defined(__cplusplus) && __cplusplus >= 201103L) ||                        \
+#if (WG14_SIGNALS_CPLUSPLUS >= 201103L) ||                                     \
 ((defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L) &&                 \
  ((defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 13) ||              \
   (defined(__clang__) && __clang_major__ >= 19) ||                             \

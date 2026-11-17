@@ -247,6 +247,7 @@ if((CMAKE_C_COMPILER_ID MATCHES "GNU|Clang") AND
                    "-DSRC_DIR=${PROJECT_SOURCE_DIR}"
                    "-DC_COMPILER=${CMAKE_C_COMPILER}"
                    "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}"
+                   "-DFEATURE_TEST_DEFS=${_ftm_choice}"
                    -P "${CMAKE_CURRENT_SOURCE_DIR}/public_headers_modes_test.cmake")
   set_tests_properties(public_headers_modes_test PROPERTIES TIMEOUT 120)
 endif()

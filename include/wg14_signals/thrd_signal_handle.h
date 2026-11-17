@@ -199,7 +199,7 @@ extern "C"
    non-__VA_OPT__ fallback counting also handles, so the assert is valid on
    every supported compiler, including MSVC C++14/17.)
    */
-#if (defined(__cplusplus) && __cplusplus >= 201103L) ||                        \
+#if (WG14_SIGNALS_CPLUSPLUS >= 201103L) ||                                     \
 (!defined(__cplusplus) && defined(__STDC_VERSION__) &&                         \
  (__STDC_VERSION__ >= 201112L))
   WG14_SIGNALS_STATIC_ASSERT(
@@ -384,7 +384,7 @@ extern "C"
   {
     intptr_t int_value;
     void *ptr_value;
-#if defined(__cplusplus) && __cplusplus >= 201103L
+#if WG14_SIGNALS_CPLUSPLUS >= 201103L
     constexpr WG14_SIGNALS_PREFIX(stdc_siginfo_value)()
         : int_value(0)
     {
@@ -419,7 +419,7 @@ extern "C"
   defined so the `.ipp` implementation still compiles in the disabled case.
   */
 #if !defined(WG14_SIGNALS_DISABLE_SIGGUARDED_FAILURE_VALUE)
-#if defined(__cplusplus) && __cplusplus >= 201103L
+#if WG14_SIGNALS_CPLUSPLUS >= 201103L
   constexpr WG14_SIGNALS_PREFIX(stdc_siginfo_value)
   WG14_SIGNALS_PREFIX(sigguarded_failure_value_object){-99};
 #else

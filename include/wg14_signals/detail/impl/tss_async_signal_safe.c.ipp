@@ -39,7 +39,13 @@ limitations under the License.
 // as macOS that have no C11 threads header). An embedding C library may
 // override both with WG14_SIGNALS_THRD_SUCCESS/WG14_SIGNALS_THRD_ERROR.
 #ifndef WG14_SIGNALS_THRD_SUCCESS
-#if !(defined(__FILC__) && defined(__cplusplus))
+#if defined(thrd_success) && defined(thrd_error)
+// A test harness (notably glibc under TSan) may define its own thrd_* macros
+// before including this .ipp. Use those: including <threads.h> here would make
+// its enum declaration collide with the macros.
+#define WG14_SIGNALS_THRD_SUCCESS thrd_success
+#define WG14_SIGNALS_THRD_ERROR thrd_error
+#elif !(defined(__FILC__) && defined(__cplusplus))
 #if defined(__has_include)
 #if __has_include(<threads.h>)
 #include <threads.h>

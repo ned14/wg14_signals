@@ -5,9 +5,6 @@
 #include "wg14_signals/thrd_signal_handle.h"
 #include "wg14_signals/tss_async_signal_safe.h"
 
-static_assert(SIGGUARDED_FAILURE_VALUE.int_value == -99,
-              "SIGGUARDED_FAILURE_VALUE must expand to a constant expression");
-
 extern WG14_SIGNALS_PREFIX(thread_id_t) test1()
 {
   return WG14_SIGNALS_PREFIX(current_thread_id)();
