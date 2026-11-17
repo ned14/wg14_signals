@@ -40,7 +40,7 @@ extern "C"
   */
   struct WG14_SIGNALS_PREFIX(tss_async_signal_safe_attr)
   {
-    /* Create an instance. THREADSAFE REENTRANT
+    /*! \brief Create an instance. THREADSAFE REENTRANT
 
      Invoked with a pointer to a `void *` object. The callback shall store in
      that object a pointer to the thread-specific storage it creates and
@@ -51,7 +51,7 @@ extern "C"
      calling thread (N3924 7.30.1 p6).
      */
     int (*const create)(void **dest);
-    /* Destroy an instance. THREADSAFE REENTRANT
+    /*! \brief Destroy an instance. THREADSAFE REENTRANT
 
      Invoked with the thread-specific storage pointer created by the
      corresponding call of `create`. The callback shall release the storage
