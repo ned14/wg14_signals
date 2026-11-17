@@ -2,7 +2,7 @@
 
 Scope: all headers and sources, both backends (POSIX/Windows), the header-only
 configuration, both TLS paths, all error paths, and all build configurations exercised
-and *not* exercised by CI; reviewed against the vendored N3924 rev 4 wording
+and *not* exercised by CI; reviewed against the vendored revision 6 wording
 (`docs/proposed-wording.md`).
 
 Findings are listed in priority order (rationale in §4), fixable first, adjudicated
@@ -45,6 +45,17 @@ is the deviation), `TSSG` (destroy half resolved by rev-5 7.30.6.6 p3), `GDIR`
 async-signal-safe), `SFNK` (rev-5 5.2.2.4 p7 guarantee rests on a QoI assumption on the
 fallback), and the §3 minor-conformance notes. (`RAIS`, `HNDF`, `ACTV` and `IGND` were
 subsequently removed by the 2026-09-12 wording alignment recorded above.)
+
+On 2026-11-17 the vendored wording was synchronised to revision 6
+(`docs/proposed-wording.md`) and the implementation was brought into line with it:
+`SIGGUARDED_FAILURE_VALUE` is now a macro expanding to an expression rather than a
+`constexpr`/`const` object (7.14.1 p21); the TSS APIs return
+`thrd_success`/`thrd_error`; `tss_async_signal_safe_destroy` aggregates nonzero
+`destroy` callback results; `tss_async_signal_safe_thread_init` rolls back the map
+entry and deinit state and invokes `destroy` when `thread_atexit` fails; and the TSS
+callback contracts, the `get` precondition and 5.2.2.4 note, `siginstall`'s
+silently-not-installed set, and the mandatory `sigdecider_abandon` rule are now
+documented. `TAFL` and `TSSG` are therefore removed (fixed).
 
 On 2026-09-12 the 7.14.2.9 `sighandle` description was refined to match what the
 implementation actually does once integrated into glibc and LLVM libc: it invokes
@@ -483,29 +494,6 @@ thread-safe and reentrant, so the unlocked call window is a user contract rather
 implementation defect; the double-create leak in facet 2 remains an implementation issue
 for user functions that do not satisfy the contract.
 
-### `TSSG` [docs/API contract, both backends, Low] `tss_async_signal_safe_get`'s header omits the wording's precondition (destroy half resolved by rev-5)
-
-**Rev-5 amendment (2026-08-19):** the destroy half is resolved — rev-5
-7.30.6.6 p3 now states exactly what the implementation's header requires: "It
-is undefined behavior if this function is called while any thread that has
-called the `tss_async_signal_safe_thread_init` function for this instance has
-not yet exited." The implementation's documented precondition
-(`tss_async_signal_safe.h:46-52`) therefore matches the wording, and the
-"stricter than the wording" half of this finding no longer applies (the
-implementation's inability to destroy live threads' pointers safely — the
-`DEIN` race — is now inside the wording's UB). The `get` half remains open,
-re-verified below.
-
-The wording requires `tss_async_signal_safe_get()`: `tss_async_signal_safe_thread_init()`
-"shall have been called on the same thread for the instance identified by `val`... otherwise the behavior is
-undefined." The implementation returns NULL for an uninitialised thread
-(`tss_async_signal_safe.c.ipp:273-290`) — a defined, benignly stronger behaviour — but the
-header (`tss_async_signal_safe.h:68-72`) documents neither the precondition nor the NULL
-fallback, so the "ASYNC-SIGNAL-SAFE" claim is asserted for a function whose first call per
-thread performs the `my_current_thread_id()` cache fill (`MAST`) and a spinlocked map lookup
-(`SPIN`) — see §2. The NULL extension (defining formerly-undefined
-behaviour) remains conforming.
-
 ### `MLAS` [wontfix] Modified-local-after-setjmp UB in POSIX `sigguarded`
 **Adjudicated wontfix 2026-08-18:** no remediation scheduled; see the §4 wontfix legend. The analysis below is retained for the record.
 
@@ -767,20 +755,6 @@ malloc and C++ heap operations run inside the handler (not async-signal-safe; ri
 deadlock on the heap lock). The docs recommend pre-calling `sighandle(0, ...)`; on Linux
 this works, but the safety relies entirely on the user reading the docs.
 
-### `TAFL` [wontfix] tss_async_signal_safe_thread_init does not roll back on `thread_atexit` failure
-**Adjudicated wontfix 2026-08-17:** no remediation scheduled; see the §4 wontfix legend. The analysis below is retained for the record.
-
-`tss_async_signal_safe.c.ipp:228-249`: the map entry and `state->count` are committed
-before `thread_atexit` is called; if it returns -1 the caller sees failure but the entry
-and count remain, and no thread-exit cleanup will ever run for this thread. (On the
-async-safe TLS path, `sig_global_tss_state_init` has the same pattern — it sets `*state =
-mem` *before* `thread_atexit(free, mem)`; on registration failure the pointer stays set
-and the next call silently succeeds with a leaked `mem`.) The failure never even surfaces
-on the C path: `thread_atexit.c.ipp:70-75` calls `__cxa_thread_atexit()` and ignores its
-return, unconditionally returning 0 (the former `CXAT`, merged 2026-08-18), so TAFL's
-rollback is unreachable there and the leak is invisible; on the C++ path with exceptions
-disabled the would-be -1 is converted into `std::terminate` (`TAOM`).
-
 ### `DEIN` [wontfix] [race, fallback path, Low] `tss_async_signal_safe_thread_deinit` reads `state->val` without the lock; concurrent `destroy` frees `mem` under it -> UAF
 **Adjudicated wontfix 2026-08-17:** no remediation scheduled; see the §4 wontfix legend. The analysis below is retained for the record.
 
@@ -794,7 +768,7 @@ and then acquire the lock on freed memory: `thread_id_to_tls_map_t_get` on the f
 table and `mem->attr.destroy(item)` through a pointer read from freed memory (arbitrary
 code-execution territory). The `state->val == NULL` else-branch (`:188-201`) proves the
 design intends to tolerate "destroyed while registered", but the unlocked read defeats
-it. The public header's "threads must have exited first" precondition (`TSSG`) papers over
+it. The public header's "threads must have exited first" precondition papers over
 the race for consumers, but the library-internal destroy from the last `siguninstall`
 (finding `UNTL`) re-opens it: a thread still registered when its TSS is destroyed exits later
 and races the destroy. Related mechanism, distinct from finding `UNTL`'s dangling-`tss->front`
@@ -1016,7 +990,7 @@ process-lifetime memory retention out of proportion to a caller-contract violati
 standards leave undefined. Resolution: a second `destroy` on the same value is
 **documented undefined behaviour** (fail-fast, in the spirit of AGENTS.md rule 9); the
 value is left dangling after `destroy` and must not be reused (see
-`tss_async_signal_safe.h` and finding `TSSG`). No guard will be added.
+`tss_async_signal_safe.h`). No guard will be added.
 
 ## 2. Async-signal-safety claims vs reality
 
@@ -1213,7 +1187,8 @@ Verdicts:
   function... shall have been called on the same thread for the instance identified by
   `val`, in which case the thread-specific storage pointer created at that time... is
   returned; otherwise the behavior is undefined." The implementation returns NULL for an
-  uninitialised thread — a defined, benignly stronger behaviour (finding `TSSG`).
+  uninitialised thread — a defined, benignly stronger behaviour; the header now
+  documents the precondition and the 5.2.2.4 note, so this is conforming.
   Conforming.
 
 ---
@@ -1222,7 +1197,7 @@ Verdicts:
 
 The severity label in the tables classifies each finding's worst-case impact; the row
 order is the remediation priority, which applies the criteria below to the label *and*
-the finding's trigger likelihood. It is not a strict severity sort: the 32 adjudicated
+the finding's trigger likelihood. It is not a strict severity sort: the 31 adjudicated
 wontfix findings rank *last* regardless of severity, and the remaining Med item
 `TLSD` follows Low items that are more dangerous in practice.
 The main table lists the fixable findings; the wontfix findings have their own
@@ -1234,7 +1209,7 @@ Where merged findings touch the same machinery (`DEIN` extends the `UNTL` trigge
 the earlier finding is referenced
 rather than duplicated. Every finding is cited by its stable four-letter code.
 On 2026-08-18 the following duplicates were merged into their primary finding (which
-absorbs them): `ZERO` into `IGND` (both since removed), `REEN` into `UCRE`, `CXAT` into `TAFL`, `LEAK` into
+absorbs them): `ZERO` into `IGND` (both since removed), `REEN` into `UCRE`, `CXAT` into `TAFL` (both since removed), `LEAK` into
 `SPIN`, `WRET` into `PREI`, `SJMS` into `SJSP`, `MSQR` and the raw_context note into
 `MUTR`, and `DEDE` into `TSSD`; `WFRM` was removed as fixed (the Windows dispatch now
 runs the thread-local frame deciders before the global-decider pass).
@@ -1254,8 +1229,8 @@ Ranking criteria, applied in order of precedence:
    non-default user setup to trigger, whereas tier 1 defects fire on plausible ordinary
    usage.
 3. **Unbounded resource/lifecycle leaks.** No crash today but progressive degradation:
-   missing rollback on `thread_atexit` failure (`TAFL`) and the unlocked-create
-   re-entrancy/race window in `thread_init` (`UCRE`, tier 12).
+   the unlocked-create re-entrancy/race window in `thread_init` (`UCRE`,
+   tier 12).
 4. **Data races and setjmp-family UB.** C/C++ memory-model violations that current
    compilers tolerate today. The thread-exit deinit reading `state->val` unlocked against a
    concurrent destroy (`DEIN`) leads the tier; then the benign double-checked `sigfillset`
@@ -1313,16 +1288,14 @@ Ranking criteria, applied in order of precedence:
 12. **Documented limitations and open design notes.** Behaviour that is either explicitly
     documented or needs a design decision before a fix is worthwhile: the unlocked
     `attr.create` callback (`UCRE`, covering the cross-thread race and the re-entrancy
-    double-create), the now-documented `sigfence` lvalue requirement (`SFQL`), and the
-    documented precondition deviations of `tss_async_signal_safe_destroy` and
-    `tss_async_signal_safe_get` (`TSSG`).
-13. **Adjudicated wontfix.** Thirty-two findings were adjudicated not to fix:
+    double-create) and the now-documented `sigfence` lvalue requirement (`SFQL`).
+13. **Adjudicated wontfix.** Thirty-one findings were adjudicated not to fix:
     the double-destroy pair `TSSD` (covering `signal_decider_destroy` too; 2026-08-16 —
     double-
      destroy is undefined behaviour under the C11/POSIX/N3924 contract and, as this
      reference implementation keeps raw-pointer handles that `destroy()` frees, no guard
      will be added; see the heading body), on 2026-08-17: `UNTL`, `SPIN`, `ALOC`,
-     `TAFL`, `DEIN`, `SIGF`, `CPPD`, `SFNK`, `FLGS`, `TAOM`, `FPUN`,
+     `DEIN`, `SIGF`, `CPPD`, `SFNK`, `FLGS`, `TAOM`, `FPUN`,
      `MAST`, `CRTS`, `MING`, `FORK`, `NSIG`, `NDBS`, `UECL`, `SFQL`, and
      on 2026-08-18: `MLAS`, `PREI`, `SUST`, `SKIP`, `FWTF`, `SJSP`,
      `WXMS`, `CXXR`, `CIGA`, `TRAP`, `SFAR`, and on 2026-08-20: `ABRS`.
@@ -1352,7 +1325,6 @@ then backend scope.
 | `SFPD` | windows | Low | `sighandle(SIGFPE)` code divergence |
 | `DRGN` | windows | Low | drain-time re-registration dropped on MSVC TLS-directory path; UB on C++ vector path |
 | `UCRE` | contract | Low | `thread_init` unlocked `attr.create` (cross-thread race; re-entrancy double-create) |
-| `TSSG` | docs | Low | get precondition/ASYNC-SIGNAL-SAFE claim undocumented (destroy half resolved by rev-5 7.30.6.6 p3) |
 
 ### Wontfix findings (adjudicated not to fix)
 
@@ -1373,7 +1345,6 @@ then backend scope.
 | `UNTL` (wontfix) | memory | Med | `siguninstall` during another thread's `sigguarded` frees live TSS (fallback) |
 | `SPIN` (wontfix) | async | Med | Spinlock not async-signal-safe (incl. `sigdecider_abandon`/`_resume` in handler context) |
 | `ALOC` (wontfix) | async | Med | first delivery allocates in handler |
-| `TAFL` (wontfix) | leak | Low | `thread_init` no rollback on `thread_atexit` failure (C path swallows the failure) |
 | `DEIN` (wontfix) | race | Low | deinit reads `state->val` unlocked; destroy race -> UAF (extends `UNTL`) |
 | `SIGF` (wontfix) | race | Low | `sigfillset_*` lazy-init data race |
 | `CPPD` (wontfix) | cpp | Low | longjmp skips C++ destructors |
@@ -1395,11 +1366,12 @@ then backend scope.
 rationale recorded in the heading body. 2026-08-16: `TSSD` (double-destroy is
 undefined behaviour; no guard will be added to a raw-pointer handle that `destroy()`
 frees), and the *uncooperative* arm of the removed `JLGS` (a decider that never returns
-without calling `sigdecider_abandon`). 2026-08-17: `UNTL`, `SPIN`, `ALOC`, `TAFL`,
+without calling `sigdecider_abandon`). 2026-08-17: `UNTL`, `SPIN`, `ALOC`,
 `DEIN`, `SIGF`, `CPPD`, `SFNK`, `FLGS`, `TAOM`, `FPUN`, `MAST`, `CRTS`, `MING`,
 `FORK`, `NSIG`, `NDBS`, `UECL`, `SFQL`. 2026-08-18: `MLAS`,
 `PREI`, `SUST`, `SKIP`, `FWTF`, `SJSP`, `WXMS`, `CXXR`, `CIGA`, `TRAP`, `SFAR`.
-2026-08-20: `ABRS`.
+2026-08-20: `ABRS`. 2026-11-17: `TAFL` and `TSSG` were fixed by the rev-6
+wording alignment and removed from the inventory.
 2026-08-18 also merged duplicate findings into their primaries: `ZERO`->`IGND` (both
-since removed), `REEN`->`UCRE`, `CXAT`->`TAFL`, `LEAK`->`SPIN`, `WRET`->`PREI`, `SJMS`->`SJSP`,
+since removed), `REEN`->`UCRE`, `CXAT`->`TAFL` (both since removed), `LEAK`->`SPIN`, `WRET`->`PREI`, `SJMS`->`SJSP`,
 `MSQR`->`MUTR`, `DEDE`->`TSSD`.*

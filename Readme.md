@@ -6,8 +6,9 @@ CI: [![CI](https://github.com/ned14/wg14_signals/actions/workflows/ci.yml/badge.
 
 Reference API docs: https://ned14.github.io/wg14_signals/
 
-This is a reference implementation of the WG14 proposal (currently N3924
-revision 4) for improved C signals handling. It can be configured to be a
+This is a reference implementation of the WG14 proposal (currently revision 6
+of the proposed wording; N3984 was revision 5) for improved C signals handling.
+It can be configured to be a
 standard library implementation for your standard C library runtime. Licensed
 permissively. Features:
 
